@@ -273,25 +273,23 @@ namespace iris {
 		return a & (~a + 1); // the same as a & -a, but no compiler warnings.
 	}
 
-	namespace {
-		// binary find / insert / remove extension of std::vector<> like containers.
-		template <typename key_t, typename value_t>
-		struct iris_key_value_t : std::pair<key_t, value_t> {
-			using base = std::pair<key_t, value_t>;
-			template <typename key_args_t, typename value_args_t>
-			iris_key_value_t(key_args_t&& k, value_args_t&& v) : std::pair<key_t, value_t>(std::forward<key_args_t>(k), std::forward<value_args_t>(v)) {}
-			iris_key_value_t(const key_t& k) : std::pair<key_t, value_t>(k, value_t()) {}
-			iris_key_value_t() {}
+	// binary find / insert / remove extension of std::vector<> like containers.
+	template <typename key_t, typename value_t>
+	struct iris_key_value_t : std::pair<key_t, value_t> {
+		using base = std::pair<key_t, value_t>;
+		template <typename key_args_t, typename value_args_t>
+		iris_key_value_t(key_args_t&& k, value_args_t&& v) : std::pair<key_t, value_t>(std::forward<key_args_t>(k), std::forward<value_args_t>(v)) {}
+		iris_key_value_t(const key_t& k) : std::pair<key_t, value_t>(k, value_t()) {}
+		iris_key_value_t() {}
 
-			bool operator == (const iris_key_value_t& rhs) const {
-				return base::first == rhs.first;
-			}
+		bool operator == (const iris_key_value_t& rhs) const {
+			return base::first == rhs.first;
+		}
 
-			bool operator < (const iris_key_value_t& rhs) const {
-				return base::first < rhs.first;
-			}
-		};
-	}
+		bool operator < (const iris_key_value_t& rhs) const {
+			return base::first < rhs.first;
+		}
+	};
 
 	template <typename key_t, typename value_t>
 	iris_key_value_t<typename std::decay<key_t>::type, typename std::decay<value_t>::type> iris_make_key_value(key_t&& k, value_t&& v) {
