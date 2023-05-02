@@ -219,12 +219,16 @@ namespace iris {
 		template <typename type_t>
 		struct refptr_t : ref_t {
 			refptr_t(int v = 0, type_t* p = nullptr) noexcept : ref_t(v), ptr(p) {}
-			refptr_t(refptr_t&& rhs) noexcept : ref_t(std::move(static_cast<ref_t&>(rhs))) {}
+			refptr_t(refptr_t&& rhs) noexcept : ref_t(std::move(static_cast<ref_t&>(rhs))), ptr(rhs.ptr) {}
 			refptr_t(const refptr_t& rhs) = delete;
 			refptr_t& operator = (const refptr_t& rhs) = delete;
 			refptr_t& operator = (refptr_t&& rhs) noexcept { ref_t::operator = (std::move(static_cast<ref_t&>(rhs))); std::swap(ptr, rhs.ptr); return *this; }
 
 			using internal_type_t = type_t*;
+
+			operator bool() const noexcept {
+				return value != 0 && ptr != nullptr;
+			}
 
 			operator type_t* () const noexcept {
 				return get();
@@ -235,7 +239,7 @@ namespace iris {
 			}
 
 			type_t* get() const noexcept {
-				return *this ? nullptr : ptr;
+				return ptr;
 			}
 
 			friend struct iris_lua_t;
