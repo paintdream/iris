@@ -167,7 +167,6 @@ namespace iris {
 				complete([this, parent_handle = std::move(parent_handle)](return_t&& value) mutable noexcept(noexcept(std::declval<std::coroutine_handle<>>().resume())) {
 					await_result = &value;
 					parent_handle.resume();
-					assert(await_result == nullptr); // must be reseted by await_resume()
 				});
 			} else {
 				complete([this, parent_handle = std::move(parent_handle)]() mutable noexcept(noexcept(std::declval<std::coroutine_handle<>>().resume())) {
@@ -182,7 +181,6 @@ namespace iris {
 			if constexpr (!std::is_void_v<return_t>) {
 				assert(await_result != nullptr);
 				return_t* p = await_result;
-				await_result = nullptr;
 				return std::move(*p);
 			}
 		}
