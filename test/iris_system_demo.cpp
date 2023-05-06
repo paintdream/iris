@@ -32,6 +32,25 @@ inline void int_interface::release_element<int*>(int*&& object) {
 }
 
 int main(void) {
+	std::atomic<int> res_alpha;
+	std::atomic<int> res_beta;
+	res_alpha.store(5, std::memory_order_relaxed);
+	res_beta.store(3, std::memory_order_relaxed);
+
+	iris::iris_quota_t<int, 2> quota{ res_alpha, res_beta };
+	bool u1 = quota.acquire({ 1,2 });
+	assert(u1);
+	bool u2 = quota.acquire({ 2,3 });
+	assert(!u2);
+	{
+		auto v = quota.guard({ 4, 4 });
+		assert(!v);
+		auto w = quota.guard({ 1, 1 });
+		assert(w);
+	}
+
+	quota.release({ 1,2 });
+
 	using queue = iris_queue_list_t<int, iris_default_block_allocator_t, iris_default_relaxed_shared_object_allocator_t>;
 	queue::node_allocator_t::allocator_t alloc;
 	queue q(alloc);

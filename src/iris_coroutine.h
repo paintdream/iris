@@ -630,6 +630,10 @@ namespace iris {
 	// basic asynchornized base class
 	template <typename warp_t, typename async_worker_t = typename warp_t::async_worker_t>
 	struct iris_sync_t {
+		async_worker_t& get_async_worker() noexcept {
+			return async_worker;
+		}
+
 	protected:
 		explicit iris_sync_t(async_worker_t& worker) : async_worker(worker) {}
 		iris_sync_t(const iris_sync_t& rhs) = delete;
@@ -1067,5 +1071,98 @@ namespace iris {
 	auto iris_listen_dispatch(async_dispatcher_t& dispatcher, args_t&&... args) {
 		return iris_listen_dispatch_t<async_dispatcher_t>(dispatcher, std::forward<args_t>(args)...);
 	}
+
+	// get quota in coroutine
+	template <typename quota_t, typename warp_t, typename async_worker_t = typename warp_t::async_worker_t>
+	struct iris_quota_queue_t : iris_sync_t<warp_t, async_worker_t> {
+		iris_quota_queue_t(async_worker_t& worker, quota_t& q) : iris_sync_t<warp_t, async_worker_t>(worker), quota(q) {}
+
+	protected:
+		using amount_t = typename quota_t::amount_t;
+		using info_t = typename iris_sync_t<warp_t, async_worker_t>::info_t;
+
+		struct finalizer_t {
+			finalizer_t(iris_quota_queue_t& q, const amount_t& m) noexcept : host(&q), amount(m) {}
+			finalizer_t(const finalizer_t&) = delete;
+			finalizer_t(finalizer_t&& rhs) noexcept : host(rhs.host), amount(rhs.amount) { rhs.quota = nullptr; }
+			~finalizer_t() noexcept {
+				if (host != nullptr) {
+					host->release(amount);
+				}
+			}
+			
+		protected:
+			iris_quota_queue_t* host;
+			amount_t amount;
+		};
+
+	public:
+		struct awaitable_t {
+			awaitable_t(iris_quota_queue_t& q, const amount_t& m, bool r) noexcept : host(q), amount(m), ready(r) {}
+
+			bool await_ready() const noexcept {
+				return ready;
+			}
+
+			void await_suspend(iris_coroutine_handle_t<> handle) {
+				info_t info;
+				info.handle = std::move(handle);
+
+				if constexpr (!std::is_same_v<warp_t, void>) {
+					info.warp = warp_t::get_current_warp();
+				}
+
+				host.acquire_queued(std::move(info), amount);
+			}
+
+			finalizer_t await_resume() noexcept {
+				return finalizer_t(host, amount);
+			}
+
+		protected:
+			iris_quota_queue_t& host;
+			amount_t amount;
+			bool ready;
+		};
+
+		awaitable_t guard(const amount_t& amount) {
+			return awaitable_t(*this, amount, quota.acquire(amount));
+		}
+
+		bool acquire(const amount_t& amount) {
+			return quota.acquire(amount);
+		}
+
+		void release(const amount_t& amount) {
+			quota.release(std::move(amount));
+
+			while (!handles.empty()) {
+				std::unique_lock<std::mutex> guard(out_lock);
+
+				auto& top = handles.top();
+				if (quota.acquire(top.second)) {
+					info_t handle = std::move(top.first);
+					handles.pop();
+					guard.unlock();
+
+					iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(handle));
+				} else {
+					break;
+				}
+			}
+		}
+
+	protected:
+		void acquire_queued(info_t&& info, const amount_t& amount) {
+			std::lock_guard<std::mutex> guard(in_lock);
+			handles.push(std::make_pair(std::move(info), amount));
+		}
+
+	protected:
+		quota_t& quota;
+		std::mutex in_lock;
+		std::mutex out_lock;
+		iris_queue_list_t<std::pair<info_t, amount_t>> handles;
+	};
 }
 

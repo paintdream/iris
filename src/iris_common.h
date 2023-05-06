@@ -36,6 +36,7 @@ SOFTWARE.
 #include <utility>
 #include <tuple>
 #include <atomic>
+#include <array>
 #include <algorithm>
 #include <memory>
 #include <cmath>
@@ -2327,6 +2328,87 @@ namespace iris {
 		queue_t& queue;
 		iterator barrier;
 		iris_queue_list_t<iterator, allocator_t> frames;
+	};
+
+	template <typename quantity_t, size_t n>
+	struct iris_quota_t {
+		using amount_t = std::array<quantity_t, n>;
+
+		template <typename... args_t>
+		iris_quota_t(args_t&... p) noexcept : quantities{ &p... } {}
+
+		bool acquire(const amount_t& amount) noexcept {
+			for (size_t i = 0; i < n; i++) {
+				quantity_t m = amount[i];
+				if (m == 0)
+					continue;
+
+				std::atomic<quantity_t>& q = *quantities[i];
+				quantity_t expected = q.load(std::memory_order_acquire);
+				while (!(expected < m)) {
+					if (q.compare_exchange_weak(expected, expected - m, std::memory_order_relaxed)) {
+						break;
+					}
+				}
+
+				if (expected < m) {
+					// failed, return back
+					for (size_t k = 0; k < i; k++) {
+						if (amount[k] == 0)
+							continue;
+
+						quantities[k]->fetch_add(amount[k], std::memory_order_release);
+					}
+
+					return false;
+				}
+			}
+
+			return true;
+		}
+
+		void release(const amount_t& amount) noexcept {
+			for (size_t k = 0; k < n; k++) {
+				if (amount[k] == 0)
+					continue;
+
+				quantities[k]->fetch_add(amount[k], std::memory_order_release);
+			}
+		}
+
+		struct guard_t {
+			guard_t(iris_quota_t& h, const amount_t& m) noexcept : host(&h) {
+				if (host->acquire(m)) {
+					amount = m;
+				} else {
+					host = nullptr;
+				}
+			}
+
+			~guard_t() noexcept {
+				if (host != nullptr) {
+					host->release(amount);
+				}
+			}
+
+			guard_t(const guard_t&) noexcept = delete;
+			guard_t(guard_t&& rhs) noexcept : host(rhs.host), amount(rhs.amount) { rhs.host = nullptr; }
+
+			operator bool() noexcept {
+				return host != nullptr;
+			}
+
+		protected:
+			iris_quota_t* host;
+			amount_t amount;
+		};
+
+		guard_t guard(const amount_t& amount) noexcept {
+			return guard_t(*this, amount);
+		}
+
+	protected:
+		std::array<std::atomic<quantity_t>*, n> quantities;
 	};
 }
 

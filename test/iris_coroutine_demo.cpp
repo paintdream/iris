@@ -11,6 +11,8 @@ using frame_t = iris_frame_t<void, worker_t>;
 using frame_warp_t = iris_frame_t<warp_t, worker_t>;
 using coroutine_t = iris_coroutine_t<>;
 using coroutine_int_t = iris_coroutine_t<int>;
+using quota_t = iris_quota_t<int, 2>;
+using quota_queue_t = iris_quota_queue_t<quota_t, warp_t>;
 static std::atomic<size_t> pending_count = 0;
 
 coroutine_t cascade(warp_t* warp) {
@@ -133,6 +135,24 @@ static coroutine_t example_listen(iris_dispatcher_t<warp_t>& dispatcher) {
 	printf("next task!");
 }
 
+static coroutine_t example_quota(quota_queue_t& q) {
+	{
+		auto guard = co_await q.guard({ 1, 3 });
+		std::array<int, 2> req = { 2, 2 };
+		bool b = q.acquire(req);
+		assert(b);
+		q.get_async_worker().queue([&q, req]() mutable {
+			std::this_thread::sleep_for(std::chrono::milliseconds{ 10 });
+			printf("Release quota holder!\n");
+			q.release(req);
+		});
+	}
+
+	auto guard2 = co_await q.guard({ 3, 4 });
+	printf("Acquire quota holder!\n");
+	auto guard3 = co_await q.guard({ 1, 1 });
+}
+
 int main(void) {
 	static constexpr size_t thread_count = 8;
 	static constexpr size_t warp_count = 16;
@@ -141,6 +161,11 @@ int main(void) {
 
 	iris_dispatcher_t<warp_t> dispatcher(worker);
 	example_listen(dispatcher).join();
+	std::atomic<int> q1{ 4 };
+	std::atomic<int> q2{ 5 };
+	quota_t quota(q1, q2);
+	quota_queue_t quota_queue(worker, quota);
+	example_quota(quota_queue).join();
 
 	std::vector<warp_t> warps;
 	warps.reserve(warp_count);
