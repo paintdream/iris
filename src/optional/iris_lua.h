@@ -46,7 +46,6 @@ extern "C" {
 #if LUA_VERSION_NUM <= 501
 #define LUA_OK 0
 #define lua_rawlen lua_objlen
-#define lua_len lua_objlen
 #endif
 
 #if LUA_VERSION_NUM <= 502
@@ -62,28 +61,14 @@ namespace iris {
 
 	// A simple lua binding with C++17
 	struct iris_lua_t : enable_read_write_fence_t<> {
-		// construct a new lua vm
-		iris_lua_t() {
-			lua_State* L = luaL_newstate();
-			if (L == nullptr) {
-				throw std::bad_alloc();
-			}
-
-			// by default, enable all builtin packages
-			luaL_openlibs(L);
-			state = host_state = L;
-		}
-
 		// borrow from an existing state
-		explicit iris_lua_t(lua_State* L) noexcept : state(L), host_state(nullptr) {}
-
-		~iris_lua_t() noexcept {
-			if (host_state != nullptr) {
-				lua_close(host_state);
-			}
-		}
+		explicit iris_lua_t(lua_State* L) noexcept : state(L) {}
 
 		operator lua_State* () const noexcept {
+			return get_state();
+		}
+
+		lua_State* get_state() const noexcept {
 			return state;
 		}
 
@@ -134,7 +119,7 @@ namespace iris {
 				return value != 0;
 			}
 
-			int get_value() const noexcept {
+			int get() const noexcept {
 				return value;
 			}
 
@@ -156,7 +141,7 @@ namespace iris {
 				push_variable(L, *this);
 				if (lua_istable(L, -1)) {
 					push_variable(L, std::forward<key_t>(key));
-					lua_gettable(L, -2);
+					lua_rawget(L, -2);
 					value_t ret = get_variable<value_t>(L, -1);
 					lua_pop(L, 2);
 
@@ -175,7 +160,7 @@ namespace iris {
 				if (lua_istable(L, -1)) {
 					push_variable(L, std::forward<key_t>(key));
 					push_variable(L, std::forward<value_t>(value));
-					lua_settable(L, -3);
+					lua_rawset(L, -3);
 				}
 
 				lua_pop(L, 1);
@@ -188,13 +173,12 @@ namespace iris {
 
 				lua_pushnil(L);
 				while (lua_next(L, -2) != 0) {
-					lua_pushvalue(L, -2);
-					if (func(get_variable<key_t>(L, -1), get_variable<value_t>(L, -2))) {
-						lua_pop(L, 2);
+					if (func(get_variable<key_t>(L, -2), get_variable<value_t>(L, -1))) {
+						lua_pop(L, 1);
 						break;
 					}
 
-					lua_pop(L, 2);
+					lua_pop(L, 1);
 				}
 
 				lua_pop(L, 1);
@@ -204,11 +188,10 @@ namespace iris {
 				stack_guard_t stack_guard(L);
 
 				push_variable(L, *this);
-				lua_len(L, -1);
-				auto len = lua_tointeger(L, -1);
-				lua_pop(L, 2);
+				size_t len = lua_rawlen(L, -1);
+				lua_pop(L, 1);
 
-				return static_cast<size_t>(len);
+				return len;
 			}
 
 			friend struct iris_lua_t;
@@ -245,6 +228,22 @@ namespace iris {
 			friend struct iris_lua_t;
 		protected:
 			type_t* ptr;
+		};
+
+		struct require_base_t {};
+
+		template <typename type_t>
+		struct required_t : require_base_t {
+			using internal_type_t = type_t;
+			template <typename... args_t>
+			required_t(args_t&&... args) : value(std::forward<args_t>(args)...) {}
+
+			type_t& get() noexcept {
+				return value;
+			}
+
+		private:
+			type_t value;
 		};
 
 		template <size_t count>
@@ -295,21 +294,21 @@ namespace iris {
 			// hash code is to check types when passing as a argument to C++
 			push_variable(L, "__hash");
 			push_variable(L, reinterpret_cast<void*>(typeid(type_t).hash_code()));
-			lua_settable(L, -3);
+			lua_rawset(L, -3);
 
 			// readable name
 			push_variable(L, "__name");
 			push_variable(L, name);
-			lua_settable(L, -3);
+			lua_rawset(L, -3);
 
 			// create __gc for collecting objects
 			push_variable(L, "__gc");
 			lua_pushcfunction(L, &iris_lua_t::delete_object<type_t>);
-			lua_settable(L, -3);
+			lua_rawset(L, -3);
 
 			push_variable(L, "__index");
 			lua_pushvalue(L, -2);
-			lua_settable(L, -3);
+			lua_rawset(L, -3);
 
 			push_variable(L, "create");
 			lua_pushvalue(L, -2);
@@ -317,7 +316,7 @@ namespace iris {
 			// pass constructor arguments by references
 			push_argument_references(L, args...);
 			lua_pushcclosure(L, &iris_lua_t::create_object<type_t, user_value_count, args_t...>, 1 + sizeof...(args));
-			lua_settable(L, -3);
+			lua_rawset(L, -3);
 
 			// call custom registar if needed
 			registar(L);
@@ -344,7 +343,7 @@ namespace iris {
 
 			push_variable(L, std::forward<key_t>(key));
 			push_variable(L, std::forward<value_t>(value));
-			lua_settable(L, -3);
+			lua_rawset(L, -3);
 		}
 
 		// define a bound member function/property
@@ -420,6 +419,15 @@ namespace iris {
 			}
 		}
 
+		template <auto method, typename return_t, typename type_t, typename... args_t>
+		static return_t method_function_adapter(required_t<type_t*>&& object, args_t... args) {
+			if constexpr (!std::is_void_v<return_t>) {
+				return (object.get()->*method)(std::forward<args_t>(args)...);
+			} else {
+				(object.get()->*method)(std::forward<args_t>(args)...);
+			}
+		}
+
 	protected:
 		// a guard for checking stack balance
 		struct stack_guard_t {
@@ -449,35 +457,25 @@ namespace iris {
 		}
 
 		// four specs for [const][noexcept] method definition
+
 		template <auto method, typename key_t, typename return_t, typename type_t, typename... args_t>
 		static void define_method(lua_State* L, key_t&& key, return_t(type_t::*)(args_t...)) {
-			define_method_internal<method, key_t, return_t, type_t, args_t...>(L, std::forward<key_t>(key));
+			define_function_internal<method_function_adapter<method, return_t, type_t, args_t...>, key_t, return_t, required_t<type_t*>&&, args_t...>(L, std::forward<key_t>(key));
 		}
 
 		template <auto method, typename key_t, typename return_t, typename type_t, typename... args_t>
 		static void define_method(lua_State* L, key_t&& key, return_t(type_t::*)(args_t...) noexcept) {
-			define_method_internal<method, key_t, return_t, type_t, args_t...>(L, std::forward<key_t>(key));
+			define_function_internal<method_function_adapter<method, return_t, type_t, args_t...>, key_t, return_t, required_t<type_t*>&&, args_t...>(L, std::forward<key_t>(key));
 		}
 
 		template <auto method, typename key_t, typename return_t, typename type_t, typename... args_t>
 		static void define_method(lua_State* L, key_t&& key, return_t(type_t::*)(args_t...) const) {
-			define_method_internal<method, key_t, return_t, type_t, args_t...>(L, std::forward<key_t>(key));
+			define_function_internal<method_function_adapter<method, return_t, type_t, args_t...>, key_t, return_t, required_t<type_t*>&&, args_t...>(L, std::forward<key_t>(key));
 		}
 
 		template <auto method, typename key_t, typename return_t, typename type_t, typename... args_t>
 		static void define_method(lua_State* L, key_t&& key, return_t(type_t::*)(args_t...) const noexcept) {
-			define_method_internal<method, key_t, return_t, type_t, args_t...>(L, std::forward<key_t>(key));
-		}
-
-		template <auto method, typename key_t, typename return_t, typename type_t, typename... args_t>
-		static void define_method_internal(lua_State* L, key_t&& key) {
-			push_variable(L, std::forward<key_t>(key));
-			if constexpr (iris_is_coroutine_v<return_t>) {
-				lua_pushcclosure(L, &iris_lua_t::method_coroutine_proxy<method, return_t, type_t, args_t...>, 0);
-			} else {
-				lua_pushcclosure(L, &iris_lua_t::method_proxy<method, return_t, type_t, args_t...>, 0);
-			}
-			lua_settable(L, -3);
+			define_function_internal<method_function_adapter<method, return_t, type_t, args_t...>, key_t, return_t, required_t<type_t*>&&, args_t...>(L, std::forward<key_t>(key));
 		}
 
 		template <auto function, typename key_t, typename return_t, typename... args_t>
@@ -499,7 +497,7 @@ namespace iris {
 				lua_pushcclosure(L, &iris_lua_t::function_proxy<function, return_t, args_t...>, 0);
 			}
 
-			lua_settable(L, -3);
+			lua_rawset(L, -3);
 		}
 
 		template <auto prop, typename key_t, typename type_t, typename value_t>
@@ -511,7 +509,7 @@ namespace iris {
 		static void define_property_internal(lua_State* L, key_t&& key) {
 			push_variable(L, std::forward<key_t>(key));
 			lua_pushcclosure(L, &iris_lua_t::property_proxy<prop, type_t>, 0);
-			lua_settable(L, -3);
+			lua_rawset(L, -3);
 		}
 
 		template <typename type_t>
@@ -580,7 +578,7 @@ namespace iris {
 		};
 
 		// get C++ variable from lua stack with given index
-		template <typename type_t>
+		template <typename type_t, bool skip_checks = false>
 		static type_t get_variable(lua_State* L, int index) {
 			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
 			stack_guard_t guard(L);
@@ -588,7 +586,7 @@ namespace iris {
 			if constexpr (std::is_base_of_v<ref_t, value_t>) {
 				using internal_type_t = typename value_t::internal_type_t;
 				if constexpr (!std::is_void_v<internal_type_t>) {
-					auto internal_value = get_variable<internal_type_t>(L, index);
+					auto internal_value = get_variable<internal_type_t, skip_checks>(L, index);
 					if (internal_value) {
 						lua_pushvalue(L, index);
 						return value_t(luaL_ref(L, LUA_REGISTRYINDEX), internal_value);
@@ -611,8 +609,13 @@ namespace iris {
 				return static_cast<value_t>(lua_tonumber(L, index));
 			} else if constexpr (std::is_same_v<value_t, std::string_view> || std::is_same_v<value_t, std::string>) {
 				size_t len = 0;
-				const char* str = lua_tolstring(L, index, &len);
-				return value_t(str, len);
+				// do not accept implicit __tostring casts
+				if (lua_type(L, index) == LUA_TSTRING) {
+					const char* str = lua_tolstring(L, index, &len);
+					return value_t(str, len);
+				} else {
+					return "";
+				}
 			} else if constexpr (iris_is_tuple_v<value_t>) {
 				if (index < 0) {
 					return get_tuple_variables<false, 0, value_t>(L, index);
@@ -629,9 +632,8 @@ namespace iris {
 
 						lua_pushnil(L);
 						while (lua_next(L, -2) != 0) {
-							lua_pushvalue(L, -2);
-							result[get_variable<key_type>(L, -1)] = get_variable<mapped_type>(L, -2);
-							lua_pop(L, 2);
+							result[get_variable<key_type>(L, -2)] = get_variable<mapped_type>(L, -1);
+							lua_pop(L, 1);
 						}
 					} else {
 						// otherwise convert to lua array table
@@ -650,64 +652,38 @@ namespace iris {
 
 				return result;
 			} else if constexpr (std::is_pointer_v<value_t>) {
-				// try to extract object
-				if (lua_getmetatable(L, index) == LUA_TNIL) {
-					return value_t();
-				}
+				if constexpr (!skip_checks) {
+					// try to extract object
+					if (lua_getmetatable(L, index) == LUA_TNIL) {
+						return value_t();
+					}
 
 #if LUA_VERSION_NUM <= 502
-				lua_getfield(L, index, "__hash");
-				if (lua_type(L, -1) == LUA_TNIL) {
+					lua_getfield(L, index, "__hash");
+					if (lua_type(L, -1) == LUA_TNIL) {
 #else
-				if (lua_getfield(L, index, "__hash") == LUA_TNIL) {
+					if (lua_getfield(L, index, "__hash") == LUA_TNIL) {
 #endif
+						lua_pop(L, 2);
+						return value_t();
+					}
+
+					// returns empty if hashes are not equal!
+					static const size_t hash_code = typeid(std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::remove_pointer_t<value_t>>>>).hash_code();
+					if (lua_touserdata(L, -1) != reinterpret_cast<void*>(hash_code)) {
+						lua_pop(L, 2);
+						return value_t();
+					}
+
 					lua_pop(L, 2);
-					return value_t();
 				}
 
-				// returns empty if hashes are not equal!
-				static const size_t hash_code = typeid(std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::remove_pointer_t<value_t>>>>).hash_code();
-				if (lua_touserdata(L, -1) != reinterpret_cast<void*>(hash_code)) {
-					lua_pop(L, 2);
-					return value_t();
-				}
-
-				lua_pop(L, 2);
 				return reinterpret_cast<type_t>(lua_touserdata(L, index));
+			} else if constexpr (std::is_base_of_v<require_base_t, value_t>) {
+				return get_variable<typename value_t::internal_type_t, true>(L, index);
 			}
 
 			return value_t();
-		}
-
-		// invoke C++ method from lua stack
-		template <auto method, int index, typename return_t, typename type_t, typename tuple_t, typename... params_t>
-		static int method_invoke(lua_State* L, type_t* object, int stack_index, params_t&&... params) {
-			if constexpr (index < std::tuple_size_v<tuple_t>) {
-				if constexpr (std::is_same_v<std::tuple_element_t<index, tuple_t>, lua_State*>) {
-					return method_invoke<method, index + 1, return_t, type_t, tuple_t>(L, object, stack_index, std::forward<params_t>(params)..., L);
-				} else {
-					return method_invoke<method, index + 1, return_t, type_t, tuple_t>(L, object, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>>(L, stack_index));
-				}
-			} else {
-				if constexpr (std::is_void_v<return_t>) {
-					(object->*method)(std::forward<params_t>(params)...);
-					return 0;
-				} else {
-					push_variable(L, (object->*method)(std::forward<params_t>(params)...));
-					return 1;
-				}
-			}
-		}
-
-		template <auto method, typename return_t, typename type_t, typename... args_t>
-		static int method_proxy(lua_State* L) {
-			type_t* object = get_variable<type_t*>(L, 1);
-			if (object == nullptr) {
-				luaL_error(L, "The first parameter of a method must be a C++ instance of type %s", typeid(type_t).name());
-				return 0;
-			}
-
-			return method_invoke<method, 0, return_t, type_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, object, 2);
 		}
 
 		// invoke C++ function from lua stack
@@ -730,45 +706,31 @@ namespace iris {
 			}
 		}
 
-		template <auto function, typename return_t, typename... args_t>
-		static int function_proxy(lua_State* L) {
-			return function_invoke<function, 0, return_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, 1);
-		}
+		template <int index>
+		static void check_required_parameters(lua_State* L) {}
 
-		template <auto method, int index, typename coroutine_t, typename type_t, typename tuple_t, typename... params_t>
-		static bool method_coroutine_invoke(lua_State* L, type_t* object, int stack_index, params_t&&... params) {
-			if constexpr (index < std::tuple_size_v<tuple_t>) {
-				if constexpr (std::is_same_v<std::tuple_element_t<index, tuple_t>, lua_State*>) {
-					return method_coroutine_invoke<method, index + 1, coroutine_t, type_t, tuple_t>(L, object, stack_index, std::forward<params_t>(params)..., L);
-				} else {
-					return method_coroutine_invoke<method, index + 1, coroutine_t, type_t, tuple_t>(L, object, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>>(L, stack_index));
-				}
-			} else {
-				// mark state
-				using return_t = typename coroutine_t::return_type_t;
-				int top = lua_gettop(L);
-				auto coroutine = (object->*method)(std::forward<params_t>(params)...);
-
-				if constexpr (!std::is_void_v<return_t>) {
-					coroutine.complete([L](return_t&& value) {
-						push_variable(L, std::move(value));
-						coroutine_continuation(L);
-					}).run();
-				} else {
-					coroutine.complete([L]() {
-						lua_pushnil(L);
-						coroutine_continuation(L);
-					}).run();
+		template <int index, typename first_t, typename... args_t>
+		static void check_required_parameters(lua_State* L) {
+			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<first_t>>>;
+			if constexpr (std::is_base_of_v<require_base_t, value_t>) {
+				using internal_type_t = typename value_t::internal_type_t;
+				auto var = get_variable<internal_type_t>(L, index);
+				if (!var) {
+					luaL_error(L, "Required parameter %d of type %s is invalid.\n", index, typeid(first_t).name());
 				}
 
-				// already completed?
-				if (lua_gettop(L) != top) {
-					assert(lua_gettop(L) == top + 1);
-					return true;
-				} else {
-					return false;
+				if constexpr (std::is_base_of_v<ref_t, internal_type_t>) {
+					deref(L, var);
 				}
 			}
+
+			check_required_parameters<index + (std::is_same_v<first_t, lua_State*> ? 0 : 1), args_t...>(L);
+		}
+
+		template <auto function, typename return_t, typename... args_t>
+		static int function_proxy(lua_State* L) {
+			check_required_parameters<1, args_t...>(L);
+			return function_invoke<function, 0, return_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, 1);
 		}
 
 		template <auto function, int index, typename coroutine_t, typename tuple_t, typename... params_t>
@@ -827,22 +789,8 @@ namespace iris {
 
 		template <auto function, typename coroutine_t, typename... args_t>
 		static int function_coroutine_proxy(lua_State* L) {
+			check_required_parameters<1, args_t...>(L);
 			if (function_coroutine_invoke<function, 0, coroutine_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, 1)) {
-				return 1;
-			} else {
-				return lua_yield(L, 0);
-			}
-		}
-
-		template <auto method, typename coroutine_t, typename type_t, typename... args_t>
-		static int method_coroutine_proxy(lua_State* L) {
-			type_t* object = get_variable<type_t*>(L, 1);
-			if (object == nullptr) {
-				luaL_error(L, "The first parameter of a method must be a C++ instance of type %s", typeid(type_t).name());
-				return 0;
-			}
-
-			if (method_coroutine_invoke<method, 0, coroutine_t, type_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, object, 2)) {
 				return 1;
 			} else {
 				return lua_yield(L, 0);
@@ -958,7 +906,6 @@ namespace iris {
 
 	protected:
 		lua_State* state = nullptr;
-		lua_State* host_state = nullptr;
 	};
 }
 

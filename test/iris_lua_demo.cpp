@@ -52,7 +52,9 @@ struct example_t {
 		iris_lua_t::define<&example_t::const_value>(L, "const_value");
 		iris_lua_t::define<&example_t::accum_value>(L, "accum_value");
 		iris_lua_t::define<&example_t::join_value>(L, "join_value");
+		iris_lua_t::define<&example_t::join_value_required>(L, "join_value_required");
 		iris_lua_t::define<&example_t::join_value_refptr>(L, "join_value_refptr");
+		iris_lua_t::define<&example_t::join_value_required_refptr>(L, "join_value_required_refptr");
 		iris_lua_t::define<&example_t::get_value>(L, "get_value");
 		iris_lua_t::define<&example_t::call>(L, "call");
 		iris_lua_t::define<&example_t::forward_pair>(L, "forward_pair");
@@ -82,6 +84,17 @@ struct example_t {
 		if (rhs != nullptr) {
 			value += rhs->value;
 		}
+	}
+
+	void join_value_required(iris_lua_t::required_t<example_t*>&& rhs) noexcept {
+		printf("Required!\n");
+		value += rhs.get()->value;
+	}
+
+	void join_value_required_refptr(lua_State* L, iris_lua_t::required_t<iris_lua_t::refptr_t<example_t>>&& rhs) noexcept {
+		printf("Required ptr!\n");
+		value += rhs.get().get()->value;
+		iris_lua_t::deref(L, rhs.get());
 	}
 
 	void join_value_refptr(lua_State* L, iris_lua_t::refptr_t<example_t>&& rhs) noexcept {
@@ -154,7 +167,10 @@ struct example_t {
 };
 
 int main(void) {
-	iris_lua_t lua;
+	lua_State* L = luaL_newstate();
+	luaL_openlibs(L);
+
+	iris_lua_t lua(L);
 	lua.register_type<example_t>("example_t");
 	
 #if USE_LUA_COROUTINE
@@ -172,6 +188,10 @@ int main(void) {
 	bool ret = lua.run<bool>("\
 		local a = example_t.create()\n\
 		local b = example_t.create()\n\
+		b:join_value_required(a)\n\
+		--b:join_value_required()\n\
+		b:join_value_required_refptr(a)\n\
+		--b:join_value_required_refptr()\n\
 		print(a:const_value())\n\
 		local base = b:value(1)\n\
 		print(base)\n\
@@ -241,6 +261,7 @@ int main(void) {
 	warp2.join();
 #endif
 
+	lua_close(L);
 	return 0;
 }
 
