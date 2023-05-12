@@ -1077,26 +1077,32 @@ namespace iris {
 	struct iris_quota_queue_t : iris_sync_t<warp_t, async_worker_t> {
 		iris_quota_queue_t(async_worker_t& worker, quota_t& q) : iris_sync_t<warp_t, async_worker_t>(worker), quota(q) {}
 
-	protected:
 		using amount_t = typename quota_t::amount_t;
 		using info_t = typename iris_sync_t<warp_t, async_worker_t>::info_t;
 
 		struct finalizer_t {
-			finalizer_t(iris_quota_queue_t& q, const amount_t& m) noexcept : host(&q), amount(m) {}
+			finalizer_t(iris_quota_queue_t& q, const amount_t& m) noexcept : host(q), amount(m) {}
 			finalizer_t(const finalizer_t&) = delete;
 			finalizer_t(finalizer_t&& rhs) noexcept : host(rhs.host), amount(rhs.amount) { rhs.quota = nullptr; }
 			~finalizer_t() noexcept {
-				if (host != nullptr) {
-					host->release(amount);
+				host.release(amount);
+			}
+
+			// release part of them
+			void release(const amount_t& delta) {
+				for (size_t i = 0; i < amount.size(); i++) {
+					assert(amount[i] >= delta);
+					amount[i] -= delta[i];
 				}
+
+				host.release(delta);
 			}
 			
 		protected:
-			iris_quota_queue_t* host;
+			iris_quota_queue_t& host;
 			amount_t amount;
 		};
 
-	public:
 		struct awaitable_t {
 			awaitable_t(iris_quota_queue_t& q, const amount_t& m, bool r) noexcept : host(q), amount(m), ready(r) {}
 
