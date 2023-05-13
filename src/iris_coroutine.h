@@ -1080,26 +1080,73 @@ namespace iris {
 		using amount_t = typename quota_t::amount_t;
 		using info_t = typename iris_sync_t<warp_t, async_worker_t>::info_t;
 
-		struct finalizer_t {
-			finalizer_t(iris_quota_queue_t& q, const amount_t& m) noexcept : host(q), amount(m) {}
-			finalizer_t(const finalizer_t&) = delete;
-			finalizer_t(finalizer_t&& rhs) noexcept : host(rhs.host), amount(rhs.amount) { rhs.quota = nullptr; }
-			~finalizer_t() noexcept {
-				host.release(amount);
+		struct resource_t {
+			resource_t() noexcept : host(nullptr) {}
+			resource_t(iris_quota_queue_t& q, const amount_t& m) noexcept : host(&q), amount(m) {}
+			resource_t(const resource_t&) = delete;
+			resource_t(resource_t&& rhs) noexcept : host(rhs.host), amount(rhs.amount) { rhs.host = nullptr; }
+
+			resource_t& operator = (const resource_t&) = delete;
+			resource_t& operator = (resource_t&& rhs) noexcept {
+				clear();
+
+				host = rhs.host;
+				amount = rhs.amount;
+				rhs.host = nullptr;
+
+				return *this;
+			}
+
+			~resource_t() noexcept {
+				clear();
+			}
+
+			void clear() noexcept {
+				if (host != nullptr) {
+					host->release(amount);
+					host = nullptr;
+				}
+			}
+
+			void merge(resource_t&& rhs) noexcept {
+				if (host == nullptr) {
+					*this = std::move(rhs);
+				} else {
+					assert(host == rhs.host);
+					acquire(rhs.amount);
+					rhs.host = nullptr;
+				}
+			}
+
+			// add more
+			void acquire(const amount_t& delta) noexcept {
+				assert(host != nullptr);
+				for (size_t i = 0; i < amount.size(); i++) {
+					amount[i] += delta[i];
+				}
 			}
 
 			// release part of them
 			void release(const amount_t& delta) {
+				assert(host != nullptr);
 				for (size_t i = 0; i < amount.size(); i++) {
-					assert(amount[i] >= delta);
+					assert(amount[i] >= delta[i]);
 					amount[i] -= delta[i];
 				}
 
-				host.release(delta);
+				host->release(delta);
+			}
+
+			const amount_t& get_amount() const noexcept {
+				return amount;
+			}
+
+			iris_quota_queue_t* get_queue() const noexcept {
+				return host;
 			}
 			
 		protected:
-			iris_quota_queue_t& host;
+			iris_quota_queue_t* host;
 			amount_t amount;
 		};
 
@@ -1121,8 +1168,8 @@ namespace iris {
 				host.acquire_queued(std::move(info), amount);
 			}
 
-			finalizer_t await_resume() noexcept {
-				return finalizer_t(host, amount);
+			resource_t await_resume() noexcept {
+				return resource_t(host, amount);
 			}
 
 		protected:

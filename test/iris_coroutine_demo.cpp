@@ -149,8 +149,12 @@ static coroutine_t example_quota(quota_queue_t& q) {
 	}
 
 	auto guard2 = co_await q.guard({ 3, 4 });
+	guard2.acquire({ 1, 1 });
+	guard2.release({ 1, 1 });
+	guard2.clear();
 	printf("Acquire quota holder!\n");
 	auto guard3 = co_await q.guard({ 1, 1 });
+	guard3 = std::move(guard2);
 }
 
 int main(void) {
