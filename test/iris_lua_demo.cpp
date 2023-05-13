@@ -47,32 +47,33 @@ struct iris::iris_lua_convert_t<vector3> : std::true_type {
 };
 
 struct example_t {
-	static void lua_registar(lua_State* L) {
-		iris_lua_t::define<&example_t::value>(L, "value");
-		iris_lua_t::define<&example_t::const_value>(L, "const_value");
-		iris_lua_t::define<&example_t::accum_value>(L, "accum_value");
-		iris_lua_t::define<&example_t::join_value>(L, "join_value");
-		iris_lua_t::define<&example_t::join_value_required>(L, "join_value_required");
-		iris_lua_t::define<&example_t::join_value_refptr>(L, "join_value_refptr");
-		iris_lua_t::define<&example_t::join_value_required_refptr>(L, "join_value_required_refptr");
-		iris_lua_t::define<&example_t::get_value>(L, "get_value");
-		iris_lua_t::define<&example_t::call>(L, "call");
-		iris_lua_t::define<&example_t::forward_pair>(L, "forward_pair");
-		iris_lua_t::define<&example_t::forward_tuple>(L, "forward_tuple");
-		iris_lua_t::define<&example_t::forward_map>(L, "forward_map");
-		iris_lua_t::define<&example_t::forward_vector>(L, "forward_vector");
-		iris_lua_t::define<&example_t::prime>(L, "prime");
-		iris_lua_t::define<&example_t::get_vector3>(L, "get_vector3");
+	static void lua_registar(iris_lua_t lua) {
+		lua.define<&example_t::value>("value");
+		lua.define<&example_t::const_value>("const_value");
+		lua.define<&example_t::accum_value>("accum_value");
+		lua.define<&example_t::join_value>("join_value");
+		lua.define<&example_t::join_value_required>("join_value_required");
+		lua.define<&example_t::join_value_refptr>("join_value_refptr");
+		lua.define<&example_t::join_value_required_refptr>("join_value_required_refptr");
+		lua.define<&example_t::get_value>("get_value");
+		lua.define<&example_t::call>("call");
+		lua.define<&example_t::forward_pair>("forward_pair");
+		lua.define<&example_t::forward_tuple>("forward_tuple");
+		lua.define<&example_t::forward_map>("forward_map");
+		lua.define<&example_t::forward_vector>("forward_vector");
+		lua.define<&example_t::prime>("prime");
+		lua.define<&example_t::get_vector3>("get_vector3");
 #if USE_LUA_COROUTINE
-		iris_lua_t::define<&example_t::coro_get_int>(L, "coro_get_int");
-		iris_lua_t::define<&example_t::coro_get_none>(L, "coro_get_none");
-		iris_lua_t::define<&example_t::mem_coro_get_int>(L, "mem_coro_get_int");
+		lua.define<&example_t::coro_get_int>("coro_get_int");
+		lua.define<&example_t::coro_get_none>("coro_get_none");
+		lua.define<&example_t::mem_coro_get_int>("mem_coro_get_int");
 #endif
 	}
 
-	int call(lua_State* L, iris_lua_t::ref_t&& r, int value) {
-		int result = iris_lua_t::call<int>(L, r, value);
-		iris_lua_t::deref(L, r);
+	int call(iris_lua_t lua, iris_lua_t::ref_t&& r, int value) {
+		int result = lua.call<int>(r, value);
+		lua.deref(r);
+
 		return result;
 	}
 
@@ -91,20 +92,20 @@ struct example_t {
 		value += rhs.get()->value;
 	}
 
-	void join_value_required_refptr(lua_State* L, iris_lua_t::required_t<iris_lua_t::refptr_t<example_t>>&& rhs) noexcept {
+	void join_value_required_refptr(iris_lua_t&& lua, iris_lua_t::required_t<iris_lua_t::refptr_t<example_t>>&& rhs) noexcept {
 		printf("Required ptr!\n");
 		value += rhs.get().get()->value;
-		iris_lua_t::deref(L, rhs.get());
+		lua.deref(rhs.get());
 	}
 
-	void join_value_refptr(lua_State* L, iris_lua_t::refptr_t<example_t>&& rhs) noexcept {
-		auto guard = iris_lua_t::refguard(L, rhs);
+	void join_value_refptr(iris_lua_t&& lua, iris_lua_t::refptr_t<example_t>&& rhs) noexcept {
+		auto guard = lua.refguard(rhs);
 		if (rhs != nullptr) {
 			value += rhs->value;
 		}
 	}
 
-	vector3 get_vector3(vector3&& input) noexcept {
+	vector3 get_vector3(const vector3& input) noexcept {
 		return input;
 	}
 
@@ -132,12 +133,12 @@ struct example_t {
 		return std::move(v);
 	}
 
-	iris_lua_t::ref_t prime(lua_State* L) const {
-		return iris_lua_t(L).make_table([](lua_State* L) noexcept {
-			iris_lua_t::define(L, "name", "prime");
-			iris_lua_t::define(L, 1, 2);
-			iris_lua_t::define(L, 2, 3);
-			iris_lua_t::define(L, 3, 5);
+	iris_lua_t::ref_t prime(iris_lua_t lua) const {
+		return lua.make_table([](iris_lua_t lua) noexcept {
+			lua.define("name", "prime");
+			lua.define(1, 2);
+			lua.define(2, 3);
+			lua.define(3, 5);
 		});
 	}
 
@@ -224,10 +225,10 @@ int main(void) {
 		end\n\
 		return true\n");
 	assert(ret);
-	auto tab = lua.make_table([](lua_State* L) {
-		iris_lua_t::define(L, "key", "value");
-		iris_lua_t::define(L, 1, "number");
-		iris_lua_t::define(L, 2, 2);
+	auto tab = lua.make_table([](iris_lua_t&& lua) {
+		lua.define("key", "value");
+		lua.define(1, "number");
+		lua.define(2, 2);
 	});
 
 	tab.set(lua, "set", "newvalue");

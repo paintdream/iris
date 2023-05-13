@@ -60,6 +60,10 @@ namespace iris {
 
 	template <typename atomic_t>
 	struct iris_write_fence_t {
+		operator bool() const noexcept {
+			return true;
+		}
+
 #ifdef _DEBUG
 		iris_write_fence_t(std::atomic<atomic_t>& var, std::thread::id& id) noexcept : variable(var), thread_id(id) {
 			acquire(variable, thread_id);
@@ -87,6 +91,10 @@ namespace iris {
 
 	template <typename atomic_t>
 	struct iris_read_fence_t {
+		operator bool() const noexcept {
+			return true;
+		}
+
 #ifdef _DEBUG
 		iris_read_fence_t(std::atomic<atomic_t>& var, std::thread::id& id) noexcept : variable(var), thread_id(id) {
 			acquire(variable, thread_id);

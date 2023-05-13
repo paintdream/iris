@@ -63,6 +63,8 @@ namespace iris {
 	struct iris_lua_t : enable_read_write_fence_t<> {
 		// borrow from an existing state
 		explicit iris_lua_t(lua_State* L) noexcept : state(L) {}
+		iris_lua_t(iris_lua_t&& rhs) noexcept : state(rhs.state) { rhs.state = nullptr; }
+		iris_lua_t(const iris_lua_t& rhs) noexcept : state(rhs.state) {}
 
 		operator lua_State* () const noexcept {
 			return get_state();
@@ -261,19 +263,18 @@ namespace iris {
 		};
 
 		template <typename... args_t>
-		static auto refguard(lua_State* L, args_t&... args) noexcept {
-			return refguard_t<sizeof...(args_t)>(L, args...);
+		auto refguard(args_t&... args) noexcept {
+			return refguard_t<sizeof...(args_t)>(state, args...);
 		}
 
-		typedef void (*registar_t)(lua_State*);
 		template <typename type_t>
 		struct has_registar {
 			template <typename> static std::false_type test(...);
 			template <typename impl_t> static auto test(int)
-				-> decltype(std::declval<impl_t>().lua_registar(std::declval<lua_State*>()), std::true_type());
+				-> decltype(std::declval<impl_t>().lua_registar(std::declval<iris_lua_t>()), std::true_type());
 			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
-			static void default_registar(lua_State*) {}
-			static constexpr registar_t get_registar() {
+			static void default_registar(iris_lua_t) {}
+			static constexpr auto get_registar() {
 				if constexpr (value) {
 					return &type_t::lua_registar;
 				} else {
@@ -283,7 +284,7 @@ namespace iris {
 		};
 
 		// register a new type, taking registar from &type_t::lua_registar by default, and you could also specify your own registar.
-		template <typename type_t, int user_value_count = 0, registar_t registar = has_registar<type_t>::get_registar(), typename... args_t>
+		template <typename type_t, int user_value_count = 0, auto registar = has_registar<type_t>::get_registar(), typename... args_t>
 		ref_t make_type(std::string_view name, args_t&... args) {
 			auto guard = write_fence();
 
@@ -319,14 +320,15 @@ namespace iris {
 			lua_rawset(L, -3);
 
 			// call custom registar if needed
-			registar(L);
+			registar(iris_lua_t(L));
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
 		// quick way for registering a type into global space
-		template <typename type_t, int user_value_count = 0, registar_t registar = has_registar<type_t>::get_registar(), typename... args_t>
+		template <typename type_t, int user_value_count = 0, auto registar = has_registar<type_t>::get_registar(), typename... args_t>
 		void register_type(std::string_view name, args_t&... args) {
 			ref_t r = make_type<type_t, user_value_count, registar, args_t...>(name, args...);
+
 			auto guard = write_fence();
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
@@ -338,7 +340,10 @@ namespace iris {
 
 		// define a variable by value
 		template <typename key_t, typename value_t>
-		static void define(lua_State* L, key_t&& key, value_t&& value) {
+		void define(key_t&& key, value_t&& value) {
+			auto guard = write_fence();
+
+			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 
 			push_variable(L, std::forward<key_t>(key));
@@ -348,7 +353,10 @@ namespace iris {
 
 		// define a bound member function/property
 		template <auto ptr, typename key_t>
-		static void define(lua_State* L, key_t&& key) {
+		void define(key_t&& key) {
+			auto guard = write_fence();
+
+			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 
 			if constexpr (std::is_member_function_pointer_v<decltype(ptr)>) {
@@ -368,7 +376,7 @@ namespace iris {
 			stack_guard_t stack_guard(L);
 			lua_newtable(L);
 
-			func(L);
+			func(iris_lua_t(L));
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
@@ -378,27 +386,12 @@ namespace iris {
 			deref(state, r);
 		}
 
-		static void deref(lua_State* L, ref_t& r) noexcept {
-			if (r.value != 0) {
-				luaL_unref(L, LUA_REGISTRYINDEX, r.value);
-				r.value = 0;
-			}
-		}
-
 		// call function in protect mode
 		template <typename return_t, typename callable_t, typename... args_t>
 		return_t call(callable_t&& reference, args_t&&... args) {
 			auto guard = write_fence();
 
-			if constexpr (!std::is_void_v<return_t>) {
-				return call<return_t>(std::forward<callable_t>(reference), std::forward<args_t>(args)...);
-			} else {
-				call<return_t>(std::forward<callable_t>(reference), std::forward<args_t>(args)...);
-			}
-		}
-
-		template <typename return_t, typename callable_t, typename... args_t>
-		static return_t call(lua_State* L, callable_t&& reference, args_t&&... args) {
+			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 			push_variable(L, std::forward<callable_t>(reference));
 			push_arguments(L, std::forward<args_t>(args)...);
@@ -420,15 +413,22 @@ namespace iris {
 		}
 
 		template <auto method, typename return_t, typename type_t, typename... args_t>
-		static return_t method_function_adapter(required_t<type_t*>&& object, args_t... args) {
+		static return_t method_function_adapter(required_t<type_t*>&& object, std::remove_reference_t<args_t>&&... args) {
 			if constexpr (!std::is_void_v<return_t>) {
-				return (object.get()->*method)(std::forward<args_t>(args)...);
+				return (object.get()->*method)(std::move(args)...);
 			} else {
-				(object.get()->*method)(std::forward<args_t>(args)...);
+				(object.get()->*method)(std::move(args)...);
 			}
 		}
 
 	protected:
+		static void deref(lua_State* L, ref_t& r) noexcept {
+			if (r.value != 0) {
+				luaL_unref(L, LUA_REGISTRYINDEX, r.value);
+				r.value = 0;
+			}
+		}
+
 		// a guard for checking stack balance
 		struct stack_guard_t {
 #ifdef _DEBUG
@@ -516,7 +516,7 @@ namespace iris {
 		struct has_finalize {
 			template <typename> static std::false_type test(...);
 			template <typename impl_t> static auto test(int)
-				-> decltype(std::declval<impl_t>().lua_finalize(std::declval<lua_State*>()), std::true_type());
+				-> decltype(std::declval<impl_t>().lua_finalize(std::declval<iris_lua_t>()), std::true_type());
 			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
 		};
 
@@ -527,7 +527,7 @@ namespace iris {
 
 			// call lua_finalize if needed
 			if constexpr (has_finalize<type_t>::value) {
-				p->lua_finalize(L);
+				p->lua_finalize(iris_lua_t(L));
 			}
 
 			assert(p != nullptr);
@@ -690,8 +690,8 @@ namespace iris {
 		template <auto function, int index, typename return_t, typename tuple_t, typename... params_t>
 		static int function_invoke(lua_State* L, int stack_index, params_t&&... params) {
 			if constexpr (index < std::tuple_size_v<tuple_t>) {
-				if constexpr (std::is_same_v<std::tuple_element_t<index, tuple_t>, lua_State*>) {
-					return function_invoke<function, index + 1, return_t, tuple_t>(L, stack_index, std::forward<params_t>(params)..., L);
+				if constexpr (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::tuple_element_t<index, tuple_t>>>>>) {
+					return function_invoke<function, index + 1, return_t, tuple_t>(L, stack_index, std::forward<params_t>(params)..., iris_lua_t(L));
 				} else {
 					return function_invoke<function, index + 1, return_t, tuple_t>(L, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>>(L, stack_index));
 				}
@@ -724,7 +724,7 @@ namespace iris {
 				}
 			}
 
-			check_required_parameters<index + (std::is_same_v<first_t, lua_State*> ? 0 : 1), args_t...>(L);
+			check_required_parameters<index + (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<first_t>>>> ? 0 : 1), args_t...>(L);
 		}
 
 		template <auto function, typename return_t, typename... args_t>
@@ -736,8 +736,8 @@ namespace iris {
 		template <auto function, int index, typename coroutine_t, typename tuple_t, typename... params_t>
 		static bool function_coroutine_invoke(lua_State* L, int stack_index, params_t&&... params) {
 			if constexpr (index < std::tuple_size_v<tuple_t>) {
-				if constexpr (std::is_same_v<std::tuple_element_t<index, tuple_t>, lua_State*>) {
-					return function_coroutine_invoke<function, index + 1, coroutine_t, tuple_t>(L, stack_index, std::forward<params_t>(params)..., L);
+				if constexpr (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::tuple_element_t<index, tuple_t>>>>>) {
+					return function_coroutine_invoke<function, index + 1, coroutine_t, tuple_t>(L, stack_index, std::forward<params_t>(params)..., iris_lua_t(L));
 				} else {
 					return function_coroutine_invoke<function, index + 1, coroutine_t, tuple_t>(L, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>>(L, stack_index));
 				}
@@ -854,7 +854,7 @@ namespace iris {
 			} else if constexpr (iris_lua_convert_t<value_t>::value) {
 				iris_lua_convert_t<value_t>::to_lua(L, std::forward<type_t>(variable));
 			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {
-				lua_pushlightuserdata(L, variable);
+				lua_pushlightuserdata(L, const_cast<value_t>(variable));
 			} else if constexpr (std::is_same_v<value_t, bool>) {
 				lua_pushboolean(L, static_cast<bool>(variable));
 			} else if constexpr (std::is_integral_v<value_t> || std::is_enum_v<value_t>) {
