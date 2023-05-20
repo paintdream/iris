@@ -108,17 +108,17 @@ namespace iris {
 
 		// holding lua value
 		struct ref_t {
-			ref_t(int v = 0) noexcept : value(v) {}
-			~ref_t() noexcept { assert(value == 0); }
-			ref_t(ref_t&& rhs) noexcept : value(rhs.value) { rhs.value = 0; }
+			explicit ref_t(int v = LUA_REFNIL) noexcept : value(v) { assert(LUA_REFNIL == 0 || v != 0); }
+			~ref_t() noexcept { assert(value == LUA_REFNIL); }
+			ref_t(ref_t&& rhs) noexcept : value(rhs.value) { rhs.value = LUA_REFNIL; }
 			ref_t(const ref_t& rhs) = delete;
 			ref_t& operator = (const ref_t& rhs) = delete;
-			ref_t& operator = (ref_t&& rhs) noexcept { assert(value == 0); std::swap(rhs.value, value); return *this; }
+			ref_t& operator = (ref_t&& rhs) noexcept { assert(value == LUA_REFNIL); std::swap(rhs.value, value); return *this; }
 
 			using internal_type_t = void;
 
 			operator bool() const noexcept {
-				return value != 0;
+				return value != LUA_REFNIL;
 			}
 
 			int get() const noexcept {
@@ -197,13 +197,14 @@ namespace iris {
 			}
 
 			friend struct iris_lua_t;
+
 		private:
 			int value;
 		};
 
 		template <typename type_t>
 		struct refptr_t : ref_t {
-			refptr_t(int v = 0, type_t* p = nullptr) noexcept : ref_t(v), ptr(p) {}
+			refptr_t(int v = LUA_REFNIL, type_t* p = nullptr) noexcept : ref_t(v), ptr(p) {}
 			refptr_t(refptr_t&& rhs) noexcept : ref_t(std::move(static_cast<ref_t&>(rhs))), ptr(rhs.ptr) {}
 			refptr_t(const refptr_t& rhs) = delete;
 			refptr_t& operator = (const refptr_t& rhs) = delete;
@@ -423,9 +424,9 @@ namespace iris {
 
 	protected:
 		static void deref(lua_State* L, ref_t& r) noexcept {
-			if (r.value != 0) {
+			if (r.value != LUA_REFNIL) {
 				luaL_unref(L, LUA_REGISTRYINDEX, r.value);
-				r.value = 0;
+				r.value = LUA_REFNIL;
 			}
 		}
 
