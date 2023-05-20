@@ -264,8 +264,25 @@ namespace iris {
 		};
 
 		template <typename... args_t>
-		auto refguard(args_t&... args) noexcept {
+		auto ref_guard(args_t&... args) noexcept {
 			return refguard_t<sizeof...(args_t)>(state, args...);
+		}
+
+		// a guard for checking stack balance
+		struct stack_guard_t {
+#ifdef _DEBUG
+			stack_guard_t(lua_State* state, int offset = 0) noexcept : L(state) { top = lua_gettop(L) + offset; }
+			~stack_guard_t() noexcept { assert(top == lua_gettop(L)); }
+
+			lua_State* L;
+			int top;
+#else
+			stack_guard_t(lua_State* state, int offset = 0) noexcept {}
+#endif
+		};
+
+		auto stack_guard(int offset = 0) noexcept {
+			return stack_guard_t(state, offset);
 		}
 
 		template <typename type_t>
@@ -429,19 +446,6 @@ namespace iris {
 				r.value = LUA_REFNIL;
 			}
 		}
-
-		// a guard for checking stack balance
-		struct stack_guard_t {
-#ifdef _DEBUG
-			stack_guard_t(lua_State* state, int offset = 0) noexcept : L(state) { top = lua_gettop(L) + offset; }
-			~stack_guard_t() noexcept { assert(top == lua_gettop(L)); }
-
-			lua_State* L;
-			int top;
-#else
-			stack_guard_t(lua_State* state, int offset = 0) noexcept {}
-#endif
-		};
 
 		static void push_arguments(lua_State* L) {}
 		template <typename first_t, typename... args_t>
@@ -745,24 +749,25 @@ namespace iris {
 			} else {
 				// mark state
 				using return_t = typename coroutine_t::return_type_t;
-				int top = lua_gettop(L);
 				auto coroutine = function(std::forward<params_t>(params)...);
 
 				if constexpr (!std::is_void_v<return_t>) {
-					coroutine.complete([L](return_t&& value) {
+					coroutine.complete([L, p = static_cast<void*>(&coroutine)](return_t&& value) {
 						push_variable(L, std::move(value));
+						push_variable(L, p);
 						coroutine_continuation(L);
 					}).run();
 				} else {
-					coroutine.complete([L]() {
+					coroutine.complete([L, p = static_cast<void*>(&coroutine)]() {
 						lua_pushnil(L);
+						push_variable(L, p);
 						coroutine_continuation(L);
 					}).run();
 				}
 
 				// already completed?
-				if (lua_gettop(L) != top) {
-					assert(lua_gettop(L) == top + 1);
+				if (lua_touserdata(L, -1) == &coroutine) {
+					lua_pop(L, 1);
 					return true;
 				} else {
 					return false;
@@ -772,6 +777,7 @@ namespace iris {
 
 		static void coroutine_continuation(lua_State* L) {
 			if (lua_status(L) == LUA_YIELD) {
+				lua_pop(L, 1);
 #if LUA_VERSION_NUM <= 501
 				int ret = lua_resume(L, 1);
 #elif LUA_VERSION_NUM <= 503

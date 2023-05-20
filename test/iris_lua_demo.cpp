@@ -99,7 +99,7 @@ struct example_t {
 	}
 
 	void join_value_refptr(iris_lua_t&& lua, iris_lua_t::refptr_t<example_t>&& rhs) noexcept {
-		auto guard = lua.refguard(rhs);
+		auto guard = lua.ref_guard(rhs);
 		if (rhs != nullptr) {
 			value += rhs->value;
 		}
