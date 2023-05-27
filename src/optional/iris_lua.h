@@ -33,9 +33,15 @@ SOFTWARE.
 #include <array>
 
 extern "C" {
+#if !USE_LUA_LIBRARY
 	#include "lua/src/lua.h"
 	#include "lua/src/lualib.h"
 	#include "lua/src/lauxlib.h"
+#else
+	#include "lua.h"
+	#include "lualib.h"
+	#include "lauxlib.h"
+#endif
 }
 
 // compatible with old lua versions
@@ -312,7 +318,7 @@ namespace iris {
 
 			// hash code is to check types when passing as a argument to C++
 			push_variable(L, "__hash");
-			push_variable(L, reinterpret_cast<void*>(typeid(type_t).hash_code()));
+			push_variable(L, reinterpret_cast<void*>(typeid(type_t).hash_code() & 0xffffffff)); // avoid luajit checks
 			lua_rawset(L, -3);
 
 			// readable name
@@ -675,7 +681,7 @@ namespace iris {
 
 					// returns empty if hashes are not equal!
 					static const size_t hash_code = typeid(std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::remove_pointer_t<value_t>>>>).hash_code();
-					if (lua_touserdata(L, -1) != reinterpret_cast<void*>(hash_code)) {
+					if (lua_touserdata(L, -1) != reinterpret_cast<void*>(hash_code & 0xffffffff)) {
 						lua_pop(L, 2);
 						return value_t();
 					}

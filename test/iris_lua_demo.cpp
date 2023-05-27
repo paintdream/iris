@@ -187,6 +187,7 @@ int main(void) {
 #endif
 
 	bool ret = lua.run<bool>("\
+		print(_VERSION)\n\
 		local a = example_t.create()\n\
 		local b = example_t.create()\n\
 		b:join_value_required(a)\n\
