@@ -1,4 +1,4 @@
-#include "../src/optional/iris_lua.h"
+#include "../src/iris_lua.h"
 #include "../src/iris_common.inl"
 #include <map>
 #include <cstdio>

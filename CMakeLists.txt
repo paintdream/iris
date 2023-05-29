@@ -5,7 +5,7 @@ PROJECT (iris_demo)
 
 SET (STDLIB stdc++)
 
-ENABLE_TESTING()
+ENABLE_TESTING ()
 
 OPTION (ENABLE_COROUTINE "Enable Iris Coroutine support" ON)
 OPTION (ENABLE_LUA "Enable Lua Binding support" ON)
@@ -38,7 +38,7 @@ ADD_EXECUTABLE (iris_dispatcher_demo ${IRIS_DISPATCHER_DEMO_SRC})
 ADD_TEST (test_dispatcher iris_dispatcher_demo)
 
 IF (NOT MSVC)
-	TARGET_LINK_LIBRARIES(iris_dispatcher_demo m ${STDLIB} pthread)
+	TARGET_LINK_LIBRARIES (iris_dispatcher_demo m ${STDLIB} pthread)
 ENDIF (NOT MSVC)
 
 FILE (GLOB_RECURSE IRIS_SYSTEM_DEMO_SRC
@@ -52,7 +52,7 @@ ADD_EXECUTABLE (iris_system_demo ${IRIS_SYSTEM_DEMO_SRC})
 ADD_TEST (test_system iris_system_demo)
 
 IF (NOT MSVC)
-	TARGET_LINK_LIBRARIES(iris_system_demo m ${STDLIB} pthread)
+	TARGET_LINK_LIBRARIES (iris_system_demo m ${STDLIB} pthread)
 ENDIF (NOT MSVC)
 
 FILE (GLOB_RECURSE IRIS_TREE_DEMO_SRC
@@ -66,7 +66,7 @@ ADD_EXECUTABLE (iris_tree_demo ${IRIS_TREE_DEMO_SRC})
 ADD_TEST (test_tree iris_tree_demo)
 
 IF (NOT MSVC)
-	TARGET_LINK_LIBRARIES(iris_tree_demo m ${STDLIB} pthread)
+	TARGET_LINK_LIBRARIES (iris_tree_demo m ${STDLIB} pthread)
 ENDIF (NOT MSVC)
 
 FILE (GLOB_RECURSE IRIS_BUFFER_DEMO_SRC
@@ -80,7 +80,7 @@ ADD_EXECUTABLE (iris_buffer_demo ${IRIS_BUFFER_DEMO_SRC})
 ADD_TEST (test_buffer iris_buffer_demo)
 
 IF (NOT MSVC)
-	TARGET_LINK_LIBRARIES(iris_buffer_demo m ${STDLIB} pthread)
+	TARGET_LINK_LIBRARIES (iris_buffer_demo m ${STDLIB} pthread)
 ENDIF (NOT MSVC)
 
 IF (ENABLE_COROUTINE)
@@ -96,7 +96,7 @@ IF (ENABLE_COROUTINE)
 	ADD_TEST (test_coroutine iris_coroutine_demo)
 
 	IF (NOT MSVC)
-		TARGET_LINK_LIBRARIES(iris_coroutine_demo m ${STDLIB} pthread)
+		TARGET_LINK_LIBRARIES (iris_coroutine_demo m ${STDLIB} pthread)
 	ENDIF (NOT MSVC)
 
 	FILE (GLOB_RECURSE IRIS_ENGINE_DEMO_SRC
@@ -111,13 +111,13 @@ IF (ENABLE_COROUTINE)
 	ADD_TEST (test_engine iris_engine_demo)
 
 	IF (NOT MSVC)
-		TARGET_LINK_LIBRARIES(iris_engine_demo m ${STDLIB} pthread)
+		TARGET_LINK_LIBRARIES (iris_engine_demo m ${STDLIB} pthread)
 	ENDIF (NOT MSVC)
 ENDIF (ENABLE_COROUTINE)
 
 IF (ENABLE_LUA)
 	FILE (GLOB_RECURSE IRIS_LUA_DEMO_SRC
-		"${PROJECT_SOURCE_DIR}/src/optional/iris_lua.h"
+		"${PROJECT_SOURCE_DIR}/src/iris_lua.h"
 		"${PROJECT_SOURCE_DIR}/test/iris_lua_demo.cpp"
 	)
 
@@ -131,13 +131,13 @@ IF (ENABLE_LUA)
 		MESSAGE (STATUS "Use built-in lua version.")
 		# default to lua 5.4
 		FILE (GLOB_RECURSE IRIS_LUA_CORE_SRC
-			"${PROJECT_SOURCE_DIR}/src/optional/lua/src/*.h"
-			"${PROJECT_SOURCE_DIR}/src/optional/lua/src/*.hpp"
-			"${PROJECT_SOURCE_DIR}/src/optional/lua/src/*.c"
+			"${PROJECT_SOURCE_DIR}/src/lua/src/*.h"
+			"${PROJECT_SOURCE_DIR}/src/lua/src/*.hpp"
+			"${PROJECT_SOURCE_DIR}/src/lua/src/*.c"
 		)
 
-		LIST (REMOVE_ITEM IRIS_LUA_CORE_SRC "${PROJECT_SOURCE_DIR}/src/optional/lua/src/lua.c")
-		LIST (REMOVE_ITEM IRIS_LUA_CORE_SRC "${PROJECT_SOURCE_DIR}/src/optional/lua/src/luac.c")
+		LIST (REMOVE_ITEM IRIS_LUA_CORE_SRC "${PROJECT_SOURCE_DIR}/src/lua/src/lua.c")
+		LIST (REMOVE_ITEM IRIS_LUA_CORE_SRC "${PROJECT_SOURCE_DIR}/src/lua/src/luac.c")
 		SET (LUALIB)
 	ELSE (ENABLE_LUA_BUILTIN)
 		IF (${USE_LUA_VERSION} STREQUAL "LuaJIT")
@@ -173,8 +173,8 @@ IF (ENABLE_LUA)
 	ADD_TEST (test_lua iris_lua_demo)
 
 	IF (MSVC)
-		TARGET_LINK_LIBRARIES(iris_lua_demo ${LUALIB})
+		TARGET_LINK_LIBRARIES (iris_lua_demo ${LUALIB})
 	ELSE (MSVC)
-		TARGET_LINK_LIBRARIES(iris_lua_demo m ${STDLIB} ${LUALIB})
+		TARGET_LINK_LIBRARIES (iris_lua_demo m ${STDLIB} ${LUALIB})
 	ENDIF (MSVC)
 ENDIF (ENABLE_LUA)

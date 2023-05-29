@@ -29,7 +29,7 @@ SOFTWARE.
 
 #pragma once
 
-#include "../iris_common.h"
+#include "iris_common.h"
 #include <array>
 
 extern "C" {
