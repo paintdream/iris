@@ -161,11 +161,11 @@ namespace iris {
 
 				if (preempted) {
 					warp.yield();
-				}
 #ifdef _DEBUG
-				iris_warp_t* n = iris_warp_t::get_current_warp();
-				assert(current == n);
+					iris_warp_t* n = iris_warp_t::get_current_warp();
+					assert(current == n);
 #endif
+				}
 			}
 
 			operator bool() const noexcept {
