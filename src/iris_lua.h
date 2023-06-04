@@ -66,6 +66,7 @@ namespace iris {
 	struct iris_lua_convert_t : std::false_type {};
 
 	// A simple lua binding with C++17
+	template <typename warp_t = void>
 	struct iris_lua_t : enable_read_write_fence_t<> {
 		// borrow from an existing state
 		explicit iris_lua_t(lua_State* L) noexcept : state(L) {}
@@ -196,7 +197,7 @@ namespace iris {
 				stack_guard_t stack_guard(L);
 
 				push_variable(L, *this);
-				size_t len = lua_rawlen(L, -1);
+				size_t len = static_cast<size_t>(lua_rawlen(L, -1));
 				lua_pop(L, 1);
 
 				return len;
@@ -219,7 +220,7 @@ namespace iris {
 			using internal_type_t = type_t*;
 
 			operator bool() const noexcept {
-				return value != 0 && ptr != nullptr;
+				return ref_t::value != 0 && ptr != nullptr;
 			}
 
 			operator type_t* () const noexcept {
@@ -235,6 +236,7 @@ namespace iris {
 			}
 
 			friend struct iris_lua_t;
+
 		protected:
 			type_t* ptr;
 		};
@@ -757,22 +759,40 @@ namespace iris {
 				using return_t = typename coroutine_t::return_type_t;
 				auto coroutine = function(std::forward<params_t>(params)...);
 
+#ifdef _DEBUG
+				warp_t* current_warp = nullptr;
+				if constexpr (!std::is_void_v<warp_t>) {
+					current_warp = warp_t::get_current_warp();
+				}
+#endif
+				void* yield_mark = static_cast<void*>(&coroutine);
+
 				if constexpr (!std::is_void_v<return_t>) {
-					coroutine.complete([L, p = static_cast<void*>(&coroutine)](return_t&& value) {
+					coroutine.complete([=](return_t&& value) {
+#ifdef _DEBUG
+						if constexpr (!std::is_void_v<warp_t>) {
+							assert(current_warp == warp_t::get_current_warp());
+						}
+#endif
 						push_variable(L, std::move(value));
-						push_variable(L, p);
+						push_variable(L, yield_mark);
 						coroutine_continuation(L);
 					}).run();
 				} else {
-					coroutine.complete([L, p = static_cast<void*>(&coroutine)]() {
+					coroutine.complete([=]() {
+#ifdef _DEBUG
+						if constexpr (!std::is_void_v<warp_t>) {
+							assert(current_warp == warp_t::get_current_warp());
+						}
+#endif
 						lua_pushnil(L);
-						push_variable(L, p);
+						push_variable(L, yield_mark);
 						coroutine_continuation(L);
 					}).run();
 				}
 
 				// already completed?
-				if (lua_touserdata(L, -1) == &coroutine) {
+				if (lua_touserdata(L, -1) == yield_mark) {
 					lua_pop(L, 1);
 					return true;
 				} else {

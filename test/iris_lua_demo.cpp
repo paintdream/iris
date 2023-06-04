@@ -15,7 +15,11 @@ using warp_t = iris_warp_t<worker_t>;
 static warp_t* warpptr = nullptr;
 static warp_t* warpptr2 = nullptr;
 static worker_t* workerptr = nullptr;
+#else
+using warp_t = void;
 #endif
+
+using lua_t = iris_lua_t<warp_t>;
 
 struct vector3 {
 	float x, y, z;
@@ -47,7 +51,7 @@ struct iris::iris_lua_convert_t<vector3> : std::true_type {
 };
 
 struct example_t {
-	static void lua_registar(iris_lua_t lua) {
+	static void lua_registar(lua_t lua) {
 		lua.define<&example_t::value>("value");
 		lua.define<&example_t::const_value>("const_value");
 		lua.define<&example_t::accum_value>("accum_value");
@@ -70,7 +74,7 @@ struct example_t {
 #endif
 	}
 
-	int call(iris_lua_t lua, iris_lua_t::ref_t&& r, int value) {
+	int call(lua_t lua, lua_t::ref_t&& r, int value) {
 		int result = lua.call<int>(r, value);
 		lua.deref(r);
 
@@ -87,18 +91,18 @@ struct example_t {
 		}
 	}
 
-	void join_value_required(iris_lua_t::required_t<example_t*>&& rhs) noexcept {
+	void join_value_required(lua_t::required_t<example_t*>&& rhs) noexcept {
 		printf("Required!\n");
 		value += rhs.get()->value;
 	}
 
-	void join_value_required_refptr(iris_lua_t&& lua, iris_lua_t::required_t<iris_lua_t::refptr_t<example_t>>&& rhs) noexcept {
+	void join_value_required_refptr(lua_t&& lua, lua_t::required_t<lua_t::refptr_t<example_t>>&& rhs) noexcept {
 		printf("Required ptr!\n");
 		value += rhs.get().get()->value;
 		lua.deref(rhs.get());
 	}
 
-	void join_value_refptr(iris_lua_t&& lua, iris_lua_t::refptr_t<example_t>&& rhs) noexcept {
+	void join_value_refptr(lua_t&& lua, lua_t::refptr_t<example_t>&& rhs) noexcept {
 		auto guard = lua.ref_guard(rhs);
 		if (rhs != nullptr) {
 			value += rhs->value;
@@ -133,8 +137,8 @@ struct example_t {
 		return std::move(v);
 	}
 
-	iris_lua_t::ref_t prime(iris_lua_t lua) const {
-		return lua.make_table([](iris_lua_t lua) noexcept {
+	lua_t::ref_t prime(lua_t lua) const {
+		return lua.make_table([](lua_t lua) noexcept {
 			lua.define("name", "prime");
 			lua.define(1, 2);
 			lua.define(2, 3);
@@ -171,7 +175,7 @@ int main(void) {
 	lua_State* L = luaL_newstate();
 	luaL_openlibs(L);
 
-	iris_lua_t lua(L);
+	lua_t lua(L);
 	lua.register_type<example_t>("example_t");
 	
 #if USE_LUA_COROUTINE
@@ -226,7 +230,7 @@ int main(void) {
 		end\n\
 		return true\n");
 	assert(ret);
-	auto tab = lua.make_table([](iris_lua_t&& lua) {
+	auto tab = lua.make_table([](lua_t&& lua) {
 		lua.define("key", "value");
 		lua.define(1, "number");
 		lua.define(2, 2);
@@ -234,7 +238,7 @@ int main(void) {
 
 	tab.set(lua, "set", "newvalue");
 	assert(tab.get<int>(lua, 2) == 2);
-	auto r = tab.get<iris_lua_t::ref_t>(lua, 2);
+	auto r = tab.get<lua_t::ref_t>(lua, 2);
 	assert(r.as<int>(lua) == 2);
 	assert(tab.size(lua) == 2);
 	lua.deref(r);
