@@ -84,6 +84,7 @@ namespace iris {
 		// run a piece of code
 		template <typename return_t = void>
 		return_t run(std::string_view code) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = write_fence();
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
@@ -415,6 +416,7 @@ namespace iris {
 		// call function in protect mode
 		template <typename return_t, typename callable_t, typename... args_t>
 		return_t call(callable_t&& reference, args_t&&... args) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = write_fence();
 
 			lua_State* L = state;

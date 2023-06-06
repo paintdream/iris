@@ -54,6 +54,22 @@ SOFTWARE.
 #define IRIS_DEFAULT_PAGE_SIZE (IRIS_DEFAULT_BLOCK_SIZE * 64)
 #endif
 
+#ifndef IRIS_PROFILE_THREAD
+#define IRIS_PROFILE_THREAD(name, i)
+#endif
+
+#ifndef IRIS_PROFILE_SCOPE
+#define IRIS_PROFILE_SCOPE(name)
+#endif
+
+#ifndef IRIS_PROFILE_PUSH
+#define IRIS_PROFILE_PUSH(name)
+#endif
+
+#ifndef IRIS_PROFILE_POP
+#define IRIS_PROFILE_POP()
+#endif
+
 namespace iris {
 	static constexpr size_t default_block_size = IRIS_DEFAULT_BLOCK_SIZE;
 	static constexpr size_t default_page_size = IRIS_DEFAULT_PAGE_SIZE;

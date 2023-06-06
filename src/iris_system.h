@@ -198,6 +198,7 @@ namespace iris {
 		// iterate components
 		template <typename component_t, typename operation_t>
 		void for_each(operation_t&& op) noexcept(noexcept(std::declval<iris_queue_list_t<component_t, allocator_t>>().for_each(op))) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = read_fence();
 			std::get<fetch_index<component_t>::value>(components).for_each(op);
 		}
@@ -205,6 +206,7 @@ namespace iris {
 		// n is the expected group size
 		template <typename component_t, typename warp_t, typename operand_t, typename queue_list_t = iris_queue_list_t<component_t, allocator_t>>
 		void for_each_parallel(operand_t&& op, size_t n = queue_list_t::element_count) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = read_fence();
 
 			auto& target_components = std::get<fetch_index<component_t>::value>(components);
@@ -481,11 +483,13 @@ namespace iris {
 
 			template <typename operation_t>
 			void for_each(operation_t&& op) {
+				IRIS_PROFILE_SCOPE(__FUNCTION__);
 				for_each_impl(std::forward<operation_t>(op), std::integral_constant<bool, sizeof...(components_t) == 1>());
 			}
 
 			template <typename operation_t>
 			void for_each_system(operation_t&& op) {
+				IRIS_PROFILE_SCOPE(__FUNCTION__);
 				for_each_system_impl(std::forward<operation_t>(op), gen_seq<sizeof...(components_t)>());
 			}
 
@@ -634,11 +638,13 @@ namespace iris {
 
 			template <typename operation_t>
 			void for_each(operation_t&& op) {
+				IRIS_PROFILE_SCOPE(__FUNCTION__);
 				for_each_impl(std::forward<operation_t>(op), std::integral_constant<bool, sizeof...(components_t) == 1>());
 			}
 
 			template <typename operation_t>
 			void for_each_system(operation_t&& op) {
+				IRIS_PROFILE_SCOPE(__FUNCTION__);
 				for_each_system_impl(std::forward<operation_t>(op), gen_seq<sizeof...(components_t)>());
 			}
 
