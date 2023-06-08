@@ -190,7 +190,7 @@ int main(void) {
 	warp.preempt();
 #endif
 
-	bool ret = lua.run<bool>("\
+	bool ret = lua.call<bool>(lua.load("\
 		print(_VERSION)\n\
 		local a = example_t.create()\n\
 		local b = example_t.create()\n\
@@ -228,7 +228,7 @@ int main(void) {
 		for i = 1, #t do\n\
 			print(t[i])\n\
 		end\n\
-		return true\n");
+		return true\n"));
 	assert(ret);
 	auto tab = lua.make_table([](lua_t&& lua) {
 		lua.define("key", "value");
@@ -250,7 +250,7 @@ int main(void) {
 	lua.deref(tab);
 
 #if USE_LUA_COROUTINE
-	lua.run<>("\n\
+	lua.call<void>(lua.load("\n\
 		local a = example_t.create()\n\
 		local coro = coroutine.create(function() \n\
 			print('coro get ' .. a.coro_get_int('hello')) \n\
@@ -259,7 +259,7 @@ int main(void) {
 			a.coro_get_none()\n\
 			print('coro finished')\n\
 		end)\n\
-		coroutine.resume(coro)\n");
+		coroutine.resume(coro)\n"));
 
 	warp.yield();
 	worker.join();

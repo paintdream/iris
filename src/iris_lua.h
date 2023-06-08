@@ -81,39 +81,6 @@ namespace iris {
 			return state;
 		}
 
-		// run a piece of code
-		template <typename return_t = void>
-		return_t run(std::string_view code) {
-			IRIS_PROFILE_SCOPE(__FUNCTION__);
-			auto guard = write_fence();
-			lua_State* L = state;
-			stack_guard_t stack_guard(L);
-
-			if (luaL_loadbuffer(L, code.data(), code.size(), "run") != LUA_OK) {
-				fprintf(stderr, "[ERROR] iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
-				lua_pop(L, 1);
-				if constexpr (!std::is_void_v<return_t>) {
-					return return_t();
-				}
-			}
-
-			if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
-				fprintf(stderr, "[ERROR] iris_lua_t::run() -> run code error: %s\n", lua_tostring(L, -1));
-				lua_pop(L, 1);
-				if constexpr (!std::is_void_v<return_t>) {
-					return return_t();
-				}
-			} else {
-				if constexpr (!std::is_void_v<return_t>) {
-					return_t ret = get_variable<return_t>(L, -1);
-					lua_pop(L, 1);
-					return ret;
-				} else {
-					lua_pop(L, 1);
-				}
-			}
-		}
-
 		// holding lua value
 		struct ref_t {
 			explicit ref_t(int v = LUA_REFNIL) noexcept : value(v) { assert(LUA_REFNIL == 0 || v != 0); }
@@ -275,6 +242,20 @@ namespace iris {
 		template <typename... args_t>
 		auto ref_guard(args_t&... args) noexcept {
 			return refguard_t<sizeof...(args_t)>(state, args...);
+		}
+
+		ref_t load(std::string_view code, std::string_view name = "") {
+			auto guard = write_fence();
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+
+			if (luaL_loadbuffer(L, code.data(), code.size(), name.data()) != LUA_OK) {
+				fprintf(stderr, "[ERROR] iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
+				lua_pop(L, 1);
+				return ref_t();
+			}
+
+			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
 		// a guard for checking stack balance
