@@ -4,6 +4,7 @@
 #include <future>
 using namespace iris;
 
+static void external_poll();
 static void stack_op();
 static void not_pow_two();
 static void framed_data();
@@ -13,6 +14,7 @@ static void graph_dispatch();
 static void graph_dispatch_exception();
 
 int main(void) {
+	external_poll();
 	stack_op();
 	not_pow_two();
 	framed_data();
@@ -22,6 +24,63 @@ int main(void) {
 	graph_dispatch_exception();
 
 	return 0;
+}
+
+template <typename element_t>
+using worker_allocator_t = iris_object_allocator_t<element_t>;
+
+void external_poll() {
+	static constexpr size_t thread_count = 2;
+	static constexpr size_t warp_count = 8;
+
+	using worker_t = iris_async_worker_t<std::thread, std::function<void()>, worker_allocator_t>;
+	using warp_t = iris_warp_t<worker_t>;
+
+	worker_t worker(thread_count);
+
+	std::promise<bool> started;
+
+	std::future<bool> future = started.get_future();
+	size_t i = worker.get_thread_count();
+	worker.append([&future, &started, &worker, i]() mutable {
+		// copied from iris_async_worker_t<>::start() thread routine
+		try {
+			future.get();
+
+			worker_t::get_current() = &worker;
+			worker_t::get_current_thread_index_internal() = i;
+			printf("[[ external thread running ... ]]\n");
+
+			while (!worker.is_terminated()) {
+				if (!worker.poll(0)) {
+					worker.delay(20);
+				} else {
+					// there is no 0 priority task, assert it
+					assert(false);
+				}
+			}
+
+			printf("[[ external thread exited ... ]]\n");
+		} catch (std::bad_alloc&) {
+			throw; // by default, terminate
+		} catch (std::exception&) {
+			throw;
+		}
+	});
+
+	worker.start();
+	started.set_value(true);
+
+	std::vector<warp_t> warps;
+	warps.reserve(warp_count);
+	for (size_t w = 0; w < warp_count; w++) {
+		warps.emplace_back(worker, 1);
+	}
+
+	warps[0].queue_routine_external([&worker]() {
+		worker.terminate();
+	});
+	worker.join();
 }
 
 void stack_op() {
@@ -109,9 +168,6 @@ void framed_data() {
 		}
 	}
 }
-
-template <typename element_t>
-using worker_allocator_t = iris_object_allocator_t<element_t>;
 
 void simple_explosion(void) {
 	static constexpr size_t thread_count = 4;
