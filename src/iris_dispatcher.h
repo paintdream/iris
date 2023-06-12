@@ -986,23 +986,6 @@ namespace iris {
 			return threads[i];
 		}
 
-		// wait for new task with timeout specified by `milliseconds`
-		// usually used in your customized thread procedures
-		void delay(size_t millseconds) {
-			if (!is_terminated()) {
-				std::unique_lock<std::mutex> lock(mutex);
-				// waiting_guard_t guard(this); // the external delay is not encounting waiting count
-				// std::atomic_thread_fence(std::memory_order_release);
-
-				if (fetch(threads.size()).first == ~size_t(0)) {
-					condition.wait_for(lock, std::chrono::milliseconds(millseconds));
-					lock.unlock();
-
-					wakeup_one_with_priority(0);
-				}
-			}
-		}
-
 		// guard for exceptions on polling
 		struct poll_guard_t {
 			poll_guard_t(task_allocator_t& alloc, task_t* t) noexcept : allocator(alloc), task(t) {}
@@ -1028,6 +1011,25 @@ namespace iris {
 			running_count.fetch_add(1, std::memory_order_acquire);
 			running_guard_t guard(running_count);
 			return poll_internal(std::min(priority + 1, threads.size()));
+		}
+
+		// poll any task from thread poll manually with given priority in specified duration
+		// usually used in your customized thread procedures
+		bool poll_delay(size_t priority, size_t millseconds) {
+			if (!poll(priority)) {
+				std::unique_lock<std::mutex> lock(mutex);
+				condition.wait_for(lock, std::chrono::milliseconds(millseconds));
+				lock.unlock();
+
+				if (!poll(priority)) {
+					// priority restriction not satisfied, wake up anther thread to solve it
+					wakeup_one_with_priority(0);
+
+					return false;
+				}
+			}
+
+			return true;
 		}
 
 		// guard for exception on running
