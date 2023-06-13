@@ -259,6 +259,15 @@ namespace iris {
 	using iris_void_t = typename iris_make_void<args_t...>::type;
 
 	template <typename type_t>
+	struct iris_is_reference_wrapper : std::false_type {};
+
+	template <typename type_t>
+	struct iris_is_reference_wrapper<std::reference_wrapper<type_t>> : std::true_type {};
+
+	template <typename type_t>
+	constexpr bool iris_is_reference_wrapper_v = iris_is_reference_wrapper<type_t>::value;
+
+	template <typename type_t>
 	struct iris_is_iterable<type_t,
 		iris_void_t<decltype(std::begin(std::declval<type_t>())), decltype(std::end(std::declval<type_t>()))>
 	> : std::true_type {};

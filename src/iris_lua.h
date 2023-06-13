@@ -293,7 +293,7 @@ namespace iris {
 
 		// register a new type, taking registar from &type_t::lua_registar by default, and you could also specify your own registar.
 		template <typename type_t, int user_value_count = 0, auto registar = has_registar<type_t>::get_registar(), typename... args_t>
-		ref_t make_type(std::string_view name, args_t&... args) {
+		ref_t make_type(std::string_view name, args_t&&... args) {
 			auto guard = write_fence();
 
 			lua_State* L = state;
@@ -322,9 +322,8 @@ namespace iris {
 			push_variable(L, "create");
 			lua_pushvalue(L, -2);
 
-			// pass constructor arguments by references
-			push_argument_references(L, args...);
-			lua_pushcclosure(L, &iris_lua_t::create_object<type_t, user_value_count, args_t...>, 1 + sizeof...(args));
+			push_arguments(L, std::forward<args_t>(args)...);
+			lua_pushcclosure(L, &iris_lua_t::create_object<type_t, user_value_count, std::remove_reference_t<args_t>...>, 1 + sizeof...(args));
 			lua_rawset(L, -3);
 
 			// call custom registar if needed
@@ -445,15 +444,7 @@ namespace iris {
 			push_arguments(L, std::forward<args_t>(args)...);
 		}
 
-		static void push_argument_references(lua_State* L) {}
-		template <typename first_t, typename... args_t>
-		static void push_argument_references(lua_State* L, first_t& first, args_t&... args) {
-			lua_pushlightuserdata(L, const_cast<void*>(static_cast<const void*>(&first)));
-			push_argument_references(L, std::forward<args_t>(args)...);
-		}
-
 		// four specs for [const][noexcept] method definition
-
 		template <auto method, typename key_t, typename return_t, typename type_t, typename... args_t>
 		static void define_method(lua_State* L, key_t&& key, return_t(type_t::*)(args_t...)) {
 			define_function_internal<method_function_adapter<method, return_t, type_t, args_t...>, key_t, return_t, required_t<type_t*>&&, args_t...>(L, std::forward<key_t>(key));
@@ -534,9 +525,9 @@ namespace iris {
 		}
 
 		// pass argument by upvalues
-		template <typename type_t, typename... args_t, size_t... k>
+		template <typename type_t, typename args_tuple_t, size_t... k>
 		static void invoke_create(type_t* p, lua_State* L, std::index_sequence<k...>) {
-			new (p) type_t(*reinterpret_cast<args_t*>(lua_touserdata(L, lua_upvalueindex(2 + int(k))))...);
+			new (p) type_t(get_variable<std::tuple_element_t<k, args_tuple_t>>(L, lua_upvalueindex(2 + int(k)))...);
 		}
 
 		// create a lua managed object
@@ -544,7 +535,7 @@ namespace iris {
 		static int create_object(lua_State* L) {
 			stack_guard_t guard(L, 1);
 			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, sizeof(type_t), user_value_count));
-			invoke_create<type_t, args_t...>(p, L, std::make_index_sequence<sizeof...(args_t)>());
+			invoke_create<type_t, std::tuple<args_t...>>(p, L, std::make_index_sequence<sizeof...(args_t)>());
 			lua_pushvalue(L, lua_upvalueindex(1));
 			lua_setmetatable(L, -2);
 
@@ -579,7 +570,9 @@ namespace iris {
 			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
 			stack_guard_t guard(L);
 
-			if constexpr (std::is_base_of_v<ref_t, value_t>) {
+			if constexpr (iris_is_reference_wrapper_v<type_t>) {
+				return std::ref(*reinterpret_cast<typename type_t::type*>(lua_touserdata(L, index)));
+			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
 				using internal_type_t = typename value_t::internal_type_t;
 				if constexpr (!std::is_void_v<internal_type_t>) {
 					auto internal_value = get_variable<internal_type_t, skip_checks>(L, index);
@@ -677,9 +670,9 @@ namespace iris {
 				return reinterpret_cast<type_t>(lua_touserdata(L, index));
 			} else if constexpr (std::is_base_of_v<require_base_t, value_t>) {
 				return get_variable<typename value_t::internal_type_t, true>(L, index);
+			} else {
+				return value_t();
 			}
-
-			return value_t();
 		}
 
 		// invoke C++ function from lua stack
@@ -861,7 +854,9 @@ namespace iris {
 			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
 			stack_guard_t guard(L, 1);
 
-			if constexpr (std::is_base_of_v<ref_t, value_t>) {
+			if constexpr (iris_is_reference_wrapper_v<value_t>) {
+				lua_pushlightuserdata(L, const_cast<void*>(reinterpret_cast<const void*>(&variable.get())));
+			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
 				lua_rawgeti(L, LUA_REGISTRYINDEX, variable.value);
 				// deference if it's never used
 				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
