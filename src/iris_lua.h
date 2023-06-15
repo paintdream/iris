@@ -231,7 +231,7 @@ namespace iris {
 			refguard_t(lua_State* L, args_t&... r) noexcept : state(L), refs{ &r... } {}
 			~refguard_t() noexcept {
 				for (auto&& r : refs) {
-					iris_lua_t::deref(state, *r);
+					iris_lua_t::deref(state, std::move(*r));
 				}
 			}
 
@@ -342,7 +342,7 @@ namespace iris {
 
 			push_variable(L, r);
 			lua_setglobal(L, name.data());
-			deref(L, r);
+			deref(L, std::move(r));
 		}
 
 		// define a variable by value
@@ -388,9 +388,9 @@ namespace iris {
 		}
 
 		// dereference a ref
-		void deref(ref_t& r) noexcept {
+		void deref(ref_t&& r) noexcept {
 			auto guard = write_fence();
-			deref(state, r);
+			deref(state, std::move(r));
 		}
 
 		// call function in protect mode
@@ -430,7 +430,7 @@ namespace iris {
 		}
 
 	protected:
-		static void deref(lua_State* L, ref_t& r) noexcept {
+		static void deref(lua_State* L, ref_t&& r) noexcept {
 			if (r.value != LUA_REFNIL) {
 				luaL_unref(L, LUA_REGISTRYINDEX, r.value);
 				r.value = LUA_REFNIL;
@@ -578,7 +578,7 @@ namespace iris {
 					auto internal_value = get_variable<internal_type_t, skip_checks>(L, index);
 					if (internal_value) {
 						lua_pushvalue(L, index);
-						return value_t(luaL_ref(L, LUA_REGISTRYINDEX), internal_value);
+						return value_t(luaL_ref(L, LUA_REGISTRYINDEX), std::move(internal_value));
 					} else {
 						return value_t();
 					}
@@ -703,13 +703,19 @@ namespace iris {
 			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<first_t>>>;
 			if constexpr (std::is_base_of_v<require_base_t, value_t>) {
 				using internal_type_t = typename value_t::internal_type_t;
-				auto var = get_variable<internal_type_t>(L, index);
-				if (!var) {
-					luaL_error(L, "Required parameter %d of type %s is invalid.\n", index, typeid(first_t).name());
-				}
+				bool check_result = false;
+				do {
+					// make sure that var destroyed before luaL_error
+					auto var = get_variable<internal_type_t>(L, index);
+					check_result = var;
 
-				if constexpr (std::is_base_of_v<ref_t, internal_type_t>) {
-					deref(L, var);
+					if constexpr (std::is_base_of_v<ref_t, internal_type_t>) {
+						deref(L, std::move(var));
+					}
+				} while (false);
+
+				if (!check_result) {
+					luaL_error(L, "Required parameter %d of type %s is invalid.\n", index, typeid(first_t).name());
 				}
 			}
 
@@ -860,7 +866,7 @@ namespace iris {
 				lua_rawgeti(L, LUA_REGISTRYINDEX, variable.value);
 				// deference if it's never used
 				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
-					deref(L, variable);
+					deref(L, std::move(variable));
 				}
 			} else if constexpr (iris_lua_convert_t<value_t>::value) {
 				iris_lua_convert_t<value_t>::to_lua(L, std::forward<type_t>(variable));

@@ -76,7 +76,7 @@ struct example_t {
 
 	int call(lua_t lua, lua_t::ref_t&& r, int value) {
 		int result = lua.call<int>(r, value);
-		lua.deref(r);
+		lua.deref(std::move(r));
 
 		return result;
 	}
@@ -99,7 +99,7 @@ struct example_t {
 	void join_value_required_refptr(lua_t&& lua, lua_t::required_t<lua_t::refptr_t<example_t>>&& rhs) noexcept {
 		printf("Required ptr!\n");
 		value += rhs.get().get()->value;
-		lua.deref(rhs.get());
+		lua.deref(std::move(rhs.get()));
 	}
 
 	void join_value_refptr(lua_t&& lua, lua_t::refptr_t<example_t>&& rhs) noexcept {
@@ -241,13 +241,13 @@ int main(void) {
 	auto r = tab.get<lua_t::ref_t>(lua, 2);
 	assert(r.as<int>(lua) == 2);
 	assert(tab.size(lua) == 2);
-	lua.deref(r);
+	lua.deref(std::move(r));
 
 	tab.for_each<std::string_view, std::string_view>(lua, [](auto key, auto value) {
 		printf("key = %s, value = %s\n", key.data(), value.data());
 		return false;
 	});
-	lua.deref(tab);
+	lua.deref(std::move(tab));
 
 #if USE_LUA_COROUTINE
 	lua.call<void>(lua.load("\n\
