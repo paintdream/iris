@@ -749,6 +749,11 @@ namespace iris {
 #endif
 				void* yield_mark = static_cast<void*>(&coroutine);
 
+				// save current thread to registry in case of gc
+				lua_pushthread(L);
+				lua_pushlightuserdata(L, yield_mark);
+				lua_settable(L, LUA_REGISTRYINDEX);
+
 				if constexpr (!std::is_void_v<return_t>) {
 					coroutine.complete([=](return_t&& value) {
 #ifdef _DEBUG
@@ -784,6 +789,10 @@ namespace iris {
 		}
 
 		static void coroutine_continuation(lua_State* L) {
+			lua_pushthread(L);
+			lua_pushnil(L);
+			lua_settable(L, LUA_REGISTRYINDEX);
+
 			if (lua_status(L) == LUA_YIELD) {
 				lua_pop(L, 1);
 #if LUA_VERSION_NUM <= 501
