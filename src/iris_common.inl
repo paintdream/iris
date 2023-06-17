@@ -49,6 +49,10 @@ SOFTWARE.
 	#include <malloc.h>
 #endif
 
+#if USE_VLD
+#include <vld.h>
+#endif
+
 namespace iris {
 	static constexpr size_t large_page = 64 * 1024;
 	void* iris_alloc_aligned(size_t size, size_t alignment) {
