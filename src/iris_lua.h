@@ -31,6 +31,7 @@ SOFTWARE.
 
 #include "iris_common.h"
 #include <array>
+#include <optional>
 
 extern "C" {
 #if !USE_LUA_LIBRARY
@@ -113,21 +114,29 @@ namespace iris {
 			}
 
 			template <typename value_t = ref_t, typename key_t>
-			value_t get(iris_lua_t lua, key_t&& key) const {
+			std::optional<value_t> get(iris_lua_t lua, key_t&& key) const {
 				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 
 				push_variable(L, *this);
 				if (lua_istable(L, -1)) {
 					push_variable(L, std::forward<key_t>(key));
+#if LUA_VERSION_NUM <= 502
 					lua_rawget(L, -2);
-					value_t ret = get_variable<value_t>(L, -1);
-					lua_pop(L, 2);
-
-					return ret;
+					if (lua_type(L, -1) != LUA_TNIL) {
+#else
+					if (lua_rawget(L, -2) != LUA_TNIL) {
+#endif
+						value_t ret = get_variable<value_t>(L, -1);
+						lua_pop(L, 2);
+						return ret;
+					} else {
+						lua_pop(L, 2);
+						return std::nullopt;
+					}
 				} else {
 					lua_pop(L, 1);
-					return value_t();
+					return std::nullopt;
 				}
 			}
 

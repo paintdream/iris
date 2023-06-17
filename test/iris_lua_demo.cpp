@@ -237,11 +237,12 @@ int main(void) {
 	});
 
 	tab.set(lua, "set", "newvalue");
-	assert(tab.get<int>(lua, 2) == 2);
+	assert(*tab.get<int>(lua, 2) == 2);
 	auto r = tab.get<lua_t::ref_t>(lua, 2);
-	assert(r.as<int>(lua) == 2);
+	assert(r);
+	assert((*r).as<int>(lua) == 2);
 	assert(tab.size(lua) == 2);
-	lua.deref(std::move(r));
+	lua.deref(std::move(*r));
 
 	tab.for_each<std::string_view, std::string_view>(lua, [](auto key, auto value) {
 		printf("key = %s, value = %s\n", key.data(), value.data());
