@@ -338,7 +338,7 @@ namespace iris {
 
 				return true;
 			} else {
-				assert(get_current_warp_internal() == nullptr || *exp == nullptr);
+				assert(get_current_warp_internal() == nullptr || exp == nullptr || *exp == nullptr);
 				return false;
 			}
 		}
