@@ -101,7 +101,8 @@ namespace iris {
 			}
 
 			template <typename value_t>
-			value_t as(lua_State* L) const {
+			value_t as(iris_lua_t lua) const {
+				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 
 				push_variable(L, *this);
@@ -112,7 +113,8 @@ namespace iris {
 			}
 
 			template <typename value_t = ref_t, typename key_t>
-			value_t get(lua_State* L, key_t&& key) const {
+			value_t get(iris_lua_t lua, key_t&& key) const {
+				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 
 				push_variable(L, *this);
@@ -130,7 +132,8 @@ namespace iris {
 			}
 
 			template <typename key_t, typename value_t>
-			void set(lua_State* L, key_t&& key, value_t&& value) const {
+			void set(iris_lua_t lua, key_t&& key, value_t&& value) const {
+				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 
 				push_variable(L, *this);
@@ -144,7 +147,8 @@ namespace iris {
 			}
 
 			template <typename key_t, typename value_t, typename func_t>
-			void for_each(lua_State* L, func_t&& func) const {
+			void for_each(iris_lua_t lua, func_t&& func) const {
+				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 				push_variable(L, *this);
 
@@ -161,7 +165,8 @@ namespace iris {
 				lua_pop(L, 1);
 			}
 
-			size_t size(lua_State* L) const {
+			size_t size(iris_lua_t lua) const {
+				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 
 				push_variable(L, *this);
