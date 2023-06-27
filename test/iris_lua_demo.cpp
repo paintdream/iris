@@ -81,6 +81,10 @@ struct example_t {
 		return result;
 	}
 
+	void lua_initialize(lua_t lua) {
+		printf("initialize!\n");
+	}
+
 	int get_value() const noexcept {
 		return value;
 	}

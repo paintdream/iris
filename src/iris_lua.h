@@ -356,12 +356,13 @@ namespace iris {
 		refptr_t<value_t> make_object(type_t&& type, args_t&&... args) {
 			lua_State* L = state;
 			stack_guard_t guard(L);
-			assert(*type.get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_type_hash<value_t>()));
+			assert(*type.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_type_hash<value_t>()));
 
 			value_t* p = reinterpret_cast<value_t*>(lua_newuserdatauv(L, sizeof(value_t), user_value_count));
 			new (p) value_t(std::forward<args_t>(args)...);
 			lua_rawgeti(L, LUA_REGISTRYINDEX, type.get());
 			lua_setmetatable(L, -2);
+			initialize_object(L, p);
 
 			if constexpr (std::is_rvalue_reference_v<type_t&&>) {
 				deref(std::move(type));
@@ -582,6 +583,22 @@ namespace iris {
 			new (p) type_t(get_variable<std::tuple_element_t<k, args_tuple_t>>(L, lua_upvalueindex(2 + int(k)))...);
 		}
 
+		template <typename type_t>
+		struct has_initialize {
+			template <typename> static std::false_type test(...);
+			template <typename impl_t> static auto test(int)
+				-> decltype(std::declval<impl_t>().lua_initialize(std::declval<iris_lua_t>()), std::true_type());
+			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
+		};
+
+		template <typename type_t>
+		static void initialize_object(lua_State* L, type_t* p) {
+			// call lua_initialize if needed
+			if constexpr (has_initialize<type_t>::value) {
+				p->lua_initialize(iris_lua_t(L));
+			}
+		}
+
 		// create a lua managed object
 		template <typename type_t, int user_value_count, typename... args_t>
 		static int create_object(lua_State* L) {
@@ -591,6 +608,7 @@ namespace iris {
 			lua_pushvalue(L, lua_upvalueindex(1));
 			lua_setmetatable(L, -2);
 
+			initialize_object(L, p);
 			return 1;
 		}
 
@@ -920,7 +938,9 @@ namespace iris {
 			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
 			stack_guard_t guard(L, 1);
 
-			if constexpr (iris_is_reference_wrapper_v<value_t>) {
+			if constexpr (std::is_null_pointer_v<value_t>) {
+				lua_pushnil(L);
+			} else if constexpr (iris_is_reference_wrapper_v<value_t>) {
 				lua_pushlightuserdata(L, const_cast<void*>(reinterpret_cast<const void*>(&variable.get())));
 			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
 				lua_rawgeti(L, LUA_REGISTRYINDEX, variable.value);
@@ -973,8 +993,6 @@ namespace iris {
 						lua_rawseti(L, -2, ++i);
 					}
 				}
-			} else if constexpr (std::is_null_pointer_v<value_t>) {
-				lua_pushnil(L);
 			} else {
 				lua_pushnil(L);
 				assert(false);
