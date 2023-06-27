@@ -74,6 +74,13 @@ namespace iris {
 		iris_lua_t(iris_lua_t&& rhs) noexcept : state(rhs.state) { rhs.state = nullptr; }
 		iris_lua_t(const iris_lua_t& rhs) noexcept : state(rhs.state) {}
 
+		template <typename type_t>
+		static size_t get_type_hash() noexcept {
+			// 0xffffffff: avoid luajit checks
+			static const size_t hash = typeid(std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::remove_pointer_t<type_t>>>>).hash_code() & 0xffffffff;
+			return hash;
+		}
+
 		operator lua_State* () const noexcept {
 			return get_state();
 		}
@@ -316,7 +323,7 @@ namespace iris {
 
 			// hash code is to check types when passing as a argument to C++
 			push_variable(L, "__hash");
-			push_variable(L, reinterpret_cast<void*>(typeid(type_t).hash_code() & 0xffffffff)); // avoid luajit checks
+			push_variable(L, reinterpret_cast<void*>(get_type_hash<type_t>()));
 			lua_rawset(L, -3);
 
 			// readable name
@@ -345,6 +352,24 @@ namespace iris {
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
+		template <typename value_t, int user_value_count = 0, typename type_t, typename... args_t>
+		refptr_t<value_t> make_object(type_t&& type, args_t&&... args) {
+			lua_State* L = state;
+			stack_guard_t guard(L);
+			assert(*type.get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_type_hash<value_t>()));
+
+			value_t* p = reinterpret_cast<value_t*>(lua_newuserdatauv(L, sizeof(value_t), user_value_count));
+			new (p) value_t(std::forward<args_t>(args)...);
+			lua_rawgeti(L, LUA_REGISTRYINDEX, type.get());
+			lua_setmetatable(L, -2);
+
+			if constexpr (std::is_rvalue_reference_v<type_t&&>) {
+				deref(std::move(type));
+			}
+
+			return refptr_t<value_t>(luaL_ref(L, LUA_REGISTRYINDEX), p);
+		}
+
 		// quick way for registering a type into global space
 		template <typename type_t, int user_value_count = 0, auto registar = has_registar<type_t>::get_registar(), typename... args_t>
 		void register_type(std::string_view name, args_t&... args) {
@@ -357,6 +382,19 @@ namespace iris {
 			push_variable(L, r);
 			lua_setglobal(L, name.data());
 			deref(L, std::move(r));
+		}
+
+		template <typename value_t>
+		value_t get_global(std::string_view key) {
+			auto guard = write_fence();
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+
+			lua_getglobal(L, key.data());
+			value_t value = get_variable<value_t>(L, -1);
+			lua_pop(L, 1);
+
+			return value;
 		}
 
 		// define a variable by value
@@ -672,8 +710,7 @@ namespace iris {
 					}
 
 					// returns empty if hashes are not equal!
-					static const size_t hash_code = typeid(std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::remove_pointer_t<value_t>>>>).hash_code();
-					if (lua_touserdata(L, -1) != reinterpret_cast<void*>(hash_code & 0xffffffff)) {
+					if (lua_touserdata(L, -1) != reinterpret_cast<void*>(get_type_hash<value_t>())) {
 						lua_pop(L, 2);
 						return value_t();
 					}

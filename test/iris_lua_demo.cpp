@@ -190,6 +190,10 @@ int main(void) {
 	warp.preempt();
 #endif
 
+	lua_t::refptr_t<example_t> example = lua.make_object<example_t>(lua.get_global<lua_t::ref_t>("example_t"));
+	example->value = 5;
+	lua.deref(std::move(example));
+
 	bool ret = lua.call<bool>(lua.load("\
 		print(_VERSION)\n\
 		local a = example_t.create()\n\
