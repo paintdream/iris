@@ -67,6 +67,8 @@ struct example_t {
 		lua.define<&example_t::forward_vector>("forward_vector");
 		lua.define<&example_t::prime>("prime");
 		lua.define<&example_t::get_vector3>("get_vector3");
+		lua.define<&example_t::native_call>("native_call");
+		lua.define<&example_t::native_call_noexcept>("native_call_noexcept");
 #if USE_LUA_COROUTINE
 		lua.define<&example_t::coro_get_int>("coro_get_int");
 		lua.define<&example_t::coro_get_none>("coro_get_none");
@@ -79,6 +81,16 @@ struct example_t {
 		lua.deref(std::move(r));
 
 		return result;
+	}
+
+	static int native_call(lua_State* L) {
+		printf("native call!\n");
+		return 0;
+	}
+
+	static int native_call_noexcept(lua_State* L) noexcept {
+		printf("native call noexcept!\n");
+		return 0;
 	}
 
 	void lua_initialize(lua_t lua) {
@@ -200,6 +212,8 @@ int main(void) {
 
 	bool ret = lua.call<bool>(lua.load("\
 		print(_VERSION)\n\
+		example_t.native_call() \n\
+		example_t.native_call_noexcept() \n\
 		local a = example_t.create()\n\
 		local b = example_t.create()\n\
 		b:join_value_required(a)\n\

@@ -419,7 +419,9 @@ namespace iris {
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 
-			if constexpr (std::is_member_function_pointer_v<decltype(ptr)>) {
+			if constexpr (std::is_convertible_v<decltype(ptr), int (*)(lua_State*)> || std::is_convertible_v<decltype(ptr), int (*)(lua_State*) noexcept>) {
+				define_native(L, std::forward<key_t>(key), ptr);
+			} else if constexpr (std::is_member_function_pointer_v<decltype(ptr)>) {
 				define_method<ptr>(L, std::forward<key_t>(key), ptr);
 			} else if constexpr (std::is_member_object_pointer_v<decltype(ptr)>) {
 				define_property<ptr>(L, std::forward<key_t>(key), ptr);
@@ -495,6 +497,13 @@ namespace iris {
 		static void push_arguments(lua_State* L, first_t&& first, args_t&&... args) {
 			push_variable(L, std::forward<first_t>(first));
 			push_arguments(L, std::forward<args_t>(args)...);
+		}
+
+		template <typename key_t, typename value_t>
+		static void define_native(lua_State* L, key_t&& key, value_t ptr) {
+			push_variable(L, std::forward<key_t>(key));
+			lua_pushcfunction(L, ptr);
+			lua_rawset(L, -3);
 		}
 
 		// four specs for [const][noexcept] method definition
