@@ -206,6 +206,11 @@ int main(void) {
 	warp.preempt();
 #endif
 
+	lua.push_variable(1234);
+	int v = lua.get_variable<int>(-1);
+	lua_pop(L, 1);
+	assert(v == 1234);
+
 	lua_t::refptr_t<example_t> example = lua.make_object<example_t>(lua.get_global<lua_t::ref_t>("example_t"));
 	example->value = 5;
 	lua.deref(std::move(example));

@@ -448,6 +448,18 @@ namespace iris {
 			deref(state, std::move(r));
 		}
 
+		template <typename value_t>
+		void push_variable(value_t&& value) {
+			auto guard = write_fence();
+			push_variable(state, std::forward<value_t>(value));
+		}
+
+		template <typename value_t>
+		value_t get_variable(int stackIndex) {
+			auto guard = write_fence();
+			return get_variable<value_t>(state, stackIndex);
+		}
+
 		// call function in protect mode
 		template <typename return_t, typename callable_t, typename... args_t>
 		return_t call(callable_t&& reference, args_t&&... args) {
