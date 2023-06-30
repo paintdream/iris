@@ -53,6 +53,7 @@ extern "C" {
 #if LUA_VERSION_NUM <= 501
 #define LUA_OK 0
 #define lua_rawlen lua_objlen
+#define lua_absindex(L, index) ((index > 0) || (index <= LUA_REGISTRYINDEX) ? (index) : (lua_gettop(L) + 1 + index))
 #endif
 
 #if LUA_VERSION_NUM <= 502
@@ -75,10 +76,9 @@ namespace iris {
 		iris_lua_t(const iris_lua_t& rhs) noexcept : state(rhs.state) {}
 
 		template <typename type_t>
-		static size_t get_type_hash() noexcept {
-			// 0xffffffff: avoid luajit checks
-			static const size_t hash = typeid(std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::remove_pointer_t<type_t>>>>).hash_code() & 0xffffffff;
-			return hash;
+		static size_t get_unique_hash() noexcept {
+			static const size_t sentinel = 0;
+			return (size_t)reinterpret_cast<const void*>(&sentinel);
 		}
 
 		operator lua_State* () const noexcept {
@@ -323,8 +323,22 @@ namespace iris {
 
 			// hash code is to check types when passing as a argument to C++
 			push_variable(L, "__hash");
-			push_variable(L, reinterpret_cast<void*>(get_type_hash<type_t>()));
+			push_variable(L, reinterpret_cast<void*>(get_unique_hash<type_t>()));
 			lua_rawset(L, -3);
+
+			// copy constructor
+			if constexpr (std::is_copy_constructible_v<type_t>) {
+				push_variable(L, "__copy");
+				push_variable(L, reinterpret_cast<void*>(&copy_construct_stub<type_t, user_value_count>));
+				lua_rawset(L, -3);
+			}
+
+			// move constructor
+			if constexpr (std::is_move_constructible_v<type_t>) {
+				push_variable(L, "__move");
+				push_variable(L, reinterpret_cast<void*>(&move_construct_stub<type_t, user_value_count>));
+				lua_rawset(L, -3);
+			}
 
 			// readable name
 			push_variable(L, "__name");
@@ -356,7 +370,7 @@ namespace iris {
 		refptr_t<value_t> make_object(type_t&& type, args_t&&... args) {
 			lua_State* L = state;
 			stack_guard_t guard(L);
-			assert(*type.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_type_hash<value_t>()));
+			assert(*type.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_unique_hash<value_t>()));
 
 			value_t* p = reinterpret_cast<value_t*>(lua_newuserdatauv(L, sizeof(value_t), user_value_count));
 			new (p) value_t(std::forward<args_t>(args)...);
@@ -454,10 +468,21 @@ namespace iris {
 			push_variable(state, std::forward<value_t>(value));
 		}
 
-		template <typename value_t>
-		value_t get_variable(int stackIndex) {
+		void pop_variable(int count) {
 			auto guard = write_fence();
-			return get_variable<value_t>(state, stackIndex);
+			lua_pop(state, count);
+		}
+
+		template <typename value_t>
+		value_t get_variable(int index) {
+			auto guard = write_fence();
+			return get_variable<value_t>(state, index);
+		}
+	
+		template <bool move, typename lua_t>
+		void cross_transfer_variable(lua_t& target, int index) {
+			auto guard = write_fence();
+			cross_transfer_variable<move>(state, target, index, 0, 0);
 		}
 
 		// call function in protect mode
@@ -511,6 +536,19 @@ namespace iris {
 			push_arguments(L, std::forward<args_t>(args)...);
 		}
 
+		// copy constructor stub
+		template <typename type_t, int user_value_count>
+		static void copy_construct_stub(lua_State* L, const void* prototype) {
+			new (reinterpret_cast<type_t*>(lua_newuserdatauv(L, sizeof(type_t), user_value_count))) type_t(*reinterpret_cast<const type_t*>(prototype));
+		}
+
+		// copy constructor stub
+		template <typename type_t, int user_value_count>
+		static void move_construct_stub(lua_State* L, void* prototype) {
+			new (reinterpret_cast<type_t*>(lua_newuserdatauv(L, sizeof(type_t), user_value_count))) type_t(std::move(*reinterpret_cast<type_t*>(prototype)));
+		}
+
+		// raw lua stub
 		template <typename key_t, typename value_t>
 		static void define_native(lua_State* L, key_t&& key, value_t ptr) {
 			push_variable(L, std::forward<key_t>(key));
@@ -634,12 +672,12 @@ namespace iris {
 		}
 
 		// get multiple variables from a lua table and pack them into a tuple/pair 
-		template <bool positive, int index, typename type_t, typename... args_t>
+		template <int index, typename type_t, typename... args_t>
 		static type_t get_tuple_variables(lua_State* L, int stack_index, args_t&&... args) {
 			if constexpr (index < std::tuple_size_v<type_t>) {
 				lua_rawgeti(L, stack_index, index + 1);
 				// notice that we need minus one if stack_index is negetive, since  lua_rawgeti will add one temporal variable on stack
-				return get_tuple_variables<positive, index + 1, type_t>(L, positive ? stack_index : stack_index - 1, std::forward<args_t>(args)..., get_variable<std::tuple_element_t<index, type_t>>(L, -1));
+				return get_tuple_variables<index + 1, type_t>(L, stack_index, std::forward<args_t>(args)..., get_variable<std::tuple_element_t<index, type_t>>(L, -1));
 			} else {
 				// pop all temporal variables and construct tuple
 				lua_pop(L, index);
@@ -697,11 +735,7 @@ namespace iris {
 					return "";
 				}
 			} else if constexpr (iris_is_tuple_v<value_t>) {
-				if (index < 0) {
-					return get_tuple_variables<false, 0, value_t>(L, index);
-				} else {
-					return get_tuple_variables<true, 0, value_t>(L, index);
-				}
+				return get_tuple_variables<0, value_t>(L, lua_absindex(L, index));
 			} else if constexpr (iris_is_iterable_v<value_t>) {
 				type_t result;
 				if (lua_istable(L, index)) {
@@ -710,8 +744,9 @@ namespace iris {
 						using key_type = typename value_t::key_type;
 						using mapped_type = typename value_t::mapped_type;
 
+						int absindex = lua_absindex(L, index);
 						lua_pushnil(L);
-						while (lua_next(L, -2) != 0) {
+						while (lua_next(L, absindex) != 0) {
 							result[get_variable<key_type>(L, -2)] = get_variable<mapped_type>(L, -1);
 							lua_pop(L, 1);
 						}
@@ -749,7 +784,7 @@ namespace iris {
 					}
 
 					// returns empty if hashes are not equal!
-					if (lua_touserdata(L, -1) != reinterpret_cast<void*>(get_type_hash<value_t>())) {
+					if (lua_touserdata(L, -1) != reinterpret_cast<void*>(get_unique_hash<std::remove_volatile_t<std::remove_const_t<std::remove_pointer_t<value_t>>>>())) {
 						lua_pop(L, 2);
 						return value_t();
 					}
@@ -972,7 +1007,7 @@ namespace iris {
 			} else if constexpr (iris_lua_convert_t<value_t>::value) {
 				iris_lua_convert_t<value_t>::to_lua(L, std::forward<type_t>(variable));
 			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {
-				lua_pushlightuserdata(L, const_cast<value_t>(variable));
+				lua_pushlightuserdata(L, const_cast<void*>(variable));
 			} else if constexpr (std::is_same_v<value_t, bool>) {
 				lua_pushboolean(L, static_cast<bool>(variable));
 			} else if constexpr (std::is_integral_v<value_t> || std::is_enum_v<value_t>) {
@@ -1017,6 +1052,150 @@ namespace iris {
 			} else {
 				lua_pushnil(L);
 				assert(false);
+			}
+		}
+
+		template <bool move, typename lua_t>
+		static void cross_transfer_variable(lua_State* L, lua_t& target, int index, int recursion_src_index, int recursion_dst_index) {
+			stack_guard_t guard(L);
+			lua_State* T = target.get_state();
+			stack_guard_t guard_target(T, 1);
+
+			// avoid recursiion
+			if (recursion_src_index != 0 && lua_rawequal(L, index, recursion_src_index)) {
+				lua_pushvalue(T, recursion_dst_index);
+			} else {
+				int type = lua_type(L, index);
+				switch (type) {
+					case LUA_TBOOLEAN:
+						target.push_variable(get_variable<bool>(L, index));
+						break;
+					case LUA_TLIGHTUSERDATA:
+						target.push_variable(get_variable<const void*>(L, index));
+						break;
+					case LUA_TNUMBER:
+					{
+#if LUA_VERSION_NUM <= 502
+						target.push_variable(get_variable<lua_Number>(L, index));
+#else
+						if (lua_isinteger(L, index)) {
+							target.push_variable(get_variable<lua_Integer>(L, index));
+						} else {
+							target.push_variable(get_variable<lua_Number>(L, index));
+						}
+#endif
+						break;
+					}
+					case LUA_TSTRING:
+					{
+						target.push_variable(get_variable<std::string_view>(L, index));
+						break;
+					}
+					case LUA_TTABLE:
+					{
+						lua_newtable(T);
+
+						int absindex = lua_absindex(L, index);
+						int target_absindex = lua_absindex(T, -1);
+						lua_pushnil(L);
+
+						while (lua_next(L, absindex) != 0) {
+							cross_transfer_variable<move>(L, target, -2, absindex, target_absindex);
+							cross_transfer_variable<move>(L, target, -1, absindex, target_absindex);
+							lua_rawset(T, -3);
+							lua_pop(L, 1);
+						}
+
+						break;
+					}
+					case LUA_TFUNCTION:
+						if (lua_iscfunction(L, index)) {
+							lua_CFunction proxy = lua_tocfunction(L, index);
+							// copy upvalues
+							int absindex = lua_absindex(L, index);
+							int n = 1;
+							while (lua_getupvalue(L, absindex, n) != nullptr) {
+								cross_transfer_variable<false>(L, target, -1, recursion_src_index, recursion_dst_index);
+								lua_pop(L, 1);
+								n++;
+							}
+
+							lua_pushcclosure(T, proxy, n - 1);
+						} else {
+							// do not convert lua functions
+							target.push_variable(nullptr);
+						}
+						break;
+					case LUA_TUSERDATA:
+					{
+						// get metatable
+						void* src = lua_touserdata(L, index);
+						if (src == nullptr || !lua_getmetatable(L, index)) {
+							target.push_variable(nullptr);
+						} else {
+#if LUA_VERSION_NUM <= 502
+							lua_getfield(L, index, "__hash");
+							if (lua_type(L, -1) != LUA_TNIL) {
+#else
+							if (lua_getfield(L, -1, "__hash") != LUA_TNIL) {
+#endif
+								void* hash = lua_touserdata(L, -1);
+#if LUA_VERSION_NUM <= 502
+								lua_pushlightuserdata(T, hash);
+								lua_rawget(T, LUA_REGISTRYINDEX);
+								if (lua_type(T, -1) == LUA_TNIL) {
+#else
+								if (lua_rawgetp(T, LUA_REGISTRYINDEX, hash) == LUA_TNIL) {
+#endif
+									lua_pop(T, 1);
+									// copy metatable
+									cross_transfer_variable<false>(L, target, -2, 0, 0);
+									lua_pushlightuserdata(T, hash);
+									lua_pushvalue(T, -2);
+									lua_rawset(T, LUA_REGISTRYINDEX);
+								}
+
+								// now metatable prepared
+								if constexpr (move) {
+									lua_getfield(T, -1, "__move");
+								} else {
+									lua_getfield(T, -1, "__copy");
+								}
+
+								void* ptr = lua_touserdata(T, -1);
+								if (ptr == nullptr) {
+									lua_pop(T, 2);
+									target.push_variable(nullptr);
+								} else {
+									if constexpr (move) {
+										reinterpret_cast<decltype(&copy_construct_stub<void, 0>)>(ptr)(T, src);
+									} else {
+										reinterpret_cast<decltype(&move_construct_stub<void, 0>)>(ptr)(T, src);
+									}
+
+									lua_pushvalue(T, -3);
+									lua_setmetatable(T, -2);
+
+									// notice that we do not copy user values
+									lua_replace(T, -3);
+									lua_pop(T, 1);
+								}
+							} else {
+								target.push_variable(nullptr);
+							}
+
+							lua_pop(L, 2);
+						}
+
+						break;
+					}
+					case LUA_TTHREAD:
+						target.push_variable(nullptr);
+						break;
+					default:
+						target.push_variable(nullptr);
+						break;
+				}
 			}
 		}
 

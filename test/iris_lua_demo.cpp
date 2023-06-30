@@ -76,6 +76,16 @@ struct example_t {
 #endif
 	}
 
+	example_t() noexcept {}
+	example_t(const example_t& rhs) noexcept {
+		printf("copy construct!!\n");
+		value = rhs.value;
+	}
+	example_t(example_t&& rhs) noexcept {
+		printf("move construct!!\n");
+		value = rhs.value;
+	}
+
 	int call(lua_t lua, lua_t::ref_t&& r, int value) {
 		int result = lua.call<int>(r, value);
 		lua.deref(std::move(r));
@@ -183,7 +193,7 @@ struct example_t {
 	}
 #endif
 
-	int value = 0;
+	int value = 10;
 	const int const_value = 0;
 };
 
@@ -205,6 +215,32 @@ int main(void) {
 	worker.start();
 	warp.preempt();
 #endif
+
+	lua_State* T = luaL_newstate();
+	lua_t target(T);
+	target.call<void>(target.load("\n\
+function test(a, b, c) \n\
+	print('cross ' .. tostring(a)) \n\
+	print('cross value ' .. b:value()) \n\
+	print('cross value ' .. c:value()) \n\
+end\n"));
+	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test");
+	lua_rawgeti(T, LUA_REGISTRYINDEX, test.get());
+	target.deref(std::move(test));
+
+	luaL_openlibs(T);
+	lua.push_variable(1234);
+	lua.push_variable(lua.make_object<example_t>(lua.make_type<example_t>("example_duplicate_t")));
+	lua.push_variable(lua.make_object<example_t>(lua.make_type<example_t>("example_duplicate_t2")));
+	lua.cross_transfer_variable<true>(target, -3);
+	lua.cross_transfer_variable<true>(target, -2);
+	lua.cross_transfer_variable<false>(target, -1);
+	auto* g = target.get_variable<example_t*>(-1);
+	lua.pop_variable(3);
+
+	int state = lua_pcall(T, 3, 0, 0);
+	assert(state == LUA_OK);
+	lua_close(T);
 
 	lua.push_variable(1234);
 	int v = lua.get_variable<int>(-1);
