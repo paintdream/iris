@@ -89,6 +89,11 @@ namespace iris {
 			return state;
 		}
 
+		template <typename... args_t>
+		static void log_error(args_t&&... args) {
+			fprintf(stderr, std::forward<args_t>(args)...);
+		}
+
 		// holding lua value
 		struct ref_t {
 			explicit ref_t(int v = LUA_REFNIL) noexcept : value(v) { assert(LUA_REFNIL == 0 || v != 0); }
@@ -271,7 +276,7 @@ namespace iris {
 			stack_guard_t stack_guard(L);
 
 			if (luaL_loadbuffer(L, code.data(), code.size(), name.data()) != LUA_OK) {
-				fprintf(stderr, "[ERROR] iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
+				log_error("[ERROR] iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
 				lua_pop(L, 1);
 				return ref_t();
 			}
@@ -463,26 +468,52 @@ namespace iris {
 		}
 
 		template <typename value_t>
-		void push_variable(value_t&& value) {
+		void native_push_variable(value_t&& value) {
 			auto guard = write_fence();
 			push_variable(state, std::forward<value_t>(value));
 		}
 
-		void pop_variable(int count) {
+		void native_pop_variable(int count) {
 			auto guard = write_fence();
 			lua_pop(state, count);
 		}
 
+		int native_get_top() {
+			auto guard = write_fence();
+			return lua_gettop(state);
+		}
+
 		template <typename value_t>
-		value_t get_variable(int index) {
+		value_t native_get_variable(int index) {
 			auto guard = write_fence();
 			return get_variable<value_t>(state, index);
 		}
 	
 		template <bool move, typename lua_t>
-		void cross_transfer_variable(lua_t& target, int index) {
+		void native_cross_transfer_variable(lua_t& target, int index) {
 			auto guard = write_fence();
 			cross_transfer_variable<move>(state, target, index, 0, 0);
+		}
+
+		template <typename callable_t>
+		int native_call(callable_t&& reference, int param_count) {
+			auto guard = write_fence();
+
+			lua_State* L = state;
+			// stack_guard_t stack_guard(L);
+			int top = lua_gettop(L);
+
+			push_variable(L, std::forward<callable_t>(reference));
+			lua_insert(L, -param_count - 1);
+
+			if (lua_pcall(L, param_count, LUA_MULTRET, 0) == LUA_OK) {
+				return lua_gettop(L) - top + param_count;
+			} else {
+				log_error("[ERROR] iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
+				lua_pop(L, 1);
+				assert(top == lua_gettop(L));
+				return 0;
+			}
 		}
 
 		// call function in protect mode
@@ -503,7 +534,7 @@ namespace iris {
 					return result;
 				}
 			} else {
-				fprintf(stderr, "[ERROR] iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
+				log_error("[ERROR] iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
 				lua_pop(L, 1);
 
 				if constexpr (!std::is_void_v<return_t>) {
@@ -930,7 +961,7 @@ namespace iris {
 #endif
 				if (ret != LUA_OK && ret != LUA_YIELD) {
 					// error!
-					fprintf(stderr, "[ERROR] iris_lua_t::function_coutine_proxy() -> resume error: %s\n", lua_tostring(L, -1));
+					log_error("[ERROR] iris_lua_t::function_coutine_proxy() -> resume error: %s\n", lua_tostring(L, -1));
 					lua_pop(L, 1);
 				}
 			}
@@ -1068,27 +1099,27 @@ namespace iris {
 				int type = lua_type(L, index);
 				switch (type) {
 					case LUA_TBOOLEAN:
-						target.push_variable(get_variable<bool>(L, index));
+						target.native_push_variable(get_variable<bool>(L, index));
 						break;
 					case LUA_TLIGHTUSERDATA:
-						target.push_variable(get_variable<const void*>(L, index));
+						target.native_push_variable(get_variable<const void*>(L, index));
 						break;
 					case LUA_TNUMBER:
 					{
 #if LUA_VERSION_NUM <= 502
-						target.push_variable(get_variable<lua_Number>(L, index));
+						target.native_push_variable(get_variable<lua_Number>(L, index));
 #else
 						if (lua_isinteger(L, index)) {
-							target.push_variable(get_variable<lua_Integer>(L, index));
+							target.native_push_variable(get_variable<lua_Integer>(L, index));
 						} else {
-							target.push_variable(get_variable<lua_Number>(L, index));
+							target.native_push_variable(get_variable<lua_Number>(L, index));
 						}
 #endif
 						break;
 					}
 					case LUA_TSTRING:
 					{
-						target.push_variable(get_variable<std::string_view>(L, index));
+						target.native_push_variable(get_variable<std::string_view>(L, index));
 						break;
 					}
 					case LUA_TTABLE:
@@ -1123,7 +1154,7 @@ namespace iris {
 							lua_pushcclosure(T, proxy, n - 1);
 						} else {
 							// do not convert lua functions
-							target.push_variable(nullptr);
+							target.native_push_variable(nullptr);
 						}
 						break;
 					case LUA_TUSERDATA:
@@ -1131,7 +1162,7 @@ namespace iris {
 						// get metatable
 						void* src = lua_touserdata(L, index);
 						if (src == nullptr || !lua_getmetatable(L, index)) {
-							target.push_variable(nullptr);
+							target.native_push_variable(nullptr);
 						} else {
 #if LUA_VERSION_NUM <= 502
 							lua_getfield(L, index, "__hash");
@@ -1165,7 +1196,7 @@ namespace iris {
 								void* ptr = lua_touserdata(T, -1);
 								if (ptr == nullptr) {
 									lua_pop(T, 2);
-									target.push_variable(nullptr);
+									target.native_push_variable(nullptr);
 								} else {
 									if constexpr (move) {
 										reinterpret_cast<decltype(&copy_construct_stub<void, 0>)>(ptr)(T, src);
@@ -1181,7 +1212,7 @@ namespace iris {
 									lua_pop(T, 1);
 								}
 							} else {
-								target.push_variable(nullptr);
+								target.native_push_variable(nullptr);
 							}
 
 							lua_pop(L, 2);
@@ -1190,10 +1221,10 @@ namespace iris {
 						break;
 					}
 					case LUA_TTHREAD:
-						target.push_variable(nullptr);
+						target.native_push_variable(nullptr);
 						break;
 					default:
-						target.push_variable(nullptr);
+						target.native_push_variable(nullptr);
 						break;
 				}
 			}

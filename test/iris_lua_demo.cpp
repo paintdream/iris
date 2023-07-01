@@ -223,27 +223,27 @@ function test(a, b, c) \n\
 	print('cross ' .. tostring(a)) \n\
 	print('cross value ' .. b:value()) \n\
 	print('cross value ' .. c:value()) \n\
+	return a \n\
 end\n"));
 	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test");
-	lua_rawgeti(T, LUA_REGISTRYINDEX, test.get());
-	target.deref(std::move(test));
 
 	luaL_openlibs(T);
-	lua.push_variable(1234);
-	lua.push_variable(lua.make_object<example_t>(lua.make_type<example_t>("example_duplicate_t")));
-	lua.push_variable(lua.make_object<example_t>(lua.make_type<example_t>("example_duplicate_t2")));
-	lua.cross_transfer_variable<true>(target, -3);
-	lua.cross_transfer_variable<true>(target, -2);
-	lua.cross_transfer_variable<false>(target, -1);
-	auto* g = target.get_variable<example_t*>(-1);
-	lua.pop_variable(3);
+	lua.native_push_variable(1234);
+	lua.native_push_variable(lua.make_object<example_t>(lua.make_type<example_t>("example_duplicate_t")));
+	lua.native_push_variable(lua.make_object<example_t>(lua.make_type<example_t>("example_duplicate_t2")));
+	lua.native_cross_transfer_variable<true>(target, -3);
+	lua.native_cross_transfer_variable<true>(target, -2);
+	lua.native_cross_transfer_variable<false>(target, -1);
+	auto* g = target.native_get_variable<example_t*>(-1);
+	lua.native_pop_variable(3);
 
-	int state = lua_pcall(T, 3, 0, 0);
-	assert(state == LUA_OK);
+	int result = target.native_call(std::move(test), 3);
+	int ret_val = target.native_get_variable<int>(-1);
+	assert(ret_val == 1234);
 	lua_close(T);
 
-	lua.push_variable(1234);
-	int v = lua.get_variable<int>(-1);
+	lua.native_push_variable(1234);
+	int v = lua.native_get_variable<int>(-1);
 	lua_pop(L, 1);
 	assert(v == 1234);
 
