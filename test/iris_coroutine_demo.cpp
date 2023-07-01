@@ -44,6 +44,15 @@ coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, warp_t* 
 		co_await iris_switch<warp_t>(nullptr); // iris_select requires warp_t::get_current_warp() == nullptr
 		warp_t* selected = co_await iris_select(warp, warp_end);
 		printf("Select warp: %d\n", iris_verify_cast<int>(selected - warp));
+
+		assert(warp_end - warp > 1);
+		if (warp == selected) {
+			co_await iris_pair(warp + 1);
+		} else {
+			co_await iris_pair(warp, warp + 1);
+		}
+
+		printf("Paired!\n");
 		co_await iris_switch(current);
 	}
 

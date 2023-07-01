@@ -520,7 +520,13 @@ namespace iris {
 		explicit iris_switch_t(warp_t* warp) noexcept : source(warp_t::get_current_warp()), target(warp) {}
 
 		bool await_ready() const noexcept {
-			return source == target;
+			if (source != target) {
+				return false;
+			} else if (source == nullptr) {
+				return true;
+			} else {
+				return source->get_stack_next() == nullptr;
+			}
 		}
 
 		void await_suspend(iris_coroutine_handle_t<> handle) {
@@ -554,6 +560,68 @@ namespace iris {
 	template <typename warp_t>
 	auto iris_switch(warp_t* target) noexcept {
 		return iris_switch_t<warp_t>(target);
+	}
+
+	template <typename warp_t>
+	struct iris_pair_t {
+		using async_worker_t = typename warp_t::async_worker_t;
+
+		explicit iris_pair_t(warp_t* warp) noexcept : original(warp_t::get_current_warp()), source(original), target(warp) { assert(target != nullptr); }
+		iris_pair_t(warp_t* warp, warp_t* other) noexcept : original(warp_t::get_current_warp()), source(other), target(warp) { assert(target != nullptr && source != nullptr); }
+
+		constexpr bool await_ready() const noexcept {
+			return false;
+		}
+
+		void handler(iris_coroutine_handle_t<>&& handle) {
+			if (source == nullptr) {
+				handle.resume();
+			} else {
+				typename warp_t::template preempt_guard_t<false> guard(*source);
+				if (guard) {
+					handle.resume();
+				} else {
+					// preempt failed, swap and continue dispatching until success!
+					std::swap(source, target);
+
+					target->queue_routine_post([this, handle = std::move(handle)]() mutable noexcept(noexcept(handle.resume())) {
+						handler(std::move(handle));
+					});
+				}
+			}
+		}
+
+		void await_suspend(iris_coroutine_handle_t<> handle) {
+			assert(target != nullptr);
+			if (target->get_async_worker().get_current_thread_index() != ~size_t(0)) {
+				target->queue_routine_post([this, handle = std::move(handle)]() mutable noexcept(noexcept(handle.resume())) {
+					handler(std::move(handle));
+				});
+			} else {
+				target->queue_routine_external([this, handle = std::move(handle)]() mutable noexcept(noexcept(handle.resume())) {
+					handler(std::move(handle));
+				});
+			}
+		}
+
+		warp_t* await_resume() const noexcept {
+			return original;
+		}
+
+	protected:
+		warp_t* original;
+		warp_t* source;
+		warp_t* target;
+	};
+
+	template <typename warp_t>
+	auto iris_pair(warp_t* target) noexcept {
+		return iris_pair_t<warp_t>(target);
+	}
+
+	template <typename warp_t>
+	auto iris_pair(warp_t* target, warp_t* other) noexcept {
+		return iris_pair_t<warp_t>(target, other);
 	}
 
 	// switch to any warp from specified range [from, to] 

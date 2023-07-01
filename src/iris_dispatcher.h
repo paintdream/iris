@@ -300,6 +300,11 @@ namespace iris {
 			}
 		}
 
+		// get stack warp pointer
+		iris_warp_t* get_stack_next() const noexcept {
+			return stack_next_warp;
+		}
+
 		// interrupt warp on running
 		bool interrupt() noexcept {
 			return interrupting.exchange(1, std::memory_order_relaxed) == 0;

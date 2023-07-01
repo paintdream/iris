@@ -1092,18 +1092,22 @@ namespace iris {
 			lua_State* T = target.get_state();
 			stack_guard_t guard_target(T, 1);
 
-			// avoid recursiion
+			// avoid recursion
 			if (recursion_src_index != 0 && lua_rawequal(L, index, recursion_src_index)) {
 				lua_pushvalue(T, recursion_dst_index);
 			} else {
 				int type = lua_type(L, index);
 				switch (type) {
 					case LUA_TBOOLEAN:
+					{
 						target.native_push_variable(get_variable<bool>(L, index));
 						break;
+					}
 					case LUA_TLIGHTUSERDATA:
+					{
 						target.native_push_variable(get_variable<const void*>(L, index));
 						break;
+					}
 					case LUA_TNUMBER:
 					{
 #if LUA_VERSION_NUM <= 502
@@ -1140,6 +1144,7 @@ namespace iris {
 						break;
 					}
 					case LUA_TFUNCTION:
+					{
 						if (lua_iscfunction(L, index)) {
 							lua_CFunction proxy = lua_tocfunction(L, index);
 							// copy upvalues
@@ -1157,6 +1162,7 @@ namespace iris {
 							target.native_push_variable(nullptr);
 						}
 						break;
+					}
 					case LUA_TUSERDATA:
 					{
 						// get metatable
@@ -1221,11 +1227,15 @@ namespace iris {
 						break;
 					}
 					case LUA_TTHREAD:
+					{
 						target.native_push_variable(nullptr);
 						break;
+					}
 					default:
+					{
 						target.native_push_variable(nullptr);
 						break;
+					}
 				}
 			}
 		}
