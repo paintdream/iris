@@ -289,11 +289,13 @@ namespace iris {
 #ifdef _DEBUG
 			stack_guard_t(lua_State* state, int offset = 0) noexcept : L(state) { top = lua_gettop(L) + offset; }
 			~stack_guard_t() noexcept { assert(top == lua_gettop(L)); }
+			void append(int diff) noexcept { top += diff; }
 
 			lua_State* L;
 			int top;
 #else
 			stack_guard_t(lua_State* state, int offset = 0) noexcept {}
+			void append(int diff) noexcept {}
 #endif
 		};
 
@@ -1036,7 +1038,7 @@ namespace iris {
 					deref(L, std::move(variable));
 				}
 			} else if constexpr (iris_lua_convert_t<value_t>::value) {
-				iris_lua_convert_t<value_t>::to_lua(L, std::forward<type_t>(variable));
+				guard.append(iris_lua_convert_t<value_t>::to_lua(L, std::forward<type_t>(variable)) - 1);
 			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {
 				lua_pushlightuserdata(L, const_cast<void*>(variable));
 			} else if constexpr (std::is_same_v<value_t, bool>) {

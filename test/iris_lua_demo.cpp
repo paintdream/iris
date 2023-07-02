@@ -27,7 +27,7 @@ struct vector3 {
 
 template <>
 struct iris::iris_lua_convert_t<vector3> : std::true_type {
-	static void to_lua(lua_State* L, vector3&& v) noexcept {
+	static int to_lua(lua_State* L, vector3&& v) noexcept {
 		lua_newtable(L);
 		lua_pushnumber(L, v.z);
 		lua_pushnumber(L, v.y);
@@ -35,6 +35,7 @@ struct iris::iris_lua_convert_t<vector3> : std::true_type {
 		lua_rawseti(L, -4, 1);
 		lua_rawseti(L, -3, 2);
 		lua_rawseti(L, -2, 3);
+		return 1;
 	}
 
 	static vector3 from_lua(lua_State* L, int index) noexcept {
