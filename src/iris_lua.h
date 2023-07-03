@@ -383,7 +383,7 @@ namespace iris {
 			new (p) value_t(std::forward<args_t>(args)...);
 			lua_rawgeti(L, LUA_REGISTRYINDEX, type.get());
 			lua_setmetatable(L, -2);
-			initialize_object(L, p);
+			initialize_object(L, p, lua_absindex(L, -1));
 
 			if constexpr (std::is_rvalue_reference_v<type_t&&>) {
 				deref(std::move(type));
@@ -648,7 +648,7 @@ namespace iris {
 		struct has_finalize {
 			template <typename> static std::false_type test(...);
 			template <typename impl_t> static auto test(int)
-				-> decltype(std::declval<impl_t>().lua_finalize(std::declval<iris_lua_t>()), std::true_type());
+				-> decltype(std::declval<impl_t>().lua_finalize(std::declval<iris_lua_t>(), 1), std::true_type());
 			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
 		};
 
@@ -659,7 +659,7 @@ namespace iris {
 
 			// call lua_finalize if needed
 			if constexpr (has_finalize<type_t>::value) {
-				p->lua_finalize(iris_lua_t(L));
+				p->lua_finalize(iris_lua_t(L), 1);
 			}
 
 			assert(p != nullptr);
@@ -679,15 +679,15 @@ namespace iris {
 		struct has_initialize {
 			template <typename> static std::false_type test(...);
 			template <typename impl_t> static auto test(int)
-				-> decltype(std::declval<impl_t>().lua_initialize(std::declval<iris_lua_t>()), std::true_type());
+				-> decltype(std::declval<impl_t>().lua_initialize(std::declval<iris_lua_t>(), 1), std::true_type());
 			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
 		};
 
 		template <typename type_t>
-		static void initialize_object(lua_State* L, type_t* p) {
+		static void initialize_object(lua_State* L, type_t* p, int index) {
 			// call lua_initialize if needed
 			if constexpr (has_initialize<type_t>::value) {
-				p->lua_initialize(iris_lua_t(L));
+				p->lua_initialize(iris_lua_t(L), index);
 			}
 		}
 
@@ -700,7 +700,7 @@ namespace iris {
 			lua_pushvalue(L, lua_upvalueindex(1));
 			lua_setmetatable(L, -2);
 
-			initialize_object(L, p);
+			initialize_object(L, p, lua_absindex(L, -1));
 			return 1;
 		}
 

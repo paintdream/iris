@@ -104,7 +104,7 @@ struct example_t {
 		return 0;
 	}
 
-	void lua_initialize(lua_t lua) {
+	void lua_initialize(lua_t lua, int index) {
 		printf("initialize!\n");
 	}
 
@@ -173,7 +173,7 @@ struct example_t {
 		});
 	}
 
-	void lua_finalize(lua_State* L) noexcept {
+	void lua_finalize(lua_State* L, int index) noexcept {
 		printf("finalize!\n");
 	}
 
