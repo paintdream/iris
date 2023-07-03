@@ -260,7 +260,7 @@ Warp system supports coroutines integration, you could find an example at [iris_
 To start with a coroutine, just write a function with return value type "iris_coroutine_t":
 
 ```C++
-iris_coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, int value) {}
+iris_coroutine_t<return_type> example(warp_t::async_worker_t& async_worker, warp_t* warp, int value) {}
 ```
 
 In this coroutine function, you could await call **iris_switch** to switch to another warp context:
@@ -306,6 +306,8 @@ std::vector<int> rets = co_await iris_awaitable_union(async_worker, iris_awaitab
 ```
 
 It's much more clear than use callbacks.
+
+iris_coroutine_t<return_type> is not only a coroutine but also an awaitable object. You could also co_await it to chain your coroutine pipeline.
 
 ### DAG-based Task Dispatcher
 
