@@ -174,9 +174,7 @@ int main(void) {
 
 	iris_dispatcher_t<warp_t> dispatcher(worker);
 	example_listen(dispatcher).join();
-	std::atomic<int> q1{ 4 };
-	std::atomic<int> q2{ 5 };
-	quota_t quota(q1, q2);
+	quota_t quota({ 4, 5 });
 	quota_queue_t quota_queue(worker, quota);
 	example_quota(quota_queue).join();
 

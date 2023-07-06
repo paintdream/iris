@@ -32,12 +32,7 @@ inline void int_interface::release_element<int*>(int*&& object) {
 }
 
 int main(void) {
-	std::atomic<int> res_alpha;
-	std::atomic<int> res_beta;
-	res_alpha.store(5, std::memory_order_relaxed);
-	res_beta.store(3, std::memory_order_relaxed);
-
-	iris::iris_quota_t<int, 2> quota{ res_alpha, res_beta };
+	iris::iris_quota_t<int, 2> quota({ 5, 3 });
 	bool u1 = quota.acquire({ 1,2 });
 	assert(u1);
 	bool u2 = quota.acquire({ 2,3 });

@@ -866,6 +866,9 @@ namespace iris {
 					// make sure that var destroyed before luaL_error
 					auto var = get_variable<internal_type_t>(L, index);
 					check_result = var;
+					if (!check_result) {
+						check_result = get_variable<internal_type_t>(L, index);
+					}
 
 					if constexpr (std::is_base_of_v<ref_t, internal_type_t>) {
 						deref(L, std::move(var));

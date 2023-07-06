@@ -249,6 +249,18 @@ namespace iris {
 	template <>
 	struct iris_log2<0> : std::integral_constant<size_t, 0> {}; // let log2(0) == 0, only for template reduction compiling
 
+	// std::make_index_sequence for C++ 11
+	// seq from stackoverflow http://stackoverflow.com/questions/17424477/implementation-c14-make-integer-sequence by xeo
+	template <size_t...> struct iris_sequence { using type = iris_sequence; };
+	template <typename s1, typename s2> struct iris_concat;
+	template <size_t... i1, size_t... i2>
+	struct iris_concat<iris_sequence<i1...>, iris_sequence<i2...>> : iris_sequence<i1..., (sizeof...(i1) + i2)...> {};
+	template <size_t n> struct iris_make_sequence;
+	template <size_t n>
+	struct iris_make_sequence : iris_concat<typename iris_make_sequence<n / 2>::type, typename iris_make_sequence<n - n / 2>::type>::type {};
+	template <> struct iris_make_sequence<0> : iris_sequence<> {};
+	template <> struct iris_make_sequence<1> : iris_sequence<0> {};
+
 	template <typename type_t, typename = void>
 	struct iris_is_iterable : std::false_type {};
 
@@ -2366,9 +2378,11 @@ namespace iris {
 	template <typename quantity_t, size_t n>
 	struct iris_quota_t {
 		using amount_t = std::array<quantity_t, n>;
-
-		template <typename... args_t>
-		iris_quota_t(args_t&... p) noexcept : quantities{ &p... } {}
+		iris_quota_t(const amount_t& amount) noexcept {
+			for (size_t i = 0; i < n; i++) {
+				quantities[i].store(amount[i]);
+			}
+		}
 
 		bool acquire(const amount_t& amount) noexcept {
 			for (size_t i = 0; i < n; i++) {
@@ -2376,7 +2390,7 @@ namespace iris {
 				if (m == 0)
 					continue;
 
-				std::atomic<quantity_t>& q = *quantities[i];
+				std::atomic<quantity_t>& q = quantities[i];
 				quantity_t expected = q.load(std::memory_order_acquire);
 				while (!(expected < m)) {
 					if (q.compare_exchange_weak(expected, expected - m, std::memory_order_relaxed)) {
@@ -2390,7 +2404,7 @@ namespace iris {
 						if (amount[k] == 0)
 							continue;
 
-						quantities[k]->fetch_add(amount[k], std::memory_order_release);
+						quantities[k].fetch_add(amount[k], std::memory_order_release);
 					}
 
 					return false;
@@ -2405,7 +2419,7 @@ namespace iris {
 				if (amount[k] == 0)
 					continue;
 
-				quantities[k]->fetch_add(amount[k], std::memory_order_release);
+				quantities[k].fetch_add(amount[k], std::memory_order_release);
 			}
 		}
 
@@ -2440,8 +2454,17 @@ namespace iris {
 			return guard_t(*this, amount);
 		}
 
+		amount_t get() const noexcept {
+			amount_t ret;
+			for (size_t i = 0; i < n; i++) {
+				ret[i] = quantities[i].load(std::memory_order_acquire);
+			}
+
+			return ret;
+		}
+
 	protected:
-		std::array<std::atomic<quantity_t>*, n> quantities;
+		std::array<std::atomic<quantity_t>, n> quantities;
 	};
 }
 

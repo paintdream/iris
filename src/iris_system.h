@@ -57,18 +57,6 @@ namespace iris {
 		template <size_t n, typename... args_t>
 		using locate_type = typename std::tuple_element<n, std::tuple<args_t...>>::type;
 
-		// std::make_index_sequence for C++ 11
-		// seq from stackoverflow http://stackoverflow.com/questions/17424477/implementation-c14-make-integer-sequence by xeo
-		template <size_t...> struct seq { using type = seq; };
-		template <typename s1, typename s2> struct concat;
-		template <size_t... i1, size_t... i2>
-		struct concat<seq<i1...>, seq<i2...>> : seq<i1..., (sizeof...(i1) + i2)...> {};
-		template <size_t n> struct gen_seq;
-		template <size_t n>
-		struct gen_seq : concat<typename gen_seq<n / 2>::type, typename gen_seq<n - n / 2>::type>::type {};
-		template <> struct gen_seq<0> : seq<> {};
-		template <> struct gen_seq<1> : seq<0> {};
-
 		template <typename type_t>
 		constexpr bool check_duplicated_components_one() { return true; }
 
@@ -381,12 +369,12 @@ namespace iris {
 				iterator(component_view& view_host, size_t i, iter_t&&... iter) : host(&view_host), index(i), it(std::forward<iter_t>(iter)...) {}
 
 				template <size_t... s>
-				static iterator make_iterator_begin(component_view& view_host, size_t i, queue_tuple_t& sub, seq<s...>) noexcept {
+				static iterator make_iterator_begin(component_view& view_host, size_t i, queue_tuple_t& sub, iris_sequence<s...>) noexcept {
 					return iterator(view_host, i, std::get<s>(sub)->begin()...);
 				}
 
 				template <size_t... s>
-				static iterator make_iterator_end(component_view& view_host, size_t i, queue_tuple_t& sub, seq<s...>) noexcept {
+				static iterator make_iterator_end(component_view& view_host, size_t i, queue_tuple_t& sub, iris_sequence<s...>) noexcept {
 					return iterator(view_host, i, std::get<s>(sub)->end()...);
 				}
 
@@ -411,7 +399,7 @@ namespace iris {
 				}
 
 				template <size_t... s>
-				std::tuple<std::reference_wrapper<components_t>...> make_value(seq<s...>) const noexcept {
+				std::tuple<std::reference_wrapper<components_t>...> make_value(iris_sequence<s...>) const noexcept {
 					return std::make_tuple<std::reference_wrapper<components_t>...>(*std::get<s>(it)...);
 				}
 
@@ -420,7 +408,7 @@ namespace iris {
 				}
 
 				std::tuple<std::reference_wrapper<components_t>...> filter_value(std::false_type) const noexcept {
-					return make_value(gen_seq<sizeof...(components_t)>());
+					return make_value(iris_make_sequence<sizeof...(components_t)>());
 				}
 
 				typename std::conditional<sizeof...(components_t) == 1, reference, value_type>::type operator * () const noexcept {
@@ -429,12 +417,12 @@ namespace iris {
 
 				template <typename operation_t>
 				void invoke(operation_t&& op) const {
-					invoke_impl(std::forward<operation_t>(op), gen_seq<sizeof...(components_t)>());
+					invoke_impl(std::forward<operation_t>(op), iris_make_sequence<sizeof...(components_t)>());
 				}
 
 			protected:
 				template <typename operation_t, size_t... s>
-				void invoke_impl(operation_t&& op, seq<s...>) const {
+				void invoke_impl(operation_t&& op, iris_sequence<s...>) const {
 					op(*std::get<s>(it)...);
 				}
 
@@ -444,21 +432,21 @@ namespace iris {
 				static bool reduce(first_t f, args_t&&...) noexcept { return f; }
 
 				template <size_t... s>
-				bool step_impl(seq<s...>) noexcept {
+				bool step_impl(iris_sequence<s...>) noexcept {
 					return reduce(std::get<s>(it).step()...);
 				}
 
 				void step() noexcept {
-					if (!step_impl(gen_seq<sizeof...(components_t)>())) {
+					if (!step_impl(iris_make_sequence<sizeof...(components_t)>())) {
 						while (index + 1 < system_count) {
 							if (!std::get<0>(host->subcomponents[++index])->empty()) {
-								*this = make_iterator_begin(*host, index, host->subcomponents[index], gen_seq<sizeof...(components_t)>());
+								*this = make_iterator_begin(*host, index, host->subcomponents[index], iris_make_sequence<sizeof...(components_t)>());
 
 								return;
 							}
 						}
 
-						*this = make_iterator_end(*host, index, host->subcomponents[index], gen_seq<sizeof...(components_t)>());
+						*this = make_iterator_end(*host, index, host->subcomponents[index], iris_make_sequence<sizeof...(components_t)>());
 					}
 				}
 
@@ -470,7 +458,7 @@ namespace iris {
 			iterator begin() noexcept {
 				for (size_t i = 0; i < subcomponents.size(); i++) {
 					if (!std::get<0>(subcomponents[i])->empty()) {
-						return iterator::make_iterator_begin(*this, i, subcomponents[i], gen_seq<sizeof...(components_t)>());
+						return iterator::make_iterator_begin(*this, i, subcomponents[i], iris_make_sequence<sizeof...(components_t)>());
 					}
 				}
 
@@ -478,7 +466,7 @@ namespace iris {
 			}
 
 			iterator end() noexcept {
-				return iterator::make_iterator_end(*this, system_count - 1, subcomponents[system_count - 1], gen_seq<sizeof...(components_t)>());
+				return iterator::make_iterator_end(*this, system_count - 1, subcomponents[system_count - 1], iris_make_sequence<sizeof...(components_t)>());
 			}
 
 			template <typename operation_t>
@@ -490,7 +478,7 @@ namespace iris {
 			template <typename operation_t>
 			void for_each_system(operation_t&& op) {
 				IRIS_PROFILE_SCOPE(__FUNCTION__);
-				for_each_system_impl(std::forward<operation_t>(op), gen_seq<sizeof...(components_t)>());
+				for_each_system_impl(std::forward<operation_t>(op), iris_make_sequence<sizeof...(components_t)>());
 			}
 
 			std::array<queue_tuple_t, system_count> subcomponents;
@@ -513,7 +501,7 @@ namespace iris {
 			}
 
 			template <typename operation_t, size_t... s>
-			void for_each_system_impl(operation_t&& op, seq<s...>) {
+			void for_each_system_impl(operation_t&& op, iris_sequence<s...>) {
 				for (size_t i = 0; i < subcomponents.size(); i++) {
 					op(*std::get<s>(subcomponents[i])...);
 				}
@@ -536,12 +524,12 @@ namespace iris {
 				iterator(const_component_view& view_host, size_t i, iter_t&&... iter) : host(&view_host), index(i), it(std::forward<iter_t>(iter)...) {}
 
 				template <size_t... s>
-				static iterator make_iterator_begin(const_component_view& view_host, size_t i, queue_tuple_t& sub, seq<s...>) noexcept {
+				static iterator make_iterator_begin(const_component_view& view_host, size_t i, queue_tuple_t& sub, iris_sequence<s...>) noexcept {
 					return iterator(view_host, i, std::get<s>(sub)->begin()...);
 				}
 
 				template <size_t... s>
-				static iterator make_iterator_end(const_component_view& view_host, size_t i, queue_tuple_t& sub, seq<s...>) noexcept {
+				static iterator make_iterator_end(const_component_view& view_host, size_t i, queue_tuple_t& sub, iris_sequence<s...>) noexcept {
 					return iterator(view_host, i, std::get<s>(sub)->end()...);
 				}
 
@@ -566,7 +554,7 @@ namespace iris {
 				}
 
 				template <size_t... s>
-				std::tuple<std::reference_wrapper<const components_t>...> make_value(seq<s...>) const noexcept {
+				std::tuple<std::reference_wrapper<const components_t>...> make_value(iris_sequence<s...>) const noexcept {
 					return std::make_tuple<std::reference_wrapper<const components_t>...>(*std::get<s>(it)...);
 				}
 
@@ -575,7 +563,7 @@ namespace iris {
 				}
 
 				std::tuple<std::reference_wrapper<const components_t>...> filter_value(std::false_type) const noexcept {
-					return make_value(gen_seq<sizeof...(components_t)>());
+					return make_value(iris_make_sequence<sizeof...(components_t)>());
 				}
 
 				typename std::conditional<sizeof...(components_t) == 1, reference, value_type>::type operator * () const noexcept {
@@ -584,12 +572,12 @@ namespace iris {
 
 				template <typename operation_t>
 				void invoke(operation_t&& op) const {
-					invoke_impl(std::forward<operation_t>(op), gen_seq<sizeof...(components_t)>());
+					invoke_impl(std::forward<operation_t>(op), iris_make_sequence<sizeof...(components_t)>());
 				}
 
 			protected:
 				template <typename operation_t, size_t... s>
-				void invoke_impl(operation_t&& op, seq<s...>) const {
+				void invoke_impl(operation_t&& op, iris_sequence<s...>) const {
 					op(*std::get<s>(it)...);
 				}
 
@@ -599,21 +587,21 @@ namespace iris {
 				static bool reduce(first_t f, args_t&&...) noexcept { return f; }
 
 				template <size_t... s>
-				bool step_impl(seq<s...>) noexcept {
+				bool step_impl(iris_sequence<s...>) noexcept {
 					return reduce(std::get<s>(it).step()...);
 				}
 
 				void step() noexcept {
-					if (!step_impl(gen_seq<sizeof...(components_t)>())) {
+					if (!step_impl(iris_make_sequence<sizeof...(components_t)>())) {
 						while (index + 1 < system_count) {
 							if (!std::get<0>(host->subcomponents[++index])->empty()) {
-								*this = make_iterator_begin(*host, index, host->subcomponents[index], gen_seq<sizeof...(components_t)>());
+								*this = make_iterator_begin(*host, index, host->subcomponents[index], iris_make_sequence<sizeof...(components_t)>());
 
 								return;
 							}
 						}
 
-						*this = make_iterator_end(*host, index, host->subcomponents[index], gen_seq<sizeof...(components_t)>());
+						*this = make_iterator_end(*host, index, host->subcomponents[index], iris_make_sequence<sizeof...(components_t)>());
 					}
 				}
 
@@ -625,7 +613,7 @@ namespace iris {
 			iterator begin() noexcept {
 				for (size_t i = 0; i < subcomponents.size(); i++) {
 					if (!std::get<0>(subcomponents[i])->empty()) {
-						return iterator::make_iterator_begin(*this, i, subcomponents[i], gen_seq<sizeof...(components_t)>());
+						return iterator::make_iterator_begin(*this, i, subcomponents[i], iris_make_sequence<sizeof...(components_t)>());
 					}
 				}
 
@@ -633,7 +621,7 @@ namespace iris {
 			}
 
 			iterator end() noexcept {
-				return iterator::make_iterator_end(*this, system_count - 1, subcomponents[system_count - 1], gen_seq<sizeof...(components_t)>());
+				return iterator::make_iterator_end(*this, system_count - 1, subcomponents[system_count - 1], iris_make_sequence<sizeof...(components_t)>());
 			}
 
 			template <typename operation_t>
@@ -645,7 +633,7 @@ namespace iris {
 			template <typename operation_t>
 			void for_each_system(operation_t&& op) {
 				IRIS_PROFILE_SCOPE(__FUNCTION__);
-				for_each_system_impl(std::forward<operation_t>(op), gen_seq<sizeof...(components_t)>());
+				for_each_system_impl(std::forward<operation_t>(op), iris_make_sequence<sizeof...(components_t)>());
 			}
 
 			std::array<queue_tuple_t, system_count> subcomponents;
@@ -668,7 +656,7 @@ namespace iris {
 			}
 
 			template <typename operation_t, size_t... s>
-			void for_each_system_impl(operation_t&& op, seq<s...>) {
+			void for_each_system_impl(operation_t&& op, iris_sequence<s...>) {
 				for (size_t i = 0; i < subcomponents.size(); i++) {
 					op(*std::get<s>(subcomponents[i])...);
 				}
@@ -693,13 +681,13 @@ namespace iris {
 		template <bool fill, size_t i, size_t n, typename components_tuple_t, typename view_t>
 		struct fill_view_impl {
 			template <typename system_t, size_t... s>
-			static void execute_impl(view_t& view, system_t& sys, seq<s...>) {
+			static void execute_impl(view_t& view, system_t& sys, iris_sequence<s...>) {
 				view.subcomponents[n] = std::make_tuple(&sys.template component<typename std::tuple_element<s, components_tuple_t>::type>()...);
 			}
 
 			template <typename sub_t>
 			static void execute(view_t& view, sub_t& subsystems) noexcept {
-				execute_impl(view, std::get<i>(subsystems), gen_seq<std::tuple_size<components_tuple_t>::value>());
+				execute_impl(view, std::get<i>(subsystems), iris_make_sequence<std::tuple_size<components_tuple_t>::value>());
 			}
 		};
 
