@@ -1205,6 +1205,16 @@ namespace iris {
 				host->release(delta);
 			}
 
+			amount_t move() noexcept {
+				amount_t ret = get_amount();
+				host = nullptr;
+				for (size_t i = 0; i < amount.size(); i++) {
+					amount[i] = 0;
+				}
+
+				return ret;
+			}
+
 			const amount_t& get_amount() const noexcept {
 				return amount;
 			}
