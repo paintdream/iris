@@ -88,10 +88,10 @@ struct example_t {
 	}
 
 	int call(lua_t lua, lua_t::ref_t&& r, int value) {
-		int result = lua.call<int>(r, value);
+		auto result = lua.call<int>(r, value);
 		lua.deref(std::move(r));
 
-		return result;
+		return result.value_or(0);
 	}
 
 	static int native_call(lua_State* L) {
@@ -143,6 +143,12 @@ struct example_t {
 	int accum_value(int init) noexcept {
 		return value += init;
 	}
+
+	// will cause lua error "C-function execution error"
+	/*
+	std::optional<int> accum_value(int init) noexcept {
+		return std::nullopt;
+	}*/
 
 	static std::tuple<int, std::string> forward_tuple(std::tuple<int, std::string>&& v) {
 		std::get<0>(v) = std::get<0>(v) + 1;
@@ -252,7 +258,7 @@ end\n"));
 	example->value = 5;
 	lua.deref(std::move(example));
 
-	bool ret = lua.call<bool>(lua.load("\
+	auto success = lua.call<void>(lua.load("\
 		print(_VERSION)\n\
 		example_t.native_call() \n\
 		example_t.native_call_noexcept() \n\
@@ -291,9 +297,8 @@ end\n"));
 		local t = a:get_vector3({11, 22, 33 })\n\
 		for i = 1, #t do\n\
 			print(t[i])\n\
-		end\n\
-		return true\n"));
-	assert(ret);
+		end\n"));
+	assert(success);
 	auto tab = lua.make_table([](lua_t&& lua) {
 		lua.define("key", "value");
 		lua.define(1, "number");

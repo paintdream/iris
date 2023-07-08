@@ -520,7 +520,7 @@ namespace iris {
 
 		// call function in protect mode
 		template <typename return_t, typename callable_t, typename... args_t>
-		return_t call(callable_t&& reference, args_t&&... args) {
+		std::conditional_t<std::is_void_v<return_t>, std::optional<bool>, std::optional<return_t>> call(callable_t&& reference, args_t&&... args) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = write_fence();
 
@@ -534,14 +534,13 @@ namespace iris {
 					return_t result = get_variable<return_t>(L, -1);
 					lua_pop(L, 1);
 					return result;
+				} else {
+					return true;
 				}
 			} else {
 				log_error("[ERROR] iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
 				lua_pop(L, 1);
-
-				if constexpr (!std::is_void_v<return_t>) {
-					return return_t();
-				}
+				return std::nullopt;
 			}
 		}
 
@@ -829,9 +828,15 @@ namespace iris {
 			} else if constexpr (std::is_base_of_v<require_base_t, value_t>) {
 				return get_variable<typename value_t::internal_type_t, true>(L, index);
 			} else {
-				return value_t();
+				// by default, force iris_lua_convert_t
+				return iris_lua_convert_t<value_t>::from_lua(L, index);
 			}
 		}
+
+		template <typename type_t>
+		struct is_optional : std::false_type {};
+		template <typename type_t>
+		struct is_optional<std::optional<type_t>> : std::true_type {};
 
 		// invoke C++ function from lua stack
 		template <auto function, int index, typename return_t, typename tuple_t, typename... params_t>
@@ -847,8 +852,18 @@ namespace iris {
 					function(std::forward<params_t>(params)...);
 					return 0;
 				} else {
-					push_variable(L, function(std::forward<params_t>(params)...));
-					return 1;
+					if constexpr (is_optional<return_t>::value) {
+						auto ret = function(std::forward<params_t>(params)...);
+						if (ret) {
+							push_variable(L, std::move(ret.value()));
+							return 1;
+						} else {
+							return -1; // error
+						}
+					} else {
+						push_variable(L, function(std::forward<params_t>(params)...));
+						return 1;
+					}
 				}
 			}
 		}
@@ -886,7 +901,12 @@ namespace iris {
 		template <auto function, typename return_t, typename... args_t>
 		static int function_proxy(lua_State* L) {
 			check_required_parameters<1, args_t...>(L);
-			return function_invoke<function, 0, return_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, 1);
+			int ret = function_invoke<function, 0, return_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, 1);
+			if (ret < 0) {
+				luaL_error(L, "C-function execution error.");
+			}
+
+			return ret;
 		}
 
 		template <auto function, int index, typename coroutine_t, typename tuple_t, typename... params_t>
@@ -912,7 +932,7 @@ namespace iris {
 
 				// save current thread to registry in case of gc
 				lua_pushthread(L);
-				lua_pushlightuserdata(L, yield_mark);
+				lua_newtable(L); // create a table for customizing lua "thread local" storage
 				lua_settable(L, LUA_REGISTRYINDEX);
 
 				if constexpr (!std::is_void_v<return_t>) {
@@ -950,10 +970,6 @@ namespace iris {
 		}
 
 		static void coroutine_continuation(lua_State* L) {
-			lua_pushthread(L);
-			lua_pushnil(L);
-			lua_settable(L, LUA_REGISTRYINDEX);
-
 			if (lua_status(L) == LUA_YIELD) {
 				lua_pop(L, 1);
 #if LUA_VERSION_NUM <= 501
@@ -970,6 +986,11 @@ namespace iris {
 					lua_pop(L, 1);
 				}
 			}
+
+			// clear thread reference to allow gc collecting
+			lua_pushthread(L);
+			lua_pushnil(L);
+			lua_settable(L, LUA_REGISTRYINDEX);
 		}
 
 		template <auto function, typename coroutine_t, typename... args_t>
@@ -1086,8 +1107,8 @@ namespace iris {
 					}
 				}
 			} else {
-				lua_pushnil(L);
-				assert(false);
+				// by default, force iris_lua_convert_t
+				guard.append(iris_lua_convert_t<value_t>::to_lua(L, std::forward<type_t>(variable)) - 1);
 			}
 		}
 
