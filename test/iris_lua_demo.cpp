@@ -19,7 +19,7 @@ static worker_t* workerptr = nullptr;
 using warp_t = void;
 #endif
 
-using lua_t = iris_lua_t<warp_t>;
+using lua_t = iris_lua_t;
 
 struct vector3 {
 	float x, y, z;
