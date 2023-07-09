@@ -730,7 +730,9 @@ namespace iris {
 			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
 			stack_guard_t guard(L);
 
-			if constexpr (iris_is_reference_wrapper_v<type_t>) {
+			if constexpr (std::is_null_pointer_v<value_t>) {
+				return nullptr;
+			} else if constexpr (iris_is_reference_wrapper_v<type_t>) {
 				return std::ref(*reinterpret_cast<typename type_t::type*>(lua_touserdata(L, index)));
 			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
 				using internal_type_t = typename value_t::internal_type_t;
