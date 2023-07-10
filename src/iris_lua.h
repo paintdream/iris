@@ -73,6 +73,16 @@ namespace iris {
 		explicit iris_lua_t(lua_State* L) noexcept : state(L) {}
 		iris_lua_t(iris_lua_t&& rhs) noexcept : state(rhs.state) { rhs.state = nullptr; }
 		iris_lua_t(const iris_lua_t& rhs) noexcept : state(rhs.state) {}
+		iris_lua_t& operator = (const iris_lua_t& rhs) noexcept {
+			state = rhs.state;
+			return *this;
+		}
+
+		iris_lua_t& operator = (iris_lua_t&& rhs) noexcept {
+			state = rhs.state;
+			rhs.state = nullptr;
+			return *this;
+		}
 
 		template <typename type_t>
 		static size_t get_unique_hash() noexcept {
