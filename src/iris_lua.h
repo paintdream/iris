@@ -932,29 +932,29 @@ namespace iris {
 				// mark state
 				using return_t = typename coroutine_t::return_type_t;
 				auto coroutine = function(std::forward<params_t>(params)...);
-				void* yield_mark = static_cast<void*>(&coroutine);
+				void* address = coroutine.get_handle().address();
 
 				// save current thread to registry in case of gc
+				lua_pushlightuserdata(L, address);
 				lua_pushthread(L);
-				lua_newtable(L); // create a table for customizing lua "thread local" storage
 				lua_settable(L, LUA_REGISTRYINDEX);
 
 				if constexpr (!std::is_void_v<return_t>) {
-					coroutine.complete([L, yield_mark](return_t&& value) {
+					coroutine.complete([L, address](return_t&& value) {
 						push_variable(L, std::move(value));
-						push_variable(L, yield_mark);
-						coroutine_continuation(L);
+						push_variable(L, address);
+						coroutine_continuation(L, address);
 					}).run();
 				} else {
-					coroutine.complete([L, yield_mark]() {
+					coroutine.complete([L, address]() {
 						lua_pushnil(L);
-						push_variable(L, yield_mark);
-						coroutine_continuation(L);
+						push_variable(L, address);
+						coroutine_continuation(L, address);
 					}).run();
 				}
 
 				// already completed?
-				if (lua_touserdata(L, -1) == yield_mark) {
+				if (lua_touserdata(L, -1) == address) {
 					lua_pop(L, 1);
 					return true;
 				} else {
@@ -963,7 +963,7 @@ namespace iris {
 			}
 		}
 
-		static void coroutine_continuation(lua_State* L) {
+		static void coroutine_continuation(lua_State* L, void* address) {
 			if (lua_status(L) == LUA_YIELD) {
 				lua_pop(L, 1);
 #if LUA_VERSION_NUM <= 501
@@ -982,7 +982,7 @@ namespace iris {
 			}
 
 			// clear thread reference to allow gc collecting
-			lua_pushthread(L);
+			lua_pushlightuserdata(L, address);
 			lua_pushnil(L);
 			lua_settable(L, LUA_REGISTRYINDEX);
 		}
