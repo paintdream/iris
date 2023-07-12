@@ -68,8 +68,6 @@ namespace iris {
 			void unhandled_exception() noexcept { return std::terminate(); }
 			std::function<void()> completion;
 		};
-
-		struct promise_abstract {};
 	}
 
 	template <typename return_t = void>
@@ -563,23 +561,23 @@ namespace iris {
 	struct iris_pair_t {
 		using async_worker_t = typename warp_t::async_worker_t;
 
-		explicit iris_pair_t(warp_t* warp) noexcept : original(warp_t::get_current_warp()), source(original), target(warp) { assert(target != nullptr); }
-		iris_pair_t(warp_t* warp, warp_t* other) noexcept : original(warp_t::get_current_warp()), source(other), target(warp) { assert(target != nullptr && source != nullptr); }
+		explicit iris_pair_t(warp_t* target_warp) noexcept : source(warp_t::get_current_warp()), target(target_warp), other(source) { assert(target != nullptr); }
+		iris_pair_t(warp_t* target_warp, warp_t* other_warp) noexcept : source(warp_t::get_current_warp()), target(target_warp), other(other_warp) { assert(target != nullptr && other != nullptr); }
 
 		constexpr bool await_ready() const noexcept {
 			return false;
 		}
 
 		void handler(std::coroutine_handle<>&& handle) {
-			if (source == nullptr) {
+			if (other == nullptr) {
 				handle.resume();
 			} else {
-				typename warp_t::template preempt_guard_t<false> guard(*source);
+				typename warp_t::template preempt_guard_t<false> guard(*other);
 				if (guard) {
 					handle.resume();
 				} else {
 					// preempt failed, swap and continue dispatching until success!
-					std::swap(source, target);
+					std::swap(other, target);
 
 					target->queue_routine_post([this, handle = std::move(handle)]() mutable noexcept(noexcept(handle.resume())) {
 						handler(std::move(handle));
@@ -602,13 +600,13 @@ namespace iris {
 		}
 
 		warp_t* await_resume() const noexcept {
-			return original;
+			return source;
 		}
 
 	protected:
-		warp_t* original;
 		warp_t* source;
 		warp_t* target;
+		warp_t* other;
 	};
 
 	template <typename warp_t>
