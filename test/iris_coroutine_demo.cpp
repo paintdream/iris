@@ -30,6 +30,7 @@ coroutine_int_t cascade_ret(warp_t* warp) {
 
 coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, warp_t* warp_end, int value) {
 	if (warp != nullptr) {
+		assert(warp_end - warp >= 3);
 		warp_t* current = co_await iris_switch(warp);
 		printf("Switch to warp %p\n", warp);
 		co_await iris_switch<warp_t>(nullptr);
@@ -47,9 +48,9 @@ coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, warp_t* 
 
 		assert(warp_end - warp > 1);
 		if (warp == selected) {
-			co_await iris_pair(warp + 1);
+			co_await iris_switch(warp + 1, warp + 2);
 		} else {
-			co_await iris_pair(warp, warp + 1);
+			co_await iris_switch(warp, warp + 1);
 		}
 
 		printf("Paired!\n");
@@ -237,7 +238,7 @@ int main(void) {
 	});
 
 	// test for running example from an external thread
-	example(worker, &warps[0], &warps[2], 1).complete([]() {
+	example(worker, &warps[0], &warps[3], 1).complete([]() {
 		printf("Complete!\n");
 	}).run();
 
@@ -251,14 +252,14 @@ int main(void) {
 
 	warps[0].queue_routine_external([&worker, &warps]() {
 		// test for running example from an warp
-		example(worker, &warps[0], &warps[2], 3).run();
+		example(worker, &warps[0], &warps[3], 3).run();
 		example(worker, nullptr, nullptr, 4).run(); // cannot call join() here since warps[0] will be blocked
 	});
 
 	// test for running example from thread pool
 	worker.queue([&worker, &warps]() {
 		// test for running example from an warp
-		example(worker, &warps[0], &warps[2], 5).run();
+		example(worker, &warps[0], &warps[3], 5).run();
 		example(worker, nullptr, nullptr, 6).join(); // can call join() here since we are NOT in any warp
 	});
 

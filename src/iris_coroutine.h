@@ -507,65 +507,18 @@ namespace iris {
 		return iris_awaitable_multiple_t<typename awaitable_t::warp_t, typename awaitable_t::func_t>(worker, std::forward<awaitable_t>(first), std::forward<args_t>(args)...);
 	}
 
-	// switch to specified warp, and return the original current warp
+	// switch to specified warp or warp pair, and return the original current warp
 	template <typename warp_t>
 	struct iris_switch_t {
 		using async_worker_t = typename warp_t::async_worker_t;
-
-		explicit iris_switch_t(warp_t* warp) noexcept : source(warp_t::get_current_warp()), target(warp) {}
+		iris_switch_t(warp_t* target_warp, warp_t* other_warp) noexcept : source(warp_t::get_current_warp()), target(target_warp), other(other_warp) {}
 
 		bool await_ready() const noexcept {
-			if (source != target) {
-				return false;
-			} else if (source == nullptr) {
-				return true;
+			if (source == target) {
+				return other == nullptr || source == other;
 			} else {
-				return source->get_stack_next() == nullptr;
+				return target == nullptr && source == other;
 			}
-		}
-
-		void await_suspend(std::coroutine_handle<> handle) {
-			if (target == nullptr) {
-				assert(source != nullptr);
-				source->get_async_worker().queue([handle = std::move(handle)]() mutable noexcept(noexcept(handle.resume())) {
-					handle.resume();
-				});
-			} else {
-				if (target->get_async_worker().get_current_thread_index() != ~size_t(0)) {
-					target->queue_routine_post([handle = std::move(handle)]() mutable noexcept(noexcept(handle.resume())) {
-						handle.resume();
-					});
-				} else {
-					target->queue_routine_external([handle = std::move(handle)]() mutable noexcept(noexcept(handle.resume())) {
-						handle.resume();
-					});
-				}
-			}
-		}
-
-		warp_t* await_resume() const noexcept {
-			return source;
-		}
-
-	protected:
-		warp_t* source;
-		warp_t* target;
-	};
-
-	template <typename warp_t>
-	auto iris_switch(warp_t* target) noexcept {
-		return iris_switch_t<warp_t>(target);
-	}
-
-	template <typename warp_t>
-	struct iris_pair_t {
-		using async_worker_t = typename warp_t::async_worker_t;
-
-		explicit iris_pair_t(warp_t* target_warp) noexcept : source(warp_t::get_current_warp()), target(target_warp), other(source) { assert(target != nullptr); }
-		iris_pair_t(warp_t* target_warp, warp_t* other_warp) noexcept : source(warp_t::get_current_warp()), target(target_warp), other(other_warp) { assert(target != nullptr && other != nullptr); }
-
-		constexpr bool await_ready() const noexcept {
-			return false;
 		}
 
 		void handler(std::coroutine_handle<>&& handle) {
@@ -587,15 +540,25 @@ namespace iris {
 		}
 
 		void await_suspend(std::coroutine_handle<> handle) {
-			assert(target != nullptr);
-			if (target->get_async_worker().get_current_thread_index() != ~size_t(0)) {
-				target->queue_routine_post([this, handle = std::move(handle)]() mutable noexcept(noexcept(handle.resume())) {
+			if (target == nullptr) {
+				std::swap(other, target);
+			}
+
+			if (target == nullptr) {
+				assert(source != nullptr);
+				source->get_async_worker().queue([this, handle = std::move(handle)]() mutable {
 					handler(std::move(handle));
 				});
 			} else {
-				target->queue_routine_external([this, handle = std::move(handle)]() mutable noexcept(noexcept(handle.resume())) {
-					handler(std::move(handle));
-				});
+				if (target->get_async_worker().get_current_thread_index() != ~size_t(0)) {
+					target->queue_routine_post([this, handle = std::move(handle)]() mutable {
+						handler(std::move(handle));
+					});
+				} else {
+					target->queue_routine_external([this, handle = std::move(handle)]() mutable {
+						handler(std::move(handle));
+					});
+				}
 			}
 		}
 
@@ -610,13 +573,8 @@ namespace iris {
 	};
 
 	template <typename warp_t>
-	auto iris_pair(warp_t* target) noexcept {
-		return iris_pair_t<warp_t>(target);
-	}
-
-	template <typename warp_t>
-	auto iris_pair(warp_t* target, warp_t* other) noexcept {
-		return iris_pair_t<warp_t>(target, other);
+	auto iris_switch(warp_t* target, warp_t* other = nullptr) noexcept {
+		return iris_switch_t<warp_t>(target, other);
 	}
 
 	// switch to any warp from specified range [from, to] 
