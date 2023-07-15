@@ -47,8 +47,7 @@ void external_poll() {
 		try {
 			future.get();
 
-			worker_t::get_current() = &worker;
-			worker_t::get_current_thread_index_internal() = i;
+			worker.make_current(i);
 			printf("[[ external thread running ... ]]\n");
 
 			while (!worker.is_terminated()) {
@@ -187,9 +186,7 @@ void simple_explosion(void) {
 		// copied from iris_async_worker_t<>::start() thread routine
 		try {
 			future.get();
-
-			worker_t::get_current() = &worker;
-			worker_t::get_current_thread_index_internal() = i;
+			worker.make_current(i);
 			printf("[[ external thread running ... ]]\n");
 
 			while (!worker.is_terminated()) {

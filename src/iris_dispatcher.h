@@ -945,7 +945,6 @@ namespace iris {
 		}
 
 		void make_current(size_t i) noexcept {
-			get_current() = this;
 			get_current_thread_index_internal() = i;
 		}
 
@@ -1175,18 +1174,6 @@ namespace iris {
 			condition.notify_all();
 		}
 
-		// get_current worker instance be aware of multi-dll linkage!
-		static iris_async_worker_t*& get_current() noexcept {
-			static thread_local iris_async_worker_t* current_async_worker = nullptr;
-			return current_async_worker;
-		}
-
-		// be aware of multi-dll linkage!
-		static size_t& get_current_thread_index_internal() noexcept {
-			static thread_local size_t current_thread_index = ~size_t(0);
-			return current_thread_index;
-		}
-
 		// blocked delay for any task
 		void delay() {
 			if (!is_terminated()) {
@@ -1202,6 +1189,12 @@ namespace iris {
 		}
 
 	protected:
+		// be aware of multi-dll linkage!
+		static size_t& get_current_thread_index_internal() noexcept {
+			static thread_local size_t current_thread_index = ~size_t(0);
+			return current_thread_index;
+		}
+
 		void wakeup_one_with_priority(size_t priority) {
 			if (waiting_thread_count > priority + limit_count) {
 				wakeup_one();
