@@ -252,6 +252,14 @@ namespace iris {
 			template <typename... args_t>
 			required_t(args_t&&... args) : value(std::forward<args_t>(args)...) {}
 
+			operator type_t& () noexcept {
+				return value;
+			}
+
+			operator const type_t& () const noexcept {
+				return value;
+			}
+
 			type_t& get() noexcept {
 				return value;
 			}
@@ -513,8 +521,8 @@ namespace iris {
 			lua_State* L = state;
 			// stack_guard_t stack_guard(L);
 			int top = lua_gettop(L);
-
 			push_variable(L, std::forward<callable_t>(reference));
+			assert(lua_gettop(L) == top + 1);
 			lua_insert(L, -param_count - 1);
 
 			if (lua_pcall(L, param_count, LUA_MULTRET, 0) == LUA_OK) {
@@ -522,7 +530,7 @@ namespace iris {
 			} else {
 				log_error("[ERROR] iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
 				lua_pop(L, 1);
-				assert(top == lua_gettop(L));
+				assert(lua_gettop(L) == top);
 				return 0;
 			}
 		}
@@ -592,6 +600,7 @@ namespace iris {
 		// raw lua stub
 		template <typename key_t, typename value_t>
 		static void define_native(lua_State* L, key_t&& key, value_t ptr) {
+			stack_guard_t guard(L);
 			push_variable(L, std::forward<key_t>(key));
 			lua_pushcfunction(L, ptr);
 			lua_rawset(L, -3);
@@ -630,6 +639,7 @@ namespace iris {
 
 		template <auto function, typename key_t, typename return_t, typename... args_t>
 		static void define_function_internal(lua_State* L, key_t&& key) {
+			stack_guard_t guard(L);
 			push_variable(L, std::forward<key_t>(key));
 			if constexpr (iris_is_coroutine_v<return_t>) {
 				lua_pushcclosure(L, &iris_lua_t::function_coroutine_proxy<function, return_t, args_t...>, 0);
@@ -647,6 +657,7 @@ namespace iris {
 
 		template <auto prop, typename key_t, typename type_t>
 		static void define_property_internal(lua_State* L, key_t&& key) {
+			stack_guard_t guard(L);
 			push_variable(L, std::forward<key_t>(key));
 			lua_pushcclosure(L, &iris_lua_t::property_proxy<prop, type_t>, 0);
 			lua_rawset(L, -3);
@@ -702,6 +713,8 @@ namespace iris {
 		// create a lua managed object
 		template <typename type_t, int user_value_count, typename... args_t>
 		static int create_object(lua_State* L) {
+			check_required_parameters<1, args_t...>(L);
+
 			stack_guard_t guard(L, 1);
 			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, sizeof(type_t), user_value_count));
 			invoke_create<type_t, std::tuple<args_t...>>(p, L, std::make_index_sequence<sizeof...(args_t)>());
@@ -863,18 +876,21 @@ namespace iris {
 					function(std::forward<params_t>(params)...);
 					return 0;
 				} else {
+					auto ret = function(std::forward<params_t>(params)...);
+					int top = lua_gettop(L);
 					if constexpr (is_optional<return_t>::value) {
-						auto ret = function(std::forward<params_t>(params)...);
-						if (ret) {
-							push_variable(L, std::move(ret.value()));
-							return 1;
-						} else {
+						if (!ret) {
 							return -1; // error
 						}
+						
+						push_variable(L, std::move(ret.value()));
 					} else {
-						push_variable(L, function(std::forward<params_t>(params)...));
-						return 1;
+						push_variable(L, std::move(ret));
 					}
+
+					int count = lua_gettop(L) - top;
+					assert(count >= 0);
+					return count;
 				}
 			}
 		}
@@ -921,7 +937,7 @@ namespace iris {
 		}
 
 		template <auto function, int index, typename coroutine_t, typename tuple_t, typename... params_t>
-		static bool function_coroutine_invoke(lua_State* L, int stack_index, params_t&&... params) {
+		static int function_coroutine_invoke(lua_State* L, int stack_index, params_t&&... params) {
 			if constexpr (index < std::tuple_size_v<tuple_t>) {
 				if constexpr (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::tuple_element_t<index, tuple_t>>>>>) {
 					return function_coroutine_invoke<function, index + 1, coroutine_t, tuple_t>(L, stack_index, std::forward<params_t>(params)..., iris_lua_t(L));
@@ -939,40 +955,46 @@ namespace iris {
 				lua_pushthread(L);
 				lua_settable(L, LUA_REGISTRYINDEX);
 
+				int top = lua_gettop(L);
 				if constexpr (!std::is_void_v<return_t>) {
 					coroutine.complete([L, address](return_t&& value) {
+						int top = lua_gettop(L);
 						push_variable(L, std::move(value));
+						int count = lua_gettop(L) - top;
+						assert(count >= 0);
 						push_variable(L, address);
-						coroutine_continuation(L, address);
+						coroutine_continuation(L, address, count);
 					}).run();
 				} else {
 					coroutine.complete([L, address]() {
 						lua_pushnil(L);
 						push_variable(L, address);
-						coroutine_continuation(L, address);
+						coroutine_continuation(L, address, 1);
 					}).run();
 				}
 
 				// already completed?
 				if (lua_touserdata(L, -1) == address) {
 					lua_pop(L, 1);
-					return true;
+					int count = lua_gettop(L) - top;
+					assert(count >= 0);
+					return count;
 				} else {
-					return false;
+					return -1;
 				}
 			}
 		}
 
-		static void coroutine_continuation(lua_State* L, void* address) {
+		static void coroutine_continuation(lua_State* L, void* address, int count) {
 			if (lua_status(L) == LUA_YIELD) {
 				lua_pop(L, 1);
 #if LUA_VERSION_NUM <= 501
-				int ret = lua_resume(L, 1);
+				int ret = lua_resume(L, count);
 #elif LUA_VERSION_NUM <= 503
-				int ret = lua_resume(L, nullptr, 1);
+				int ret = lua_resume(L, nullptr, count);
 #else
 				int nres = 0;
-				int ret = lua_resume(L, nullptr, 1, &nres);
+				int ret = lua_resume(L, nullptr, count, &nres);
 #endif
 				if (ret != LUA_OK && ret != LUA_YIELD) {
 					// error!
@@ -990,8 +1012,9 @@ namespace iris {
 		template <auto function, typename coroutine_t, typename... args_t>
 		static int function_coroutine_proxy(lua_State* L) {
 			check_required_parameters<1, args_t...>(L);
-			if (function_coroutine_invoke<function, 0, coroutine_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, 1)) {
-				return 1;
+			int count = 0;
+			if ((count = function_coroutine_invoke<function, 0, coroutine_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, 1)) >= 0) {
+				return count;
 			} else {
 				return lua_yield(L, 0);
 			}
@@ -1029,13 +1052,16 @@ namespace iris {
 		static void push_tuple_variables(lua_State* L, type_t&& variable) {
 			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
 			if constexpr (index < std::tuple_size_v<value_t>) {
-				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
-					push_variable(L, std::move(std::get<index>(variable)));
-				} else {
-					push_variable(L, std::get<index>(variable));
-				}
+				do {
+					stack_guard_t stack_guard(L);
+					if constexpr (std::is_rvalue_reference_v<type_t&&>) {
+						push_variable(L, std::move(std::get<index>(variable)));
+					} else {
+						push_variable(L, std::get<index>(variable));
+					}
 
-				lua_rawseti(L, -2, index + 1);
+					lua_rawseti(L, -2, index + 1);
+				} while (false);
 				push_tuple_variables<index + 1>(L, std::forward<type_t>(variable));
 			}
 		}
@@ -1076,6 +1102,7 @@ namespace iris {
 					lua_createtable(L, 0, static_cast<int>(variable.size()));
 
 					for (auto&& pair : variable) {
+						stack_guard_t guard(L);
 						if constexpr (std::is_rvalue_reference_v<type_t&&>) {
 							push_variable(L, std::move(pair.first));
 							push_variable(L, std::move(pair.second));
@@ -1091,6 +1118,7 @@ namespace iris {
 
 					int i = 0;
 					for (auto&& value : variable) {
+						stack_guard_t guard(L);
 						if constexpr (std::is_rvalue_reference_v<type_t&&>) {
 							push_variable(L, std::move(value));
 						} else {
@@ -1099,6 +1127,12 @@ namespace iris {
 
 						lua_rawseti(L, -2, ++i);
 					}
+				}
+			} else if constexpr (std::is_base_of_v<require_base_t, value_t>) {
+				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
+					push_variable(L, std::move(variable.get()));
+				} else {
+					push_variable(L, variable.get());
 				}
 			} else {
 				// by default, force iris_lua_convert_t
