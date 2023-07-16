@@ -242,6 +242,49 @@ namespace iris {
 		return ret;
 	}
 
+	// static variable provider template
+	template <typename type_t>
+	struct iris_static_instance_base_t {
+		static type_t& get_thread_local() noexcept {
+			static thread_local type_t instance;
+			return instance;
+		}
+
+		static type_t& get_global() noexcept {
+			static type_t instance;
+			return instance;
+		}
+
+		static size_t get_unique_hash() noexcept {
+			static const size_t sentinel = 0;
+			return (size_t)reinterpret_cast<const void*>(&sentinel);
+		}
+	};
+
+	template <typename type_t>
+	struct iris_static_instance_t : iris_static_instance_base_t<type_t> {};
+
+	// gcc/clang cannot export template instance across shared library (i.e. 'extern template struct' not works but msvc does)
+	// these lines are ugly but works in both of them
+#define declare_shared_static_instance(type, shared_decorator) \
+	template <> \
+	struct iris_static_instance_t<type> { \
+		shared_decorator static type& get_thread_local() noexcept; \
+		shared_decorator static type& get_global() noexcept; \
+		shared_decorator static size_t get_unique_hash() noexcept; \
+	} \
+
+#define implement_shared_static_instance(type, shared_decorator) \
+	type& iris_static_instance_t<type>::get_thread_local() noexcept { \
+		return iris_static_instance_base_t<type>::get_thread_local(); \
+	} \
+	type& iris_static_instance_t<type>::get_global() noexcept { \
+		return iris_static_instance_base_t<type>::get_global(); \
+	} \
+	size_t iris_static_instance_t<type>::get_unique_hash() noexcept { \
+		return iris_static_instance_base_t<type>::get_unique_hash(); \
+	}
+
 	// legacy constexpr log2 algorithm, compatible with C++ 11
 	template <size_t i>
 	struct iris_log2 : std::conditional<i / 2 != 0, std::integral_constant<size_t, 1 + iris_log2<i / 2>::value>, std::integral_constant<size_t, 0>>::type {};
@@ -557,8 +600,7 @@ namespace iris {
 
 		// we are not dll-friendly, as always.
 		static iris_root_allocator_t& get() {
-			static iris_root_allocator_t instance;
-			return instance;
+			return iris_static_instance_t<iris_root_allocator_t>::get_global();
 		}
 
 	protected:

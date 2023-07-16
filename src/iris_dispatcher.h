@@ -479,10 +479,8 @@ namespace iris {
 
 	protected:
 		// get current warp index (saved in thread_local storage)
-		// be aware of multi-dll linkage!
 		static iris_warp_t*& get_current_warp_internal() noexcept {
-			static thread_local iris_warp_t* current_warp = nullptr;
-			return current_warp;
+			return iris_static_instance_t<iris_warp_t*>::get_thread_local();
 		}
 
 		// execute all tasks scheduled at once.
@@ -1048,8 +1046,8 @@ namespace iris {
 			join();
 		}
 
-		// get current thread index, be-aware of dll-linkage!
-		size_t get_current_thread_index() const noexcept { return get_current_thread_index_internal(); }
+		// get current thread index
+		static size_t get_current_thread_index() noexcept { return get_current_thread_index_internal(); }
 
 		// get the count of threads in worker, including customized threads
 		size_t get_thread_count() const noexcept {
@@ -1188,11 +1186,14 @@ namespace iris {
 			}
 		}
 
+		struct thread_index_t {
+			thread_index_t() noexcept : value(~size_t(0)) {}
+			size_t value;
+		};
+
 	protected:
-		// be aware of multi-dll linkage!
 		static size_t& get_current_thread_index_internal() noexcept {
-			static thread_local size_t current_thread_index = ~size_t(0);
-			return current_thread_index;
+			return iris_static_instance_t<thread_index_t>::get_thread_local().value;
 		}
 
 		void wakeup_one_with_priority(size_t priority) {

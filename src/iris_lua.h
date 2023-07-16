@@ -85,9 +85,9 @@ namespace iris {
 		}
 
 		template <typename type_t>
-		static size_t get_unique_hash() noexcept {
-			static const size_t sentinel = 0;
-			return (size_t)reinterpret_cast<const void*>(&sentinel);
+		static size_t get_hash() noexcept {
+			static size_t hash = std::hash<std::string_view>()(typeid(type_t).name()) & 0xFFFFFFFF;
+			return hash;
 		}
 
 		operator lua_State* () const noexcept {
@@ -99,8 +99,8 @@ namespace iris {
 		}
 
 		template <typename... args_t>
-		static void log_error(args_t&&... args) {
-			fprintf(stderr, std::forward<args_t>(args)...);
+		static void log_error(const char* format, args_t&&... args) {
+			fprintf(stderr, format, std::forward<args_t>(args)...);
 		}
 
 		// holding lua value
@@ -347,7 +347,7 @@ namespace iris {
 
 			// hash code is to check types when passing as a argument to C++
 			push_variable(L, "__hash");
-			push_variable(L, reinterpret_cast<void*>(get_unique_hash<type_t>()));
+			push_variable(L, reinterpret_cast<void*>(get_hash<type_t>()));
 			lua_rawset(L, -3);
 
 			// copy constructor
@@ -394,7 +394,7 @@ namespace iris {
 		refptr_t<value_t> make_object(type_t&& type, args_t&&... args) {
 			lua_State* L = state;
 			stack_guard_t guard(L);
-			assert(*type.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_unique_hash<value_t>()));
+			assert(*type.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<value_t>()));
 
 			value_t* p = reinterpret_cast<value_t*>(lua_newuserdatauv(L, sizeof(value_t), user_value_count));
 			new (p) value_t(std::forward<args_t>(args)...);
@@ -840,7 +840,10 @@ namespace iris {
 					}
 
 					// returns empty if hashes are not equal!
-					if (lua_touserdata(L, -1) != reinterpret_cast<void*>(get_unique_hash<std::remove_volatile_t<std::remove_const_t<std::remove_pointer_t<value_t>>>>())) {
+					void* object_hash = lua_touserdata(L, -1);
+					void* type_hash = reinterpret_cast<void*>(get_hash<std::remove_volatile_t<std::remove_const_t<std::remove_pointer_t<value_t>>>>());
+					if (object_hash != type_hash) {
+						log_error("[ERROR] Object Hash %p is not matched with Type Hash %p\n", object_hash, type_hash);
 						lua_pop(L, 2);
 						return value_t();
 					}
@@ -908,9 +911,6 @@ namespace iris {
 					// make sure that var destroyed before luaL_error
 					auto var = get_variable<internal_type_t>(L, index);
 					check_result = var;
-					if (!check_result) {
-						check_result = get_variable<internal_type_t>(L, index);
-					}
 
 					if constexpr (std::is_base_of_v<ref_t, internal_type_t>) {
 						deref(L, std::move(var));
