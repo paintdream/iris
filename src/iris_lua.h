@@ -423,6 +423,31 @@ namespace iris {
 			deref(L, std::move(r));
 		}
 
+		template <typename value_t, typename key_t>
+		value_t get_registry(key_t&& key) {
+			auto guard = write_fence();
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+
+			push_variable(L, std::forward<key_t>(key));
+			lua_rawget(L, LUA_REGISTRYINDEX);
+			value_t value = get_variable<value_t>(L, -1);
+			lua_pop(L, 1);
+
+			return value;
+		}
+
+		template <typename key_t, typename value_t>
+		void set_registry(key_t&& key, value_t&& value) {
+			auto guard = write_fence();
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+
+			push_variable(L, std::forward<key_t>(key));
+			push_variable(L, std::forward<value_t>(value));
+			lua_rawset(L, LUA_REGISTRYINDEX);
+		}
+
 		template <typename value_t>
 		value_t get_global(std::string_view key) {
 			auto guard = write_fence();
@@ -434,6 +459,15 @@ namespace iris {
 			lua_pop(L, 1);
 
 			return value;
+		}
+
+		template <typename value_t>
+		void set_global(std::string_view key, value_t&& value) {
+			auto guard = write_fence();
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+			push_variable(L, std::forward<value_t>(value));
+			lua_setglobal(L, key.data());
 		}
 
 		// define a variable by value
@@ -466,6 +500,16 @@ namespace iris {
 			} else {
 				define_function<ptr>(L, std::forward<key_t>(key), ptr);
 			}
+		}
+
+		template <typename value_t>
+		void define_metatable(value_t&& metatable) {
+			auto guard = write_fence();
+
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+			push_variable(L, std::forward<value_t>(metatable));
+			lua_setmetatable(L, -2);
 		}
 
 		template <typename func_t>
