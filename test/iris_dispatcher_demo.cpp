@@ -10,6 +10,7 @@ static void not_pow_two();
 static void framed_data();
 static void simple_explosion();
 static void garbage_collection();
+static void acquire_release();
 static void graph_dispatch();
 static void graph_dispatch_exception();
 
@@ -20,6 +21,7 @@ int main(void) {
 	framed_data();
 	simple_explosion();
 	garbage_collection();
+	acquire_release();
 	graph_dispatch();
 	graph_dispatch_exception();
 
@@ -552,4 +554,39 @@ void graph_dispatch_exception() {
 		exception_handler();
 		worker.join();
 	}
+}
+
+void acquire_release() {
+	static constexpr size_t thread_count = 8;
+	using warp_t = iris_warp_t<iris_async_worker_t<>>;
+
+	iris_async_worker_t<> worker(thread_count);
+	worker.start();
+
+	warp_t main_warp(worker, 0);
+	std::atomic<int> counter;
+	counter.store(0, std::memory_order_relaxed);
+
+	for (size_t i = 0; i < 1000; i++) {
+		worker.queue([&counter, &worker, &main_warp]() {
+			std::shared_ptr<bool> shared = std::make_shared<bool>(false);
+			main_warp.queue_routine_post([shared]() {
+				*shared = true;
+			});
+
+			worker.queue([&counter, &worker, &main_warp, shared]() {
+				main_warp.queue_barrier();
+				main_warp.queue_routine_post([&worker, shared, &counter]() {
+					assert(*shared == true);
+					if (counter.fetch_add(1, std::memory_order_acquire) + 1 == 1000)
+						worker.terminate();
+				});
+			});
+
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		});
+	}
+
+	worker.join();
+	main_warp.join();
 }
