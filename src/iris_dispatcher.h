@@ -419,6 +419,7 @@ namespace iris {
 			async_worker.queue(external_t<typename std::remove_reference<callable_t>::type>(*this, std::forward<callable_t>(func)), priority);
 		}
 
+		// queue a barrier here, any routines queued after this barrier must be scheduled before any routines before this barrier
 		void queue_barrier() {
 			queue_barrier_internal<strand>();
 		}
@@ -520,6 +521,7 @@ namespace iris {
 		typename std::enable_if<s>::type execute_internal() noexcept(
 			noexcept(std::declval<iris_warp_t>().flush()) && noexcept(std::declval<function_t>()())) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
 			// mark for queueing, avoiding flush me more than once.
 			queueing.store(queue_state_executing, std::memory_order_release);
 			iris_warp_t** warp_ptr = &get_current_warp_internal();
@@ -553,6 +555,7 @@ namespace iris {
 		typename std::enable_if<!s>::type execute_internal() noexcept(
 			noexcept(std::declval<iris_warp_t>().flush()) && noexcept(std::declval<function_t>()())) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
 			// mark for queueing, avoiding flush me more than once.
 			queueing.store(queue_state_executing, std::memory_order_release);
 			iris_warp_t** warp_ptr = &get_current_warp_internal();
@@ -604,6 +607,7 @@ namespace iris {
 		template <bool s, bool force>
 		void execute() noexcept(noexcept(std::declval<iris_warp_t>().template execute_internal<s, force>())) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
 			if (suspend_count.load(std::memory_order_acquire) == 0) {
 				// try to acquire execution, if it fails, there must be another thread doing the same thing
 				// and it's ok to return immediately.
@@ -732,7 +736,7 @@ namespace iris {
 			return async_worker;
 		}
 
-		// queue a routine, notice that priority takes effect if and only if warp == 0
+		// queue a routine, notice that priority takes effect if and only if warp == nullptr
 		template <typename func_t>
 		routine_t* allocate(warp_t* warp, func_t&& func, size_t priority = 0) {
 			routine_t* routine = routine_allocator.allocate(1);
@@ -807,6 +811,7 @@ namespace iris {
 
 		bool cleanup() noexcept {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
 			routine_t* p = resurrect_routines.exchange(nullptr, std::memory_order_acquire);
 			if (p != nullptr) {
 				while (p != nullptr) {
@@ -825,6 +830,7 @@ namespace iris {
 
 		bool resurrect() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
 			routine_t* p = resurrect_routines.exchange(nullptr, std::memory_order_acquire);
 			if (p != nullptr) {
 				while (p != nullptr) {
@@ -874,6 +880,7 @@ namespace iris {
 
 		void complete(bool success) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
 			// all pending routines finished?
 			if (pending_count.fetch_sub(1, std::memory_order_release) == 1) {
 				// if completion throws exception, we still do not care about pending_count anyway
@@ -885,6 +892,7 @@ namespace iris {
 
 		void execute(routine_t* routine) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
 			assert(routine->lock_count.load(std::memory_order_relaxed) == 0);
 			do {
 				routine_guard_t guard(*this, routine, &resurrect_routines);
@@ -1204,6 +1212,7 @@ namespace iris {
 		// wait for all threads in worker to be finished.
 		void join() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
 			if (!task_heads.empty()) {
 				for (size_t i = 0; i < threads.size(); i++) {
 					if (threads[i].joinable()) {
@@ -1265,8 +1274,8 @@ namespace iris {
 		// cleanup all pending tasks
 		bool cleanup() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
-			bool empty = true;
 
+			bool empty = true;
 			for (size_t i = 0; i < task_heads.size(); i++) {
 				std::atomic<task_t*>& task_head = task_heads[i];
 				task_t* task = task_head.exchange(nullptr, std::memory_order_acquire);
@@ -1305,6 +1314,7 @@ namespace iris {
 		// poll with given priority
 		bool poll_internal(size_t priority_size) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
 			std::pair<size_t, size_t> slot = fetch(priority_size);
 			size_t index = slot.first;
 

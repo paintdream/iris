@@ -1236,6 +1236,10 @@ namespace iris {
 			}
 		}
 
+		amount_t get_amount() const noexcept {
+			return quota.get();
+		}
+
 	protected:
 		void acquire_queued(info_t&& info, const amount_t& amount) {
 			std::lock_guard<std::mutex> guard(in_lock);

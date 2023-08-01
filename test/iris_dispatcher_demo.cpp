@@ -575,6 +575,7 @@ void acquire_release() {
 			});
 
 			worker.queue([&counter, &worker, &main_warp, shared]() {
+				// place a barrier here so that the queue_routine_post below must be scheduled after the one above
 				main_warp.queue_barrier();
 				main_warp.queue_routine_post([&worker, shared, &counter]() {
 					assert(*shared == true);

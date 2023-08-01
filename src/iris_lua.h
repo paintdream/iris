@@ -583,8 +583,8 @@ namespace iris {
 		template <typename return_t, typename callable_t, typename... args_t>
 		std::conditional_t<std::is_void_v<return_t>, std::optional<bool>, std::optional<return_t>> call(callable_t&& reference, args_t&&... args) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
-			auto guard = write_fence();
 
+			auto guard = write_fence();
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 			push_variable(L, std::forward<callable_t>(reference));
