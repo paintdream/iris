@@ -42,6 +42,8 @@ namespace iris {
 			constexpr std::suspend_always initial_suspend() noexcept { return std::suspend_always(); }
 			constexpr std::suspend_never final_suspend() noexcept { return std::suspend_never(); }
 
+			// call completion handle when returning a value
+			// notice that value must be a rvalue and this completion is happened before destruction of living local variables in coroutine body
 			template <typename value_t>
 			void return_value(value_t&& value) noexcept {
 				if (completion) {
@@ -49,6 +51,7 @@ namespace iris {
 				}
 			}
 
+			// currently we do not handle unexcepted exceptions
 			void unhandled_exception() noexcept { return std::terminate(); }
 
 			std::function<void(return_t&&)> completion;
@@ -70,6 +73,7 @@ namespace iris {
 		};
 	}
 
+	// uniform coroutine class with a return type specified
 	template <typename return_t = void>
 	struct iris_coroutine_t {
 		using return_type_t = return_t;
@@ -97,6 +101,7 @@ namespace iris {
 			assert(!handle); // must call run() or join() before destruction
 		}
 
+		// set a unique, optional completion handler
 		template <typename func_t>
 		iris_coroutine_t& complete(func_t&& func) noexcept {
 			assert(handle);
@@ -105,6 +110,7 @@ namespace iris {
 			return *this;
 		}
 
+		// run coroutine intermediately
 		void run() noexcept(noexcept(std::declval<std::coroutine_handle<promise_type>>().resume())) {
 			assert(handle);
 			std::coroutine_handle<promise_type> execute_handle(std::move(handle));
@@ -112,8 +118,13 @@ namespace iris {
 			execute_handle.resume();
 		}
 
+		// run coroutine and wait util it completes
+		// this function will block the calling thread, so try to avoid it
 		return_t join() {
 			std::atomic<size_t> variable = 0;
+
+			// we apply a new completion handler to implement thread notification
+			// so here we need to save the original one and call it properly
 			auto prev = std::move(handle.promise().completion);
 
 			if constexpr (!std::is_void_v<return_t>) {
@@ -121,7 +132,10 @@ namespace iris {
 				if (prev) {
 					complete([&variable, &ret, prev = std::move(prev)](return_t&& value) {
 						ret = std::move(value);
+						// call original completion handler
 						prev(std::move(ret));
+
+						// notify the waiting thread
 						variable.store(1, std::memory_order_relaxed);
 						variable.notify_one();
 					});
@@ -133,6 +147,7 @@ namespace iris {
 					});
 				}
 				
+				// run and wait
 				run();
 				variable.wait(0, std::memory_order_acquire);
 				return ret;
@@ -155,11 +170,12 @@ namespace iris {
 			}
 		}
 
-		// iris_coroutine_t is also awaitable
+		// iris_coroutine_t is also awaitable, so here we implement await_* series methods
 		constexpr bool await_ready() const noexcept {
 			return false;
 		}
 
+		// chain execution
 		void await_suspend(std::coroutine_handle<> parent_handle) {
 			if constexpr (!std::is_void_v<return_t>) {
 				complete([this, parent_handle = std::move(parent_handle)](return_t&& value) mutable noexcept(noexcept(std::declval<std::coroutine_handle<>>().resume())) {
@@ -175,6 +191,7 @@ namespace iris {
 			run();
 		}
 
+		// carry out return value
 		return_t await_resume() noexcept {
 			if constexpr (!std::is_void_v<return_t>) {
 				assert(await_result != nullptr);
@@ -522,11 +539,14 @@ namespace iris {
 		}
 
 		void handler(std::coroutine_handle<>&& handle) {
+			// 1-1 mapping, just resume directly
 			if (other == nullptr) {
 				handle.resume();
 			} else {
+				// try to preempt the other one
 				typename warp_t::template preempt_guard_t<false> guard(*other);
 				if (guard) {
+					// success, go resume directly
 					handle.resume();
 				} else {
 					// preempt failed, swap and continue dispatching until success!
@@ -545,11 +565,13 @@ namespace iris {
 			}
 
 			if (target == nullptr) {
+				// full parallel dispatching
 				assert(source != nullptr);
 				source->get_async_worker().queue([this, handle = std::move(handle)]() mutable {
 					handler(std::move(handle));
 				});
 			} else {
+				// dispatching under warp context
 				if (target->get_async_worker().get_current_thread_index() != ~size_t(0)) {
 					target->queue_routine_post([this, handle = std::move(handle)]() mutable {
 						handler(std::move(handle));
@@ -562,6 +584,7 @@ namespace iris {
 			}
 		}
 
+		// return the caller warp
 		warp_t* await_resume() const noexcept {
 			return source;
 		}
@@ -611,6 +634,7 @@ namespace iris {
 
 				if (target->get_async_worker().get_current_thread_index() != ~size_t(0)) {
 					target->queue_routine_post([shared_handle, target]() mutable noexcept(noexcept(handle.resume())) {
+						// taken and go execute
 						auto handle = shared_handle->first.exchange(std::coroutine_handle<>(), std::memory_order_release);
 						if (handle) {
 							shared_handle->second->selected = target;
@@ -671,6 +695,7 @@ namespace iris {
 
 		using info_t = std::conditional_t<std::is_same_v<warp_t, void>, info_base_t, info_base_warp_t>;
 
+		// dispatch coroutine based on warp status
 		void dispatch(info_t&& info) {
 			if constexpr (std::is_same_v<warp_t, void>) {
 				async_worker.queue([handle = std::move(info.handle)]() mutable noexcept(noexcept(info.handle.resume())) {
@@ -716,6 +741,7 @@ namespace iris {
 				info.warp = warp_t::get_current_warp();
 			}
 
+			// already signaled?
 			if (signaled.load(std::memory_order_acquire) == 0) {
 				std::lock_guard<std::mutex> guard(lock);
 				// double check
@@ -734,6 +760,7 @@ namespace iris {
 			signaled.store(0, std::memory_order_release);
 		}
 
+		// notify all waiting coroutines
 		void notify() {
 			std::vector<info_t> set_handles;
 			do {
@@ -755,7 +782,7 @@ namespace iris {
 		std::vector<info_t> handles;
 	};
 
-	// pipe-like multiple coroutine sychronization
+	// pipe-like multiple coroutine synchronization
 	template <typename element_t, typename warp_t, typename async_worker_t = typename warp_t::async_worker_t>
 	struct iris_pipe_t : iris_sync_t<warp_t, async_worker_t> {
 		iris_pipe_t(async_worker_t& worker) : iris_sync_t<warp_t, async_worker_t>(worker) {
@@ -832,10 +859,12 @@ namespace iris {
 				return;
 			}
 
+			// still not success, go starving
 			prepared_count.fetch_add(1, std::memory_order_release);
 		}
 
 	protected:
+		// test and fetch producer
 		bool flush_prepared() noexcept {
 			size_t prepared = prepared_count.load(std::memory_order_acquire);
 			while (prepared != 0) {
@@ -847,6 +876,7 @@ namespace iris {
 			return false;
 		}
 
+		// test and fetch consumer
 		bool flush_waiting() noexcept {
 			size_t waiting = waiting_count.load(std::memory_order_acquire);
 			while (waiting != 0) {
@@ -952,6 +982,7 @@ namespace iris {
 			queue(std::move(handle));
 		}
 
+		// dispatche a new frame loop
 		bool dispatch(bool running = true) {
 			auto guard = write_fence();
 			queue(std::coroutine_handle<>()); // mark for frame edge
@@ -1158,6 +1189,7 @@ namespace iris {
 				host->release(delta);
 			}
 
+			// move ownership of all quota
 			amount_t move() noexcept {
 				amount_t ret = get_amount();
 				host = nullptr;
@@ -1168,6 +1200,7 @@ namespace iris {
 				return ret;
 			}
 
+			// this amount may be inaccurate
 			const amount_t& get_amount() const noexcept {
 				return amount;
 			}

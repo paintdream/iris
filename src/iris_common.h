@@ -74,6 +74,7 @@ namespace iris {
 	static constexpr size_t default_block_size = IRIS_DEFAULT_BLOCK_SIZE;
 	static constexpr size_t default_page_size = IRIS_DEFAULT_PAGE_SIZE;
 
+	// debug utilities for multi-thread programming
 	template <typename atomic_t>
 	struct iris_write_fence_t {
 		operator bool() const noexcept {
