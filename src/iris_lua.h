@@ -1118,20 +1118,24 @@ namespace iris {
 				return 0;
 			}
 
-			stack_guard_t guard(L, 1);
 			using value_t = decltype(object->*prop);
-			if constexpr (std::is_const_v<std::remove_reference_t<value_t>>) {
-				push_variable(L, object->*prop); // return the original value 
-			} else {
-				bool assign = !lua_isnone(L, 2);
-				push_variable(L, object->*prop);
+			bool assign = !lua_isnone(L, 2);
 
+			if constexpr (std::is_const_v<std::remove_reference_t<value_t>>) {
+				if (!assign) {
+					stack_guard_t guard(L, 1);
+					push_variable(L, object->*prop); // return the original value
+				}
+			} else {
 				if (assign) {
 					object->*prop = get_variable<std::remove_reference_t<value_t>>(L, 2);
+				} else {
+					stack_guard_t guard(L, 1);
+					push_variable(L, object->*prop);
 				}
 			}
 
-			return 1;
+			return assign ? 0 : 1;
 		}
 
 		// push variables from a tuple into a lua table
