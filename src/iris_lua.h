@@ -424,6 +424,37 @@ namespace iris {
 			deref(L, std::move(r));
 		}
 
+		struct context_this {};
+		struct context_table {};
+		struct context_upvalue {
+			context_upvalue(int i) noexcept : index(i) {}
+			int index;
+		};
+
+		struct context_stack_top {};
+
+		template <typename value_t, typename key_t>
+		value_t get_context(key_t&& key) {
+			auto guard = write_fence();
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+
+			using type_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<key_t>>>;
+			if constexpr (std::is_same_v<type_t, context_this>) {
+				assert(lua_isuserdata(L, 1));
+				return get_variable<value_t>(L, 1);
+			} else if constexpr (std::is_same_v<type_t, context_table>) {
+				assert(lua_istable(L, -1));
+				return get_variable<value_t>(L, -1);
+			} else if constexpr (std::is_same_v<type_t, context_upvalue>) {
+				return get_variable<value_t>(L, lua_upvalueindex(key.index));
+			} else if constexpr (std::is_same_v<type_t, context_stack_top>) {
+				return lua_gettop(L);
+			} else {
+				return value_t();
+			}
+		}
+
 		// get from lua registry table
 		template <typename value_t, typename key_t>
 		value_t get_registry(key_t&& key) {
