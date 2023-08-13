@@ -54,6 +54,7 @@ struct iris::iris_lua_convert_t<vector3> : std::true_type {
 struct example_t {
 	static void lua_registar(lua_t lua) {
 		lua.define<&example_t::value>("value");
+		lua.define<&example_t::value_raw>("value_raw");
 		lua.define<&example_t::const_value>("const_value");
 		lua.define<&example_t::accum_value>("accum_value");
 		lua.define<&example_t::join_value>("join_value");
@@ -61,9 +62,12 @@ struct example_t {
 		lua.define<&example_t::join_value_refptr>("join_value_refptr");
 		lua.define<&example_t::join_value_required_refptr>("join_value_required_refptr");
 		lua.define<&example_t::get_value>("get_value");
+		lua.define<&example_t::get_value_raw>("get_value_raw");
+		lua.define<&example_t::get_value_raw_lambda>("get_value_raw_lambda");
 		lua.define<&example_t::call>("call");
 		lua.define<&example_t::forward_pair>("forward_pair");
 		lua.define<&example_t::forward_tuple>("forward_tuple");
+		lua.define<&example_t::forward_tuple_raw>("forward_tuple_raw");
 		lua.define<&example_t::forward_map>("forward_map");
 		lua.define<&example_t::forward_vector>("forward_vector");
 		lua.define<&example_t::prime>("prime");
@@ -74,6 +78,7 @@ struct example_t {
 		lua.define<&example_t::coro_get_int>("coro_get_int");
 		lua.define<&example_t::coro_get_none>("coro_get_none");
 		lua.define<&example_t::mem_coro_get_int>("mem_coro_get_int");
+		lua.define<&example_t::mem_coro_get_int_raw>("mem_coro_get_int_raw");
 #endif
 	}
 
@@ -110,6 +115,22 @@ struct example_t {
 
 	int get_value() const noexcept {
 		return value;
+	}
+
+	static int value_raw(lua_State* L) {
+		return lua_t::forward(L, &example_t::value);
+	}
+
+	static int get_value_raw(lua_State* L) {
+		return lua_t::forward(L, &example_t::get_value);
+	}
+
+	static int get_value_raw_lambda(lua_State* L) {
+		return lua_t::forward(L, [L](lua_t lua, example_t* t) {
+			bool same = L == lua.get_state();
+			assert(same);
+			return t->get_value();
+		});
 	}
 
 	void join_value(const example_t* rhs) noexcept {
@@ -155,6 +176,10 @@ struct example_t {
 		return v;
 	}
 
+	static int forward_tuple_raw(lua_State* L) {
+		return lua_t::forward(L, &example_t::forward_tuple);
+	}
+
 	static std::pair<int, std::string> forward_pair(std::pair<int, std::string>&& v) {
 		v.first += 1;
 		return v;
@@ -197,6 +222,10 @@ struct example_t {
 		co_await iris::iris_switch(warpptr2);
 		co_await iris::iris_switch(warpptr);
 		co_return 2;
+	}
+
+	static int mem_coro_get_int_raw(lua_State* L) {
+		return lua_t::forward(L, &example_t::mem_coro_get_int);
 	}
 #endif
 
@@ -269,8 +298,11 @@ end\n"));
 		b:join_value_required_refptr(a)\n\
 		--b:join_value_required_refptr()\n\
 		print(a:const_value())\n\
-		local base = b:value(1)\n\
-		print(base)\n\
+		b:value(1)\n\
+		assert(b:value() == 1)\n\
+		assert(b:value_raw() == 1)\n\
+		assert(b:get_value_raw() == 1)\n\
+		assert(b:get_value_raw_lambda() == 1)\n\
 		local base2 = b:value()\n\
 		print(base2)\n\
 		b:accum_value(1000)\n\
@@ -286,6 +318,7 @@ end\n"));
 		print(b:get_value())\n\
 		print(sum)\n\
 		print(a.forward_tuple({1, 'tuple'})[1])\n\
+		print(a.forward_tuple_raw({1, 'tuple'})[1])\n\
 		print(a.forward_pair({2, 'pair'})[1])\n\
 		print(a:forward_map({ type = 'map'})['abc'])\n\
 		print(a:forward_vector({ '3', 4, '5' })[4])\n\
@@ -326,6 +359,7 @@ end\n"));
 			print('coro get ' .. a.coro_get_int('hello')) \n\
 			print('memcoro get ' .. a:mem_coro_get_int('world')) \n\
 			print('memcoro get second ' .. a:mem_coro_get_int('world')) \n\
+			print('memcoro get second ' .. a:mem_coro_get_int_raw('world')) \n\
 			a.coro_get_none()\n\
 			print('coro finished')\n\
 		end)\n\
