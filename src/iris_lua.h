@@ -577,6 +577,18 @@ namespace iris {
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
+		template <typename func_t>
+		ref_t make_thread(func_t&& func) {
+			auto guard = write_fence();
+
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+			lua_State* T = lua_newthread(L);
+
+			func(iris_lua_t(T));
+			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
+		}
+
 		// dereference a ref
 		void deref(ref_t&& r) noexcept {
 			auto guard = write_fence();
@@ -973,6 +985,8 @@ namespace iris {
 				return static_cast<value_t>(lua_tointeger(L, index));
 			} else if constexpr (std::is_floating_point_v<value_t>) {
 				return static_cast<value_t>(lua_tonumber(L, index));
+			} else if constexpr (std::is_same_v<value_t, lua_State*> || std::is_same_v<value_t, iris_lua_t>) {
+				return value_t(lua_tothread(L, index));
 			} else if constexpr (std::is_same_v<value_t, std::string_view> || std::is_same_v<value_t, std::string>) {
 				size_t len = 0;
 				// do not accept implicit __tostring casts
