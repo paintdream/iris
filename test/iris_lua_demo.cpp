@@ -238,7 +238,7 @@ int main(void) {
 	luaL_openlibs(L);
 
 	lua_t lua(L);
-	lua.register_type<example_t>("example_t");
+	lua.set_global("example_t", lua.make_type<example_t>("example_t"));
 	
 #if USE_LUA_COROUTINE
 	worker_t worker(1);

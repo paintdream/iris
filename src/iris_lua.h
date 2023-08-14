@@ -99,7 +99,7 @@ namespace iris {
 		}
 
 		template <typename... args_t>
-		static void log_error(const char* format, args_t&&... args) {
+		static void log_error(lua_State* L, const char* format, args_t&&... args) {
 			fprintf(stderr, format, std::forward<args_t>(args)...);
 		}
 
@@ -245,6 +245,8 @@ namespace iris {
 			type_t* ptr;
 		};
 
+		// requried_t is for validating parameters before actually call the C++ stub
+		// will raise a lua error if it fails
 		struct require_base_t {};
 
 		template <typename type_t>
@@ -294,7 +296,7 @@ namespace iris {
 			stack_guard_t stack_guard(L);
 
 			if (luaL_loadbuffer(L, code.data(), code.size(), name.data()) != LUA_OK) {
-				log_error("[ERROR] iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
+				log_error(L, "[ERROR] iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
 				lua_pop(L, 1);
 				return ref_t();
 			}
@@ -324,8 +326,7 @@ namespace iris {
 		template <typename type_t>
 		struct has_registar {
 			template <typename> static std::false_type test(...);
-			template <typename impl_t> static auto test(int)
-				-> decltype(std::declval<impl_t>().lua_registar(std::declval<iris_lua_t>()), std::true_type());
+			template <typename impl_t> static auto test(int) -> decltype(std::declval<impl_t>().lua_registar(std::declval<iris_lua_t>()), std::true_type());
 			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
 			static void default_registar(iris_lua_t) {}
 			static constexpr auto get_registar() {
@@ -408,20 +409,6 @@ namespace iris {
 			}
 
 			return refptr_t<value_t>(luaL_ref(L, LUA_REGISTRYINDEX), p);
-		}
-
-		// quick way for registering a type into global space
-		template <typename type_t, int user_value_count = 0, auto registar = has_registar<type_t>::get_registar(), typename... args_t>
-		void register_type(std::string_view name, args_t&... args) {
-			ref_t r = make_type<type_t, user_value_count, registar, args_t...>(name, args...);
-
-			auto guard = write_fence();
-			lua_State* L = state;
-			stack_guard_t stack_guard(L);
-
-			push_variable(L, r);
-			lua_setglobal(L, name.data());
-			deref(L, std::move(r));
 		}
 
 		struct context_this {};
@@ -638,7 +625,7 @@ namespace iris {
 			if (lua_pcall(L, param_count, LUA_MULTRET, 0) == LUA_OK) {
 				return lua_gettop(L) - top + param_count;
 			} else {
-				log_error("[ERROR] iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
+				log_error(L, "[ERROR] iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
 				lua_pop(L, 1);
 				assert(lua_gettop(L) == top);
 				return 0;
@@ -665,7 +652,7 @@ namespace iris {
 					return true;
 				}
 			} else {
-				log_error("[ERROR] iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
+				log_error(L, "[ERROR] iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
 				lua_pop(L, 1);
 				return std::nullopt;
 			}
@@ -774,6 +761,7 @@ namespace iris {
 			lua_rawset(L, -3);
 		}
 
+		// four specs for [const][noexcept] method definition
 		template <typename function_t, typename return_t, typename type_t, typename... args_t>
 		static int forward_method(lua_State* L, return_t(type_t::*method)(args_t...)) {
 			return forward_method_internal<function_t, return_t, type_t, args_t...>(L, method);
@@ -868,8 +856,7 @@ namespace iris {
 		template <typename type_t>
 		struct has_finalize {
 			template <typename> static std::false_type test(...);
-			template <typename impl_t> static auto test(int)
-				-> decltype(std::declval<impl_t>().lua_finalize(std::declval<iris_lua_t>(), 1), std::true_type());
+			template <typename impl_t> static auto test(int) -> decltype(std::declval<impl_t>().lua_finalize(std::declval<iris_lua_t>(), 1), std::true_type());
 			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
 		};
 
@@ -899,8 +886,7 @@ namespace iris {
 		template <typename type_t>
 		struct has_initialize {
 			template <typename> static std::false_type test(...);
-			template <typename impl_t> static auto test(int)
-				-> decltype(std::declval<impl_t>().lua_initialize(std::declval<iris_lua_t>(), 1), std::true_type());
+			template <typename impl_t> static auto test(int) -> decltype(std::declval<impl_t>().lua_initialize(std::declval<iris_lua_t>(), 1), std::true_type());
 			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
 		};
 
@@ -932,7 +918,7 @@ namespace iris {
 		static type_t get_tuple_variables(lua_State* L, int stack_index, args_t&&... args) {
 			if constexpr (index < std::tuple_size_v<type_t>) {
 				lua_rawgeti(L, stack_index, index + 1);
-				// notice that we need minus one if stack_index is negetive, since  lua_rawgeti will add one temporal variable on stack
+				// notice that we need minus one if stack_index is negetive, since lua_rawgeti will add one temporal variable on stack
 				return get_tuple_variables<index + 1, type_t>(L, stack_index, std::forward<args_t>(args)..., get_variable<std::tuple_element_t<index, type_t>>(L, -1));
 			} else {
 				// pop all temporal variables and construct tuple
@@ -944,8 +930,7 @@ namespace iris {
 		template <typename type_t>
 		struct has_reserve {
 			template <typename> static std::false_type test(...);
-			template <typename impl_t> static auto test(int)
-				-> decltype(std::declval<impl_t>().reserve(1), std::true_type());
+			template <typename impl_t> static auto test(int) -> decltype(std::declval<impl_t>().reserve(1), std::true_type());
 			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
 		};
 
@@ -1050,7 +1035,7 @@ namespace iris {
 					void* object_hash = lua_touserdata(L, -1);
 					void* type_hash = reinterpret_cast<void*>(get_hash<std::remove_volatile_t<std::remove_const_t<std::remove_pointer_t<value_t>>>>());
 					if (object_hash != type_hash) {
-						log_error("[ERROR] Object Hash %p is not matched with Type Hash %p\n", object_hash, type_hash);
+						log_error(L, "[ERROR] Object Hash %p is not matched with Type Hash %p\n", object_hash, type_hash);
 						lua_pop(L, 2);
 						return value_t();
 					}
@@ -1210,7 +1195,7 @@ namespace iris {
 #endif
 				if (ret != LUA_OK && ret != LUA_YIELD) {
 					// error!
-					log_error("[ERROR] iris_lua_t::function_coutine_proxy() -> resume error: %s\n", lua_tostring(L, -1));
+					log_error(L, "[ERROR] iris_lua_t::function_coutine_proxy() -> resume error: %s\n", lua_tostring(L, -1));
 					lua_pop(L, 1);
 				}
 			}
