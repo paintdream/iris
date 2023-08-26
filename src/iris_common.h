@@ -70,6 +70,10 @@ SOFTWARE.
 #define IRIS_PROFILE_POP()
 #endif
 
+#ifndef IRIS_SHARED_LIBRARY_DECORATOR
+#define IRIS_SHARED_LIBRARY_DECORATOR
+#endif
+
 namespace iris {
 	static constexpr size_t default_block_size = IRIS_DEFAULT_BLOCK_SIZE;
 	static constexpr size_t default_page_size = IRIS_DEFAULT_PAGE_SIZE;
@@ -267,15 +271,15 @@ namespace iris {
 
 	// gcc/clang cannot export template instance across shared library (i.e. 'extern template struct' not works but msvc does)
 	// these lines are ugly but works in both of them
-#define declare_shared_static_instance(type, shared_decorator) \
+#define declare_shared_static_instance(type) \
 	template <> \
 	struct iris_static_instance_t<type> { \
-		shared_decorator static type& get_thread_local() noexcept; \
-		shared_decorator static type& get_global() noexcept; \
-		shared_decorator static size_t get_unique_hash() noexcept; \
+		IRIS_SHARED_LIBRARY_DECORATOR static type& get_thread_local() noexcept; \
+		IRIS_SHARED_LIBRARY_DECORATOR static type& get_global() noexcept; \
+		IRIS_SHARED_LIBRARY_DECORATOR static size_t get_unique_hash() noexcept; \
 	} \
 
-#define implement_shared_static_instance(type, shared_decorator) \
+#define implement_shared_static_instance(type) \
 	type& iris_static_instance_t<type>::get_thread_local() noexcept { \
 		return iris_static_instance_base_t<type>::get_thread_local(); \
 	} \
@@ -510,8 +514,8 @@ namespace iris {
 		}
 	}
 
-	extern void* iris_alloc_aligned(size_t size, size_t alignment);
-	extern void iris_free_aligned(void* data, size_t size) noexcept;
+	extern IRIS_SHARED_LIBRARY_DECORATOR void* iris_alloc_aligned(size_t size, size_t alignment);
+	extern IRIS_SHARED_LIBRARY_DECORATOR void iris_free_aligned(void* data, size_t size) noexcept;
 
 	// global allocator that allocates memory blocks to local allocators.
 	template <size_t alloc_size, size_t total_count>
@@ -1697,9 +1701,9 @@ namespace iris {
 		}
 
 	protected:
-		storage_t* ring_buffer;
 		size_t push_count; // write count
 		size_t pop_count; // read count
+		storage_t* ring_buffer;
 	};
 
 	namespace impl {

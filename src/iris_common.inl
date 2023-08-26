@@ -49,13 +49,15 @@ SOFTWARE.
 	#include <malloc.h>
 #endif
 
+#if defined(USE_VLD)
 #if USE_VLD
 #include <vld.h>
+#endif
 #endif
 
 namespace iris {
 	static constexpr size_t large_page = 64 * 1024;
-	void* iris_alloc_aligned(size_t size, size_t alignment) {
+	IRIS_SHARED_LIBRARY_DECORATOR void* iris_alloc_aligned(size_t size, size_t alignment) {
 #ifdef _WIN32
 		// 64k page, use low-level allocation
 		if (size >= large_page && ((size & (large_page - 1)) == 0)) {
@@ -76,7 +78,7 @@ namespace iris {
 #endif
 	}
 
-	void iris_free_aligned(void* data, size_t size) noexcept {
+	IRIS_SHARED_LIBRARY_DECORATOR void iris_free_aligned(void* data, size_t size) noexcept {
 #ifdef _WIN32
 		if (size >= large_page && ((size & (large_page - 1)) == 0)) {
 			::VirtualFree(data, 0, MEM_RELEASE);

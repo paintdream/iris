@@ -275,7 +275,7 @@ namespace iris {
 			queueing.store(queue_state_idle, std::memory_order_release);
 		}
 
-		iris_warp_t(iris_warp_t&& rhs) noexcept : async_worker(rhs.async_worker), priority(rhs.priority), stack_next_warp(rhs.stack_next_warp), storage(std::move(rhs.storage)) {
+		iris_warp_t(iris_warp_t&& rhs) noexcept : async_worker(rhs.async_worker), storage(std::move(rhs.storage)), priority(rhs.priority), stack_next_warp(rhs.stack_next_warp) {
 			thread_warp.store(rhs.thread_warp.load(std::memory_order_relaxed), std::memory_order_relaxed);
 			suspend_count.store(rhs.suspend_count.load(std::memory_order_relaxed), std::memory_order_relaxed);
 			interrupting.store(rhs.interrupting.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -629,7 +629,7 @@ namespace iris {
 		}
 
 		// commit execute request to specified worker.
-		void flush() noexcept(noexcept(std::declval<iris_warp_t>().async_worker.queue(std::declval<function_t>()))) {
+		void flush() noexcept(noexcept(std::declval<iris_warp_t>().async_worker.queue(std::declval<function_t>(), 0))) {
 			// if current state is executing, the executing routine will reinvoke flush() if it detected pending state while exiting
 			// so we just need to queue a flush routine as soon as current state is idle
 			if (queueing.exchange(queue_state_pending, std::memory_order_acq_rel) == queue_state_idle) {
