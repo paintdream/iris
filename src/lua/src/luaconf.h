@@ -715,7 +715,7 @@
 */
 #if defined(LUA_USE_APICHECK)
 #include <assert.h>
-#define luai_apicheck(l,e)	assert(e)
+#define luai_apicheck(l,e)	IRIS_ASSERT(e)
 #endif
 
 /* }================================================================== */

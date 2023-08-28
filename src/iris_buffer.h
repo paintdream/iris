@@ -70,7 +70,7 @@ namespace iris {
 
 		~iris_buffer_t() noexcept {
 			if (is_managed_storage()) {
-				assert(buffer != nullptr);
+				IRIS_ASSERT(buffer != nullptr);
 				free(buffer);
 			}
 		}
@@ -92,7 +92,7 @@ namespace iris {
 		}
 
 		iterator insert(iterator pos, const element_t& e) noexcept(noexcept(std::declval<iris_buffer_t>().push(e))) {
-			assert(!is_view_storage());
+			IRIS_ASSERT(!is_view_storage());
 			size_t offset = pos - begin();
 			push(e);
 			iterator ptr = begin() + offset;
@@ -110,8 +110,8 @@ namespace iris {
 		}
 
 		void erase(iterator pos) noexcept(noexcept(std::declval<iris_buffer_t>().resize(1))) {
-			assert(!is_view_storage());
-			assert(pos != end());
+			IRIS_ASSERT(!is_view_storage());
+			IRIS_ASSERT(pos != end());
 
 			iterator last = end();
 			for (iterator it = pos; it + 1 < last; ++it) {
@@ -123,7 +123,7 @@ namespace iris {
 
 		void clear() noexcept {
 			if (is_managed_storage()) {
-				assert(buffer != nullptr);
+				IRIS_ASSERT(buffer != nullptr);
 				free(buffer);
 			}
 
@@ -176,29 +176,29 @@ namespace iris {
 		}
 
 		const iris_buffer_t view() const noexcept {
-			assert(!is_view_storage());
+			IRIS_ASSERT(!is_view_storage());
 			return make_view(get_data(), get_size());
 		}
 
 		iris_buffer_t view() noexcept {
-			assert(!is_view_storage());
+			IRIS_ASSERT(!is_view_storage());
 			return make_view(get_data(), get_size());
 		}
 
 		bool test(size_t offset) const noexcept {
-			assert(offset < get_size() * sizeof(element_t) * 8);
+			IRIS_ASSERT(offset < get_size() * sizeof(element_t) * 8);
 			return !!(get_data()[offset / (sizeof(element_t) * 8)] & (1u << (offset % (sizeof(element_t) * 8))));
 		}
 
 		void set(size_t offset) noexcept {
-			assert(offset < get_size() * sizeof(element_t) * 8);
+			IRIS_ASSERT(offset < get_size() * sizeof(element_t) * 8);
 			get_data()[offset / (sizeof(element_t) * 8)] |= (1u << (offset % (sizeof(element_t) * 8)));
 		}
 
 		bool is_managed_storage() const noexcept { return (size & (data_view_mask | ext_store_mask)) == ext_store_mask; }
 		bool is_view_storage() const noexcept { return !!(size & data_view_mask); }
 		bool is_stock_storage() const noexcept { return !(size & ext_store_mask); }
-		size_t get_size() const noexcept { assert(size <= storage_size || (size & ~ext_store_mask) > storage_size); return size & ~(ext_store_mask | data_view_mask); }
+		size_t get_size() const noexcept { IRIS_ASSERT(size <= storage_size || (size & ~ext_store_mask) > storage_size); return size & ~(ext_store_mask | data_view_mask); }
 		const element_t* get_data() const noexcept { return is_stock_storage() ? stock_storage : buffer; }
 		element_t* get_data() noexcept { return is_stock_storage() ? stock_storage : buffer; }
 
@@ -221,7 +221,7 @@ namespace iris {
 		void copy(size_t offset, const element_t* ptr, size_t size, size_t repeat = 1) noexcept {
 			if (is_view_storage()) { // parted? copy by segments
 				iris_buffer_t* p = this;
-				assert(offset + size * repeat <= get_view_size());
+				IRIS_ASSERT(offset + size * repeat <= get_view_size());
 				while (repeat-- != 0) {
 					size_t k = 0;
 					while (p != nullptr && k < size) {
@@ -254,11 +254,11 @@ namespace iris {
 		void copy(size_t dst_offset, const iris_buffer_t& buffer, size_t repeat = 1) noexcept {
 			if (buffer.is_view_storage()) { // source is data view
 				if (is_view_storage()) { // target is data view
-					assert(get_view_size() >= dst_offset + buffer.get_view_size() * repeat);
+					IRIS_ASSERT(get_view_size() >= dst_offset + buffer.get_view_size() * repeat);
 					iris_buffer_t* p = this;
 
 					while (repeat-- != 0) {
-						assert(p != nullptr);  // must got enough space
+						IRIS_ASSERT(p != nullptr);  // must got enough space
 						// select minimal segment
 						const iris_buffer_t* q = &buffer;
 						size_t src_size = q->get_size();
@@ -300,7 +300,7 @@ namespace iris {
 					}
 				} else {
 					// only source is data view
-					assert(get_size() >= dst_offset + buffer.get_view_size() * repeat);
+					IRIS_ASSERT(get_size() >= dst_offset + buffer.get_view_size() * repeat);
 					element_t* target = get_data() + dst_offset;
 
 					while (repeat-- != 0) {
@@ -323,8 +323,8 @@ namespace iris {
 		bool empty() const noexcept { return size == 0; }
 
 		bool operator == (const iris_buffer_t& rhs) const noexcept {
-			assert(is_view_storage() == rhs.is_view_storage());
-			assert(!is_view_storage() || (next == nullptr && rhs.next == nullptr));
+			IRIS_ASSERT(is_view_storage() == rhs.is_view_storage());
+			IRIS_ASSERT(!is_view_storage() || (next == nullptr && rhs.next == nullptr));
 			if (size != rhs.size) return false;
 			if (size == 0) return true;
 
@@ -332,8 +332,8 @@ namespace iris {
 		}
 
 		bool operator < (const iris_buffer_t& rhs) const noexcept {
-			assert(is_view_storage() == rhs.is_view_storage());
-			assert(!is_view_storage() || (next == nullptr && rhs.next == nullptr));
+			IRIS_ASSERT(is_view_storage() == rhs.is_view_storage());
+			IRIS_ASSERT(!is_view_storage() || (next == nullptr && rhs.next == nullptr));
 			if (size == 0) {
 				return rhs.size != 0;
 			} else {
@@ -346,12 +346,12 @@ namespace iris {
 		}
 
 		const element_t& operator [] (size_t index) const noexcept {
-			assert(index < get_size());
+			IRIS_ASSERT(index < get_size());
 			return get_data()[index];
 		}
 
 		element_t& operator [] (size_t index) noexcept {
-			assert(index < get_size());
+			IRIS_ASSERT(index < get_size());
 			return get_data()[index];
 		}
 
@@ -366,7 +366,7 @@ namespace iris {
 		}
 
 		void resize(size_t s) {
-			assert(!is_view_storage());
+			IRIS_ASSERT(!is_view_storage());
 			if (is_stock_storage()) {
 				if (s > storage_size) { // out of bound
 					element_t* new_buffer = reinterpret_cast<element_t*>(malloc(s * sizeof(element_t)));
@@ -416,7 +416,7 @@ namespace iris {
 				return *this;
 			} else if (is_view_storage()) {
 				// concat buffer, not copying
-				assert(rhs.is_view_storage());
+				IRIS_ASSERT(rhs.is_view_storage());
 				iris_buffer_t* p = this;
 
 				while (true) {
@@ -431,7 +431,7 @@ namespace iris {
 						return *this;
 					} else {
 						if (p->tail == nullptr) {
-							assert(p->next == nullptr);
+							IRIS_ASSERT(p->next == nullptr);
 							p->next = const_cast<iris_buffer_t*>(&rhs);
 							tail = rhs.tail == nullptr ? p->next : rhs.tail;
 							return *this;
@@ -445,7 +445,7 @@ namespace iris {
 				return *this;
 			} else {
 				// must copy here
-				assert(!rhs.is_view_storage() || rhs.next == nullptr);
+				IRIS_ASSERT(!rhs.is_view_storage() || rhs.next == nullptr);
 				return append(rhs.get_data(), rhs.get_size());
 			}
 		}
@@ -549,7 +549,7 @@ namespace iris {
 			if (from.empty()) {
 				from = to;
 			} else {
-				assert(from.is_view_storage() && to.is_view_storage());
+				IRIS_ASSERT(from.is_view_storage() && to.is_view_storage());
 				iris_buffer_t<element_t> storage = allocate(sizeof(iris_buffer_t<element_t>) / sizeof(element_t), alignof(iris_buffer_t<element_t>) / sizeof(element_t));
 				from.append(*new (storage.get_data()) iris_buffer_t<element_t>(to));
 			}
@@ -636,7 +636,7 @@ namespace iris {
 		}
 
 		pointer allocate(size_type n, const void* hint = nullptr) {
-			assert(allocator != nullptr);
+			IRIS_ASSERT(allocator != nullptr);
 			static_assert(sizeof(element_t) % sizeof(base_t) == 0, "must be aligned.");
 			size_t count = n * sizeof(element_t) / sizeof(base_t);
 			if (count <= allocator_t::full_pack_size()) {

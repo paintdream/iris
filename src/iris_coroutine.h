@@ -98,13 +98,13 @@ namespace iris {
 		}
 
 		~iris_coroutine_t() noexcept {
-			assert(!handle); // must call run() or join() before destruction
+			IRIS_ASSERT(!handle); // must call run() or join() before destruction
 		}
 
 		// set a unique, optional completion handler
 		template <typename func_t>
 		iris_coroutine_t& complete(func_t&& func) noexcept {
-			assert(handle);
+			IRIS_ASSERT(handle);
 			handle.promise().completion = std::forward<func_t>(func);
 
 			return *this;
@@ -112,7 +112,7 @@ namespace iris {
 
 		// run coroutine intermediately
 		void run() noexcept(noexcept(std::declval<std::coroutine_handle<promise_type>>().resume())) {
-			assert(handle);
+			IRIS_ASSERT(handle);
 			std::coroutine_handle<promise_type> execute_handle(std::move(handle));
 			handle = std::coroutine_handle<promise_type>();
 			execute_handle.resume();
@@ -194,7 +194,7 @@ namespace iris {
 		// carry out return value
 		return_t await_resume() noexcept {
 			if constexpr (!std::is_void_v<return_t>) {
-				assert(await_result != nullptr);
+				IRIS_ASSERT(await_result != nullptr);
 				return_t* p = await_result;
 				return std::move(*p);
 			}
@@ -226,7 +226,7 @@ namespace iris {
 		// parallel_priority: ~(size_t)0 means no parallization, other value indicates the dispatch priority of parallel routines
 		template <typename callable_t>
 		iris_awaitable_t(warp_t* target_warp, callable_t&& f, size_t p) noexcept : target(target_warp), parallel_priority(p), func(std::forward<callable_t>(f)) {
-			assert(target_warp != nullptr || parallel_priority == ~size_t(0));
+			IRIS_ASSERT(target_warp != nullptr || parallel_priority == ~size_t(0));
 		}
 
 		// always suspended
@@ -349,7 +349,7 @@ namespace iris {
 	// simple wrapper for constructing an awaitable object in parallel
 	template <typename warp_t, typename iris_func_t>
 	auto iris_awaitable_parallel(warp_t* target_warp, iris_func_t&& func, size_t priority = 0) noexcept {
-		assert(priority != ~size_t(0));
+		IRIS_ASSERT(priority != ~size_t(0));
 		return iris_awaitable_t<warp_t, std::decay_t<iris_func_t>>(target_warp, std::forward<iris_func_t>(func), priority);
 	}
 
@@ -436,7 +436,7 @@ namespace iris {
 				returns.resize(awaitables.size());
 			}
 
-			assert(!current_handle); // can only be called once!
+			IRIS_ASSERT(!current_handle); // can only be called once!
 			current_handle = handle;
 			// prepare pending counter here!
 			pending_count.store(awaitables.size(), std::memory_order_release);
@@ -566,7 +566,7 @@ namespace iris {
 
 			if (target == nullptr) {
 				// full parallel dispatching
-				assert(source != nullptr);
+				IRIS_ASSERT(source != nullptr);
 				source->get_async_worker().queue([this, handle = std::move(handle)]() mutable {
 					handler(std::move(handle));
 				});
@@ -607,8 +607,8 @@ namespace iris {
 		using async_worker_t = typename warp_t::async_worker_t;
 
 		iris_select_t(iterator_t from, iterator_t to) noexcept : begin(from), end(to), selected(nullptr) {
-			assert(from != to);
-			assert(warp_t::get_current_warp() == nullptr);
+			IRIS_ASSERT(from != to);
+			IRIS_ASSERT(warp_t::get_current_warp() == nullptr);
 		}
 
 		constexpr bool await_ready() const noexcept {
@@ -915,10 +915,10 @@ namespace iris {
 
 		void await_suspend(std::coroutine_handle<> handle) {
 			size_t index = yield_count.fetch_add(1, std::memory_order_acquire);
-			assert(index < yield_max);
-#ifdef _DEBUG
+			IRIS_ASSERT(index < yield_max);
+#if IRIS_DEBUG
 			for (size_t k = 0; k < index; k++) {
-				assert(handles[index].handle != handle); // duplicated barrier of the same coroutine!
+				IRIS_ASSERT(handles[index].handle != handle); // duplicated barrier of the same coroutine!
 			}
 #endif
 			auto& info = handles[index];
@@ -936,7 +936,7 @@ namespace iris {
 				// notify all coroutines
 				for (size_t i = 0; i < handles.size(); i++) {
 					auto info = std::move(handles[i]);
-#ifdef _DEBUG
+#if IRIS_DEBUG
 					handles[i].handle = std::coroutine_handle<>();
 					if constexpr (!std::is_same_v<warp_t, void>) {
 						info.warp = nullptr;
@@ -1002,7 +1002,7 @@ namespace iris {
 				if (info.handle) {
 					if constexpr (!std::is_same_v<warp_t, void>) {
 						// dispatch() must not shared the same warp with any coroutines
-						assert(info.warp == nullptr || info.warp != warp_t::get_current_warp());
+						IRIS_ASSERT(info.warp == nullptr || info.warp != warp_t::get_current_warp());
 					}
 
 					frame_pending_count.fetch_add(1, std::memory_order_acquire);
@@ -1097,13 +1097,13 @@ namespace iris {
 		}
 
 		void await_suspend(std::coroutine_handle<> handle) {
-			assert(info.handle == std::coroutine_handle<>());
+			IRIS_ASSERT(info.handle == std::coroutine_handle<>());
 			info.handle = std::move(handle);
 
 			if constexpr (!std::is_same_v<warp_t, void>) {
-				assert(info.warp == warp_t::get_current_warp());
+				IRIS_ASSERT(info.warp == warp_t::get_current_warp());
 			} else {
-				assert(info.warp == nullptr);
+				IRIS_ASSERT(info.warp == nullptr);
 			}
 
 			dispatcher.dispatch(routine);
@@ -1164,7 +1164,7 @@ namespace iris {
 				if (host == nullptr) {
 					*this = std::move(rhs);
 				} else {
-					assert(host == rhs.host);
+					IRIS_ASSERT(host == rhs.host);
 					acquire(rhs.amount);
 					rhs.host = nullptr;
 				}
@@ -1172,7 +1172,7 @@ namespace iris {
 
 			// add more
 			void acquire(const amount_t& delta) noexcept {
-				assert(host != nullptr);
+				IRIS_ASSERT(host != nullptr);
 				for (size_t i = 0; i < amount.size(); i++) {
 					amount[i] += delta[i];
 				}
@@ -1180,9 +1180,9 @@ namespace iris {
 
 			// release part of them
 			void release(const amount_t& delta) {
-				assert(host != nullptr);
+				IRIS_ASSERT(host != nullptr);
 				for (size_t i = 0; i < amount.size(); i++) {
-					assert(amount[i] >= delta[i]);
+					IRIS_ASSERT(amount[i] >= delta[i]);
 					amount[i] -= delta[i];
 				}
 

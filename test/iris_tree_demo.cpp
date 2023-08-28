@@ -65,7 +65,7 @@ size_t fast_query(sample_tree*& root, const box& box) noexcept {
 	queryer q;
 	q.bounding = box;
 	q.count = 0;
-	assert(root->get_parent() == nullptr);
+	IRIS_ASSERT(root->get_parent() == nullptr);
 	root->query<true>(box, q);
 
 	return q.count;

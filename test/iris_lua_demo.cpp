@@ -128,7 +128,7 @@ struct example_t {
 	static int get_value_raw_lambda(lua_State* L) {
 		return lua_t::forward(L, [L](lua_t lua, example_t* t) {
 			bool same = L == lua.get_state();
-			assert(same);
+			IRIS_ASSERT(same);
 			return t->get_value();
 		});
 	}
@@ -275,13 +275,13 @@ end\n"));
 
 	int result = target.native_call(std::move(test), 3);
 	int ret_val = target.native_get_variable<int>(-1);
-	assert(ret_val == 1234);
+	IRIS_ASSERT(ret_val == 1234);
 	lua_close(T);
 
 	lua.native_push_variable(1234);
 	int v = lua.native_get_variable<int>(-1);
 	lua_pop(L, 1);
-	assert(v == 1234);
+	IRIS_ASSERT(v == 1234);
 
 	lua_t::refptr_t<example_t> example = lua.make_object<example_t>(lua.get_global<lua_t::ref_t>("example_t"));
 	example->value = 5;
@@ -331,7 +331,7 @@ end\n"));
 		for i = 1, #t do\n\
 			print(t[i])\n\
 		end\n"));
-	assert(success);
+	IRIS_ASSERT(success);
 	auto tab = lua.make_table([](lua_t&& lua) {
 		lua.define("key", "value");
 		lua.define(1, "number");
@@ -339,11 +339,11 @@ end\n"));
 	});
 
 	tab.set(lua, "set", "newvalue");
-	assert(*tab.get<int>(lua, 2) == 2);
+	IRIS_ASSERT(*tab.get<int>(lua, 2) == 2);
 	auto r = tab.get<lua_t::ref_t>(lua, 2);
-	assert(r);
-	assert((*r).as<int>(lua) == 2);
-	assert(tab.size(lua) == 2);
+	IRIS_ASSERT(r);
+	IRIS_ASSERT((*r).as<int>(lua) == 2);
+	IRIS_ASSERT(tab.size(lua) == 2);
 	lua.deref(std::move(*r));
 
 	tab.for_each<std::string_view, std::string_view>(lua, [](auto key, auto value) {

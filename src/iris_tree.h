@@ -29,6 +29,7 @@ SOFTWARE.
 
 #pragma once
 
+#include "iris_common.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -149,8 +150,8 @@ namespace iris {
 
 		// attach tree `t` to `this`
 		void attach(iris_tree_t* t) noexcept {
-			assert(t != nullptr && t != this);
-			assert(t->left_node == nullptr && t->right_node == nullptr && t->get_parent() == nullptr);
+			IRIS_ASSERT(t != nullptr && t != this);
+			IRIS_ASSERT(t->left_node == nullptr && t->right_node == nullptr && t->get_parent() == nullptr);
 			merge(t);
 		}
 
@@ -165,17 +166,17 @@ namespace iris {
 				return new_root;
 			}
 
-			assert(left_node != nullptr && right_node != nullptr);
+			IRIS_ASSERT(left_node != nullptr && right_node != nullptr);
 
 			// find replacer tree node
 			iris_tree_t* p = selector(left_node, right_node) ? right_node->find_minimal(get_index()) : left_node->find_maximal(get_index());
-			assert(p != nullptr);
+			IRIS_ASSERT(p != nullptr);
 			new_root = p;
 
 			// detach cascaded
 			p->detach(selector);
-			assert(p->get_parent() == nullptr);
-			assert(p->left_node == nullptr && p->right_node == nullptr);
+			IRIS_ASSERT(p->get_parent() == nullptr);
+			IRIS_ASSERT(p->left_node == nullptr && p->right_node == nullptr);
 
 			// assign new topology relationship
 			if (get_parent() != nullptr) {
@@ -422,7 +423,7 @@ namespace iris {
 
 		// merge t to this
 		void merge(iris_tree_t* t) noexcept {
-			assert(t->get_parent() == nullptr);
+			IRIS_ASSERT(t->get_parent() == nullptr);
 			// which branch should be selected?
 			bool left = meta::compare(key, t->key, get_index());
 

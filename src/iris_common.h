@@ -74,6 +74,18 @@ SOFTWARE.
 #define IRIS_SHARED_LIBRARY_DECORATOR
 #endif
 
+#ifndef IRIS_DEBUG
+#ifdef _DEBUG
+#define IRIS_DEBUG _DEBUG
+#else
+#define IRIS_DEBUG 0
+#endif
+#endif
+
+#ifndef IRIS_ASSERT
+#define IRIS_ASSERT assert
+#endif
+
 namespace iris {
 	static constexpr size_t default_block_size = IRIS_DEFAULT_BLOCK_SIZE;
 	static constexpr size_t default_page_size = IRIS_DEFAULT_PAGE_SIZE;
@@ -85,7 +97,7 @@ namespace iris {
 			return true;
 		}
 
-#ifdef _DEBUG
+#if IRIS_DEBUG
 		iris_write_fence_t(std::atomic<atomic_t>& var, std::thread::id& id) noexcept : variable(var), thread_id(id) {
 			acquire(variable, thread_id);
 		}
@@ -95,13 +107,13 @@ namespace iris {
 		}
 
 		static void acquire(std::atomic<atomic_t>& variable, std::thread::id& thread_id) noexcept {
-			assert(variable.exchange(~(atomic_t)0, std::memory_order_acquire) == 0);
+			IRIS_ASSERT(variable.exchange(~(atomic_t)0, std::memory_order_acquire) == 0);
 			thread_id = std::this_thread::get_id();
 		}
 
 		static void release(std::atomic<atomic_t>& variable, std::thread::id& thread_id) noexcept {
 			thread_id = std::thread::id();
-			assert(variable.exchange(0, std::memory_order_release) == ~(atomic_t)0);
+			IRIS_ASSERT(variable.exchange(0, std::memory_order_release) == ~(atomic_t)0);
 		}
 
 	private:
@@ -116,7 +128,7 @@ namespace iris {
 			return true;
 		}
 
-#ifdef _DEBUG
+#if IRIS_DEBUG
 		iris_read_fence_t(std::atomic<atomic_t>& var, std::thread::id& id) noexcept : variable(var), thread_id(id) {
 			acquire(variable, thread_id);
 		}
@@ -126,13 +138,13 @@ namespace iris {
 		}
 
 		static void acquire(std::atomic<atomic_t>& variable, std::thread::id& thread_id) noexcept {
-			assert(variable.fetch_add(1, std::memory_order_acquire) != ~(atomic_t)0);
+			IRIS_ASSERT(variable.fetch_add(1, std::memory_order_acquire) != ~(atomic_t)0);
 			thread_id = std::this_thread::get_id();
 		}
 
 		static void release(std::atomic<atomic_t>& variable, std::thread::id& thread_id) noexcept {
 			thread_id = std::thread::id();
-			assert(variable.fetch_sub(1, std::memory_order_release) != ~(atomic_t)0);
+			IRIS_ASSERT(variable.fetch_sub(1, std::memory_order_release) != ~(atomic_t)0);
 		}
 
 	private:
@@ -143,7 +155,7 @@ namespace iris {
 
 	template <typename atomic_t = size_t>
 	struct enable_read_write_fence_t {
-#ifdef _DEBUG
+#if IRIS_DEBUG
 		iris_read_fence_t<atomic_t> read_fence() const noexcept {
 			return iris_read_fence_t<atomic_t>(monitor, thread_id);
 		}
@@ -182,7 +194,7 @@ namespace iris {
 		void release_write() const noexcept {}
 #endif
 	private:
-#ifdef _DEBUG
+#if IRIS_DEBUG
 		mutable std::atomic<atomic_t> monitor = 0;
 		mutable std::thread::id thread_id;
 #endif
@@ -191,7 +203,7 @@ namespace iris {
 	// in out fence is to protect dual input/output data structures such as queue_list_t or deque
 	template <typename atomic_t = size_t>
 	struct enable_in_out_fence_t {
-#ifdef _DEBUG
+#if IRIS_DEBUG
 		iris_write_fence_t<atomic_t> in_fence() const noexcept {
 			return iris_write_fence_t<atomic_t>(in_monitor, in_thread_id);
 		}
@@ -231,7 +243,7 @@ namespace iris {
 #endif
 
 	private:
-#ifdef _DEBUG
+#if IRIS_DEBUG
 		mutable std::atomic<atomic_t> in_monitor = 0;
 		mutable std::atomic<atomic_t> out_monitor = 0;
 		mutable std::thread::id in_thread_id;
@@ -243,7 +255,7 @@ namespace iris {
 	template <typename target_t, typename source_t>
 	target_t iris_verify_cast(source_t&& src) noexcept {
 		target_t ret = static_cast<target_t>(src);
-		assert(ret == src);
+		IRIS_ASSERT(ret == src);
 		return ret;
 	}
 
@@ -479,7 +491,7 @@ namespace iris {
 	}
 
 	inline uint32_t iris_get_trailing_zeros(uint32_t value) noexcept {
-		assert(value != 0);
+		IRIS_ASSERT(value != 0);
 #if defined(_MSC_VER)
 		unsigned long index;
 		_BitScanForward(&index, value);
@@ -490,7 +502,7 @@ namespace iris {
 	}
 
 	inline uint32_t iris_get_trailing_zeros(uint64_t value) noexcept {
-		assert(value != 0);
+		IRIS_ASSERT(value != 0);
 #if defined(_MSC_VER)
 #if !defined(_M_AMD64)
 		uint32_t lowPart = (uint32_t)(value & 0xffffffff);
@@ -523,7 +535,7 @@ namespace iris {
 		static constexpr size_t bitmap_count = (total_count + sizeof(size_t) * 8 - 1) / (sizeof(size_t) * 8);
 
 		~iris_root_allocator_t() noexcept {
-			assert(blocks.empty());
+			IRIS_ASSERT(blocks.empty());
 		}
 
 		void* allocate() {
@@ -575,7 +587,7 @@ namespace iris {
 						size_t index = (reinterpret_cast<uint8_t*>(p) - block.address) / alloc_size;
 						size_t page = index / (sizeof(size_t) * 8);
 						size_t offset = index & (sizeof(size_t) * 8 - 1);
-						assert(page < bitmap_count);
+						IRIS_ASSERT(page < bitmap_count);
 						size_t& bitmap = block.bitmap[page];
 						bitmap &= ~(size_t(1) << offset);
 
@@ -696,9 +708,9 @@ namespace iris {
 						recycled_head.store(t, std::memory_order_relaxed);
 
 						p->next = nullptr;
-						assert(p->ref_count.load(std::memory_order_relaxed) >= 1);
+						IRIS_ASSERT(p->ref_count.load(std::memory_order_relaxed) >= 1);
 						recycle_count.store(recycle_count.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
-						assert(p->managed.load(std::memory_order_relaxed) == 1);
+						IRIS_ASSERT(p->managed.load(std::memory_order_relaxed) == 1);
 						p->managed.store(0, std::memory_order_relaxed);
 					} else {
 						p = reinterpret_cast<control_block_t*>(get_root_allocator().allocate());
@@ -768,9 +780,9 @@ namespace iris {
 						}
 
 						p->next = nullptr;
-						assert(p->ref_count.load(std::memory_order_acquire) >= 1);
+						IRIS_ASSERT(p->ref_count.load(std::memory_order_acquire) >= 1);
 						recycle_count.fetch_sub(1, std::memory_order_relaxed);
-						assert(p->managed.load(std::memory_order_acquire) == 1);
+						IRIS_ASSERT(p->managed.load(std::memory_order_acquire) == 1);
 						p->managed.store(0, std::memory_order_release);
 					} else {
 						p = reinterpret_cast<control_block_t*>(get_root_allocator().allocate());
@@ -807,7 +819,7 @@ namespace iris {
 				try_free_safe(p);
 			}
 
-			assert(false);
+			IRIS_ASSERT(false);
 			return nullptr; // never reach here
 		}
 
@@ -817,7 +829,7 @@ namespace iris {
 			size_t id = (t - reinterpret_cast<size_t>(p)) / k - offset;
 			auto guard = p->allocator->read_fence();
 
-			assert(p->allocator != nullptr);
+			IRIS_ASSERT(p->allocator != nullptr);
 			p->bitmap[id / bits].fetch_and(~(size_t(1) << (id & mask)));
 			p->allocator->recycle_safe(p);
 		}
@@ -828,17 +840,17 @@ namespace iris {
 			size_t id = (t - reinterpret_cast<size_t>(p)) / k - offset;
 			auto guard = p->allocator->write_fence();
 
-			assert(p->allocator != nullptr);
+			IRIS_ASSERT(p->allocator != nullptr);
 			p->bitmap[id / bits].store(p->bitmap[id / bits].load(std::memory_order_relaxed) & ~(size_t(1) << (id & mask)));
 			p->allocator->recycle_unsafe(p);
 		}
 
 	protected:
 		void try_free_safe(control_block_t* p) {
-			assert(p->ref_count.load(std::memory_order_acquire) != 0);
+			IRIS_ASSERT(p->ref_count.load(std::memory_order_acquire) != 0);
 			if (p->ref_count.fetch_sub(1, std::memory_order_release) == 1) {
 				for (size_t n = 0; n < sizeof(control_blocks) / sizeof(control_blocks[0]); n++) {
-					assert(control_blocks[n].load(std::memory_order_acquire) != p);
+					IRIS_ASSERT(control_blocks[n].load(std::memory_order_acquire) != p);
 				}
 
 				get_root_allocator().deallocate(p);
@@ -846,12 +858,12 @@ namespace iris {
 		}
 
 		void try_free_unsafe(control_block_t* p) {
-			assert(p->ref_count.load(std::memory_order_relaxed) != 0);
+			IRIS_ASSERT(p->ref_count.load(std::memory_order_relaxed) != 0);
 			size_t count = p->ref_count.load(std::memory_order_relaxed);
 			p->ref_count.store(count - 1, std::memory_order_relaxed);
 			if (count == 1) {
 				for (size_t n = 0; n < sizeof(control_blocks) / sizeof(control_blocks[0]); n++) {
-					assert(control_blocks[n].load(std::memory_order_relaxed) != p);
+					IRIS_ASSERT(control_blocks[n].load(std::memory_order_relaxed) != p);
 				}
 
 				get_root_allocator().deallocate(p);
@@ -859,7 +871,7 @@ namespace iris {
 		}
 
 		void recycle_safe(control_block_t* p) {
-			assert(p->ref_count.load(std::memory_order_acquire) != 0);
+			IRIS_ASSERT(p->ref_count.load(std::memory_order_acquire) != 0);
 
 			// search for recycled
 			if (p->managed.load(std::memory_order_acquire) == 0 && recycle_count < r && p->managed.exchange(1, std::memory_order_acquire) == 0) {
@@ -872,7 +884,7 @@ namespace iris {
 
 				recycle_count.fetch_add(1, std::memory_order_relaxed);
 
-				assert(p->next == nullptr);
+				IRIS_ASSERT(p->next == nullptr);
 				control_block_t* h = recycled_head.load(std::memory_order_relaxed);
 				do {
 					p->next = h;
@@ -883,7 +895,7 @@ namespace iris {
 		}
 
 		void recycle_unsafe(control_block_t* p) {
-			assert(p->ref_count.load(std::memory_order_relaxed) != 0);
+			IRIS_ASSERT(p->ref_count.load(std::memory_order_relaxed) != 0);
 
 			// search for recycled
 			if (p->managed.load(std::memory_order_relaxed) == 0 && recycle_count < r) {
@@ -899,7 +911,7 @@ namespace iris {
 
 				recycle_count.store(recycle_count.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
 
-				assert(p->next == nullptr);
+				IRIS_ASSERT(p->next == nullptr);
 				p->next = recycled_head.load(std::memory_order_relaxed);
 				recycled_head.store(p, std::memory_order_relaxed);
 			} else {
@@ -931,7 +943,7 @@ namespace iris {
 		using allocator_t = iris_allocator_t<sizeof(element_t), block_size>;
 
 		element_t* allocate(size_t n) {
-			assert(n == 1);
+			IRIS_ASSERT(n == 1);
 			return reinterpret_cast<element_t*>(allocator_t::allocate_safe());
 		}
 
@@ -945,7 +957,7 @@ namespace iris {
 		}
 
 		void deallocate(element_t* p, size_t n) {
-			assert(n == 1);
+			IRIS_ASSERT(n == 1);
 			allocator_t::deallocate_safe(p);
 		}
 	};
@@ -968,7 +980,7 @@ namespace iris {
 		using allocator_t = iris_allocator_t<sizeof(element_t), block_size>;
 
 		element_t* allocate(size_t n) {
-			assert(n == 1);
+			IRIS_ASSERT(n == 1);
 			return reinterpret_cast<element_t*>(allocator_t::allocate_unsafe());
 		}
 
@@ -982,7 +994,7 @@ namespace iris {
 		}
 
 		void deallocate(element_t* p, size_t n) {
-			assert(n == 1);
+			IRIS_ASSERT(n == 1);
 			allocator_t::deallocate_unsafe(p);
 		}
 	};
@@ -1007,7 +1019,7 @@ namespace iris {
 		iris_shared_object_allocator_t(allocator_t& alloc) noexcept : allocator(alloc) {}
 
 		element_t* allocate(size_t n) {
-			assert(n == 1);
+			IRIS_ASSERT(n == 1);
 			return reinterpret_cast<element_t*>(allocator.allocate_safe());
 		}
 
@@ -1021,7 +1033,7 @@ namespace iris {
 		}
 
 		void deallocate(element_t* p, size_t n) {
-			assert(n == 1);
+			IRIS_ASSERT(n == 1);
 			allocator.deallocate_unsafe(p);
 		}
 
@@ -1048,7 +1060,7 @@ namespace iris {
 		iris_relaxed_shared_object_allocator_t(allocator_t& alloc) noexcept : allocator(alloc) {}
 
 		element_t* allocate(size_t n) {
-			assert(n == 1);
+			IRIS_ASSERT(n == 1);
 			return reinterpret_cast<element_t*>(allocator.allocate_unsafe());
 		}
 
@@ -1062,7 +1074,7 @@ namespace iris {
 		}
 
 		void deallocate(element_t* p, size_t n) {
-			assert(n == 1);
+			IRIS_ASSERT(n == 1);
 			allocator.deallocate_unsafe(p);
 		}
 
@@ -1091,7 +1103,7 @@ namespace iris {
 			if (n == block_size / sizeof(element_t)) {
 				return reinterpret_cast<element_t*>(allocator_t::get().allocate());
 			} else {
-				assert(n == 1);
+				IRIS_ASSERT(n == 1);
 				return single_allocator_t<element_t>::allocate(1);
 			}
 		}
@@ -1109,7 +1121,7 @@ namespace iris {
 			if (n == block_size / sizeof(element_t)) {
 				allocator_t::get().deallocate(p);
 			} else {
-				assert(n == 1);
+				IRIS_ASSERT(n == 1);
 				single_allocator_t<element_t>::deallocate(p, 1);
 			}
 		}
@@ -1214,25 +1226,25 @@ namespace iris {
 
 		element_t& top() noexcept {
 			auto guard = out_fence();
-			assert(!empty()); // must checked before calling me (memory fence acquire implicited)
+			IRIS_ASSERT(!empty()); // must checked before calling me (memory fence acquire implicited)
 			return *reinterpret_cast<element_t*>(&ring_buffer[pop_count % element_count]);
 		}
 
 		const element_t& top() const noexcept {
 			auto guard = out_fence();
-			assert(!empty()); // must checked before calling me (memory fence acquire implicited)
+			IRIS_ASSERT(!empty()); // must checked before calling me (memory fence acquire implicited)
 			return *reinterpret_cast<const element_t*>(&ring_buffer[pop_count % element_count]);
 		}
 
 		element_t& get(size_t index) noexcept {
 			auto guard = out_fence();
-			assert(!empty()); // must checked before calling me (memory fence acquire implicited)
+			IRIS_ASSERT(!empty()); // must checked before calling me (memory fence acquire implicited)
 			return *reinterpret_cast<element_t*>(&ring_buffer[index % element_count]);
 		}
 
 		const element_t& get(size_t index) const noexcept {
 			auto guard = out_fence();
-			assert(!empty()); // must checked before calling me (memory fence acquire implicited)
+			IRIS_ASSERT(!empty()); // must checked before calling me (memory fence acquire implicited)
 			return *reinterpret_cast<const element_t*>(&ring_buffer[index % element_count]);
 		}
 
@@ -1309,7 +1321,7 @@ namespace iris {
 		void pop() noexcept {
 			auto guard = out_fence();
 
-			assert(!empty());  // must checked before calling me (memory fence acquire implicited)
+			IRIS_ASSERT(!empty());  // must checked before calling me (memory fence acquire implicited)
 			reinterpret_cast<element_t*>(&ring_buffer[pop_count % element_count])->~element_t();
 
 			// place a thread_fence here to ensure that change of ring_buffer[pop_count]
@@ -1369,13 +1381,13 @@ namespace iris {
 
 		size_t size() const noexcept {
 			ptrdiff_t diff = diff_counter(push_count, pop_count);
-			assert(diff >= 0);
+			IRIS_ASSERT(diff >= 0);
 			return iris_verify_cast<size_t>(diff);
 		}
 
 		// returns remaining possible available size with specified alignment
 		size_t pack_size(size_t alignment) const noexcept {
-			assert(element_count >= alignment);
+			IRIS_ASSERT(element_count >= alignment);
 			size_t index = push_count + iris_verify_cast<size_t>((alignment - iris_get_alignment(push_count % element_count)) & (alignment - 1));
 
 			return iris_verify_cast<size_t>(std::min(std::max(index, pop_count + element_count) - index, element_count - (index % element_count)));
@@ -1478,8 +1490,8 @@ namespace iris {
 		element_t* allocate(size_t count, size_t alignment) {
 			auto guard = in_fence();
 
-			assert(count >= alignment);
-			assert(count <= element_count);
+			IRIS_ASSERT(count >= alignment);
+			IRIS_ASSERT(count <= element_count);
 			// make alignment
 			size_t push_index = push_count % element_count;
 			count += iris_verify_cast<size_t>(alignment - iris_get_alignment(push_index)) & (alignment - 1);
@@ -1505,13 +1517,13 @@ namespace iris {
 
 		void deallocate(size_t count, size_t alignment) noexcept {
 			auto guard = out_fence();
-			assert(count >= alignment);
-			assert(count <= element_count);
+			IRIS_ASSERT(count >= alignment);
+			IRIS_ASSERT(count <= element_count);
 
 			// make alignment
 			size_t pop_index = pop_count % element_count;
 			count += iris_verify_cast<size_t>(alignment - iris_get_alignment(pop_index)) & (alignment - 1);
-			assert(count <= size());
+			IRIS_ASSERT(count <= size());
 
 			size_t next_index = pop_index + count;
 
@@ -1747,7 +1759,7 @@ namespace iris {
 		}
 
 		iris_queue_list_t(iris_queue_list_t&& rhs) noexcept {
-			assert(static_cast<node_allocator_t&>(*this) == static_cast<node_allocator_t&>(rhs));
+			IRIS_ASSERT(static_cast<node_allocator_t&>(*this) == static_cast<node_allocator_t&>(rhs));
 			push_head = rhs.push_head;
 			pop_head = rhs.pop_head;
 			iterator_counter = rhs.iterator_counter;
@@ -1757,7 +1769,7 @@ namespace iris {
 		}
 
 		iris_queue_list_t& operator = (iris_queue_list_t&& rhs) noexcept {
-			assert(static_cast<node_allocator_t&>(*this) == static_cast<node_allocator_t&>(rhs));
+			IRIS_ASSERT(static_cast<node_allocator_t&>(*this) == static_cast<node_allocator_t&>(rhs));
 			// just swap pointers.
 			std::swap(push_head, rhs.push_head);
 			std::swap(pop_head, rhs.pop_head);
@@ -1962,7 +1974,7 @@ namespace iris {
 					iterator_counter = node_t::step_counter(iterator_counter, element_count);
 
 					address = p->allocate(count, alignment); // must success
-					assert(address != nullptr);
+					IRIS_ASSERT(address != nullptr);
 
 					push_head->next = p;
 					push_head = p;
@@ -2298,7 +2310,7 @@ namespace iris {
 	struct iris_pool_t : protected enable_in_out_fence_t<> {
 		using element_t = typename queue_t::element_t;
 		iris_pool_t(size_t size = block_size / sizeof(element_t)) : max_size(size) {
-#ifdef _DEBUG
+#if IRIS_DEBUG
 			allocated.store(0, std::memory_order_release);
 #endif
 		}
@@ -2307,8 +2319,8 @@ namespace iris {
 		}
 
 		void clear() noexcept {
-#ifdef _DEBUG
-			assert(allocated == queue.size()); // all acquire() must release() before destruction
+#if IRIS_DEBUG
+			IRIS_ASSERT(allocated == queue.size()); // all acquire() must release() before destruction
 			allocated = 0;
 #endif
 			queue.for_each([this](element_t& element) {
@@ -2323,7 +2335,7 @@ namespace iris {
 			auto guard = out_fence();
 
 			if (queue.empty()) {
-#ifdef _DEBUG
+#if IRIS_DEBUG
 				allocated.fetch_add(1, std::memory_order_relaxed);
 #endif
 				return static_cast<interface_t*>(this)->template acquire_element<element_t>();
@@ -2341,7 +2353,7 @@ namespace iris {
 			if (queue.size() < max_size) {
 				queue.push(std::move(element));
 			} else {
-#ifdef _DEBUG
+#if IRIS_DEBUG
 				allocated.fetch_sub(1, std::memory_order_relaxed);
 #endif
 				static_cast<interface_t*>(this)->template release_element<element_t>(std::move(element));
@@ -2350,7 +2362,7 @@ namespace iris {
 
 	protected:
 		size_t max_size;
-#ifdef _DEBUG
+#if IRIS_DEBUG
 		std::atomic<size_t> allocated;
 #endif
 		queue_t queue;

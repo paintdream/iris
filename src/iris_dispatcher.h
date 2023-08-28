@@ -147,7 +147,7 @@ namespace iris {
 		template <bool allow_suspended>
 		struct preempt_guard_t {
 			explicit preempt_guard_t(iris_warp_t& warp_instance) noexcept : warp(warp_instance) {
-#ifdef _DEBUG
+#if IRIS_DEBUG
 				current = iris_warp_t::get_current_warp();
 #endif
 				state = allow_suspended ? true : !warp.is_suspended();
@@ -168,18 +168,18 @@ namespace iris {
 			}
 
 			~preempt_guard_t() noexcept {
-#ifdef _DEBUG
+#if IRIS_DEBUG
 				iris_warp_t* m = iris_warp_t::get_current_warp();
 				if (state) {
-					assert(m == &warp);
+					IRIS_ASSERT(m == &warp);
 				}
 #endif
 
 				if (preempted) {
 					warp.yield();
-#ifdef _DEBUG
+#if IRIS_DEBUG
 					iris_warp_t* n = iris_warp_t::get_current_warp();
-					assert(current == n);
+					IRIS_ASSERT(current == n);
 #endif
 				}
 			}
@@ -190,7 +190,7 @@ namespace iris {
 
 		protected:
 			iris_warp_t& warp;
-#ifdef _DEBUG
+#if IRIS_DEBUG
 			iris_warp_t* current;
 #endif
 			bool preempted;
@@ -269,7 +269,7 @@ namespace iris {
 			thread_warp.store(nullptr, std::memory_order_relaxed);
 			suspend_count.store(0, std::memory_order_relaxed);
 			interrupting.store(0, std::memory_order_relaxed);
-#ifdef _DEBUG
+#if IRIS_DEBUG
 			self_polling_count.store(0, std::memory_order_relaxed);
 #endif
 			queueing.store(queue_state_idle, std::memory_order_release);
@@ -279,7 +279,7 @@ namespace iris {
 			thread_warp.store(rhs.thread_warp.load(std::memory_order_relaxed), std::memory_order_relaxed);
 			suspend_count.store(rhs.suspend_count.load(std::memory_order_relaxed), std::memory_order_relaxed);
 			interrupting.store(rhs.interrupting.load(std::memory_order_relaxed), std::memory_order_relaxed);
-#ifdef _DEBUG
+#if IRIS_DEBUG
 			self_polling_count.store(rhs.self_polling_count.load(std::memory_order_release), std::memory_order_relaxed);
 #endif
 			queueing.store(rhs.queueing.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -288,7 +288,7 @@ namespace iris {
 			rhs.thread_warp.store(nullptr, std::memory_order_relaxed);
 			rhs.suspend_count.store(0, std::memory_order_relaxed);
 			rhs.interrupting.store(0, std::memory_order_relaxed);
-#ifdef _DEBUG
+#if IRIS_DEBUG
 			rhs.self_polling_count.store(0, std::memory_order_relaxed);
 #endif
 			rhs.queueing.store(queue_state_idle, std::memory_order_release);
@@ -296,7 +296,7 @@ namespace iris {
 
 		~iris_warp_t() noexcept {
 			// a warp cannot be destructed in its context
-			assert(get_current_warp_internal() != this);
+			IRIS_ASSERT(get_current_warp_internal() != this);
 
 			// execute remaining tasks on destruction
 			while (!join<true, true>()) {}
@@ -312,7 +312,7 @@ namespace iris {
 
 				return true;
 			} else {
-				assert(get_current_warp_internal() != this);
+				IRIS_ASSERT(get_current_warp_internal() != this);
 				return false;
 			}
 		}
@@ -334,7 +334,7 @@ namespace iris {
 
 		// assert that current warp is just this
 		void validate() const noexcept {
-			assert(this == get_current_warp_internal());
+			IRIS_ASSERT(this == get_current_warp_internal());
 		}
 
 		bool is_suspended() const noexcept {
@@ -360,7 +360,7 @@ namespace iris {
 
 				return true;
 			} else {
-				assert(get_current_warp_internal() == nullptr || exp == nullptr || *exp == nullptr);
+				IRIS_ASSERT(get_current_warp_internal() == nullptr || exp == nullptr || *exp == nullptr);
 				return false;
 			}
 		}
@@ -388,13 +388,13 @@ namespace iris {
 		template <typename callable_t>
 		void queue_routine(callable_t&& func) noexcept(noexcept(func()) &&
 			noexcept(std::declval<iris_warp_t>().template push<strand>(std::forward<callable_t>(func)))) {
-			assert(async_worker.get_current_thread_index() != ~size_t(0));
+			IRIS_ASSERT(async_worker.get_current_thread_index() != ~size_t(0));
 
 			// can be executed immediately?
 			// try to acquire execution, if it fails, just go posting
 			preempt_guard_t<false> preempt_guard(*this);
 			if (preempt_guard) {
-#ifdef _DEBUG
+#if IRIS_DEBUG
 				self_polling_count.fetch_add(1, std::memory_order_acquire);
 				impl::atomic_guard_t<impl::sub> self_polling_guard(self_polling_count);
 #endif
@@ -415,7 +415,7 @@ namespace iris {
 		// queue external routine from non-warp/yielded warp
 		template <typename callable_t>
 		void queue_routine_external(callable_t&& func) {
-			assert(async_worker.get_current_thread_index() == ~size_t(0));
+			IRIS_ASSERT(async_worker.get_current_thread_index() == ~size_t(0));
 			async_worker.queue(external_t<typename std::remove_reference<callable_t>::type>(*this, std::forward<callable_t>(func)), priority);
 		}
 
@@ -428,9 +428,9 @@ namespace iris {
 		// it is useful to implement read-lock affairs
 		template <typename callable_t>
 		void queue_routine_parallel(callable_t&& func, size_t priority = 0) {
-			assert(get_current_warp_internal() == this);
-#ifdef _DEBUG
-			assert(self_polling_count.load(std::memory_order_acquire) == 0);
+			IRIS_ASSERT(get_current_warp_internal() == this);
+#if IRIS_DEBUG
+			IRIS_ASSERT(self_polling_count.load(std::memory_order_acquire) == 0);
 #endif
 			suspend();
 
@@ -525,7 +525,7 @@ namespace iris {
 			// mark for queueing, avoiding flush me more than once.
 			queueing.store(queue_state_executing, std::memory_order_release);
 			iris_warp_t** warp_ptr = &get_current_warp_internal();
-			assert(*warp_ptr == this);
+			IRIS_ASSERT(*warp_ptr == this);
 			queue_buffer_t& buffer = storage.queue_buffer;
 
 			// execute tasks in queue_buffer until suspended or interruption occurred
@@ -559,7 +559,7 @@ namespace iris {
 			// mark for queueing, avoiding flush me more than once.
 			queueing.store(queue_state_executing, std::memory_order_release);
 			iris_warp_t** warp_ptr = &get_current_warp_internal();
-			assert(*warp_ptr == this);
+			IRIS_ASSERT(*warp_ptr == this);
 
 			// execute tasks in queue_buffer until suspended or interruption occurred
 			std::vector<queue_buffer_t>& queue_buffers = storage.queue_buffers;
@@ -655,15 +655,15 @@ namespace iris {
 			size_t thread_index = async_worker.get_current_thread_index();
 			if (thread_index != ~size_t(0)) {
 				std::vector<queue_buffer_t>& queue_buffers = storage.queue_buffers;
-				assert(thread_index < queue_buffers.size());
+				IRIS_ASSERT(thread_index < queue_buffers.size());
 				queue_buffer_t& buffer = queue_buffers[thread_index];
 				buffer.push(std::forward<callable_t>(func));
 
 				// flush the task immediately
 				flush();
 			} else {
-				assert(async_worker.is_terminated());
-				assert(!storage.queue_buffers.empty());
+				IRIS_ASSERT(async_worker.is_terminated());
+				IRIS_ASSERT(!storage.queue_buffers.empty());
 				storage.queue_buffers[0].push(std::forward<callable_t>(func));
 			}
 		}
@@ -673,7 +673,7 @@ namespace iris {
 		std::atomic<iris_warp_t**> thread_warp; // save the running thread warp address.
 		std::atomic<size_t> suspend_count; // current suspend count
 		std::atomic<size_t> interrupting; // is interrupting by external request?
-#ifdef _DEBUG
+#if IRIS_DEBUG
 		std::atomic<size_t> self_polling_count; // counting self polling, it is not compatible with queue_routine_parallel if it has non-zero value.
 #endif
 		std::atomic<size_t> queueing; // is flush request sent to async_worker? 0 : not yet, 1 : yes, 2 : is to flush right away.
@@ -751,10 +751,10 @@ namespace iris {
 
 		// set routine dependency [from] -> [to]
 		void order(routine_t* from, routine_t* to) {
-			assert(from != nullptr);
-			assert(to != nullptr);
+			IRIS_ASSERT(from != nullptr);
+			IRIS_ASSERT(to != nullptr);
 
-#ifdef _DEBUG
+#if IRIS_DEBUG
 			validate(from, to);
 #endif
 
@@ -780,8 +780,8 @@ namespace iris {
 
 		// delay a task temporarily, must called before it actually runs
 		routine_t* defer(routine_t* routine) noexcept {
-			assert(pending_count.load(std::memory_order_acquire) != 0);
-			assert(routine->lock_count.load(std::memory_order_relaxed) != 0);
+			IRIS_ASSERT(pending_count.load(std::memory_order_acquire) != 0);
+			IRIS_ASSERT(routine->lock_count.load(std::memory_order_relaxed) != 0);
 			routine->lock_count.fetch_add(1, std::memory_order_relaxed);
 			return routine;
 		}
@@ -893,7 +893,7 @@ namespace iris {
 		void execute(routine_t* routine) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
-			assert(routine->lock_count.load(std::memory_order_relaxed) == 0);
+			IRIS_ASSERT(routine->lock_count.load(std::memory_order_relaxed) == 0);
 			do {
 				routine_guard_t guard(*this, routine, &resurrect_routines);
 				if (routine->routine) {
@@ -904,7 +904,7 @@ namespace iris {
 				for (size_t i = 0; i < sizeof(routine->next_tasks) / sizeof(routine->next_tasks[0]); i++) {
 					routine_t*& next = routine->next_tasks[i];
 					if (next != nullptr) {
-						assert(next != routine);
+						IRIS_ASSERT(next != routine);
 						dispatch(next);
 						next = nullptr;
 					}
@@ -917,7 +917,7 @@ namespace iris {
 		}
 
 		void validate(routine_t* from, routine_t* to) {
-			assert(from != to);
+			IRIS_ASSERT(from != to);
 
 			for (size_t i = 0; i < sizeof(to->next_tasks) / sizeof(to->next_tasks[0]); i++) {
 				routine_t* p = to->next_tasks[i];
@@ -984,7 +984,7 @@ namespace iris {
 		}
 
 		void resize(size_t thread_count) {
-			assert(task_heads.empty()); // must not started
+			IRIS_ASSERT(task_heads.empty()); // must not started
 
 			threads.resize(thread_count);
 			internal_thread_count = thread_count;
@@ -992,7 +992,7 @@ namespace iris {
 
 		// initialize and start thread poll
 		void start() {
-			assert(task_heads.empty()); // must not started
+			IRIS_ASSERT(task_heads.empty()); // must not started
 
 			std::vector<std::atomic<task_t*>> heads(threads.size() * task_head_duplicate_count);
 			for (size_t i = 0; i < heads.size(); i++) {
@@ -1045,7 +1045,7 @@ namespace iris {
 		// notice that we allow a dummy thread placeholder here (if you just want to do polling outside the internal threads)
 		template <typename... args_t>
 		size_t append(args_t&&... args) {
-			assert(is_terminated());
+			IRIS_ASSERT(is_terminated());
 			size_t id = threads.size();
 			threads.emplace_back(std::forward<args_t>(args)...);
 			return id;
@@ -1136,7 +1136,7 @@ namespace iris {
 		template <typename callable_t>
 		void queue(callable_t&& func, size_t priority = 0) {
 			if (!is_terminated()) {
-				assert(!threads.empty());
+				IRIS_ASSERT(!threads.empty());
 				priority = std::min(priority, std::max(internal_thread_count, (size_t)1) - 1u);
 				task_t* task = task_allocator.allocate(1);
 				new (task) task_t(std::forward<callable_t>(func), nullptr);
@@ -1192,7 +1192,7 @@ namespace iris {
 					} while (!task_head.compare_exchange_weak(node, task, std::memory_order_acq_rel, std::memory_order_relaxed));
 				} else {
 					// terminate finished, just run at here
-					assert(get_current_thread_index_internal() == ~size_t(0));
+					IRIS_ASSERT(get_current_thread_index_internal() == ~size_t(0));
 					func();
 				}
 			}
@@ -1220,8 +1220,8 @@ namespace iris {
 					}
 				}
 
-				assert(running_count.load(std::memory_order_acquire) == 0);
-				assert(waiting_thread_count == 0);
+				IRIS_ASSERT(running_count.load(std::memory_order_acquire) == 0);
+				IRIS_ASSERT(waiting_thread_count == 0);
 				while (!cleanup()) {}
 
 				threads.clear();

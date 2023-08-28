@@ -34,14 +34,14 @@ inline void int_interface::release_element<int*>(int*&& object) {
 int main(void) {
 	iris::iris_quota_t<int, 2> quota({ 5, 3 });
 	bool u1 = quota.acquire({ 1,2 });
-	assert(u1);
+	IRIS_ASSERT(u1);
 	bool u2 = quota.acquire({ 2,3 });
-	assert(!u2);
+	IRIS_ASSERT(!u2);
 	{
 		auto v = quota.guard({ 4, 4 });
-		assert(!v);
+		IRIS_ASSERT(!v);
 		auto w = quota.guard({ 1, 1 });
-		assert(w);
+		IRIS_ASSERT(w);
 	}
 
 	quota.release({ 1,2 });
@@ -138,7 +138,7 @@ int main(void) {
 
 	size_t batch_count = 0;
 	systems.components<size_t>().for_each([&](const size_t* v, size_t n) { batch_count += n; }); // much faster
-	assert(count == batch_count);
+	IRIS_ASSERT(count == batch_count);
 
 	{
 		auto& w = systems;

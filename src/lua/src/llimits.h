@@ -103,7 +103,7 @@ typedef LUAI_UACINT l_uacInt;
 #if defined LUAI_ASSERT
 #undef NDEBUG
 #include <assert.h>
-#define lua_assert(c)           assert(c)
+#define lua_assert(c)           IRIS_ASSERT(c)
 #endif
 
 #if defined(lua_assert)

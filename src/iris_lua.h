@@ -105,12 +105,12 @@ namespace iris {
 
 		// holding lua value
 		struct ref_t {
-			explicit ref_t(int v = LUA_REFNIL) noexcept : value(v) { assert(LUA_REFNIL == 0 || v != 0); }
-			~ref_t() noexcept { assert(value == LUA_REFNIL); }
+			explicit ref_t(int v = LUA_REFNIL) noexcept : value(v) { IRIS_ASSERT(LUA_REFNIL == 0 || v != 0); }
+			~ref_t() noexcept { IRIS_ASSERT(value == LUA_REFNIL); }
 			ref_t(ref_t&& rhs) noexcept : value(rhs.value) { rhs.value = LUA_REFNIL; }
 			ref_t(const ref_t& rhs) = delete;
 			ref_t& operator = (const ref_t& rhs) = delete;
-			ref_t& operator = (ref_t&& rhs) noexcept { assert(value == LUA_REFNIL); std::swap(rhs.value, value); return *this; }
+			ref_t& operator = (ref_t&& rhs) noexcept { IRIS_ASSERT(value == LUA_REFNIL); std::swap(rhs.value, value); return *this; }
 
 			using internal_type_t = void;
 
@@ -306,9 +306,9 @@ namespace iris {
 
 		// a guard for checking stack balance
 		struct stack_guard_t {
-#ifdef _DEBUG
+#if IRIS_DEBUG
 			stack_guard_t(lua_State* state, int offset = 0) noexcept : L(state) { top = lua_gettop(L) + offset; }
-			~stack_guard_t() noexcept { assert(top == lua_gettop(L)); }
+			~stack_guard_t() noexcept { IRIS_ASSERT(top == lua_gettop(L)); }
 			void append(int diff) noexcept { top += diff; }
 
 			lua_State* L;
@@ -396,7 +396,7 @@ namespace iris {
 		refptr_t<value_t> make_object(type_t&& type, args_t&&... args) {
 			lua_State* L = state;
 			stack_guard_t guard(L);
-			assert(*type.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<value_t>()));
+			IRIS_ASSERT(*type.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<value_t>()));
 
 			value_t* p = reinterpret_cast<value_t*>(lua_newuserdatauv(L, sizeof(value_t), user_value_count));
 			new (p) value_t(std::forward<args_t>(args)...);
@@ -428,10 +428,10 @@ namespace iris {
 
 			using type_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<key_t>>>;
 			if constexpr (std::is_same_v<type_t, context_this>) {
-				assert(lua_isuserdata(L, 1));
+				IRIS_ASSERT(lua_isuserdata(L, 1));
 				return get_variable<value_t>(L, 1);
 			} else if constexpr (std::is_same_v<type_t, context_table>) {
-				assert(lua_istable(L, -1));
+				IRIS_ASSERT(lua_istable(L, -1));
 				return get_variable<value_t>(L, -1);
 			} else if constexpr (std::is_same_v<type_t, context_upvalue>) {
 				return get_variable<value_t>(L, lua_upvalueindex(key.index));
@@ -619,7 +619,7 @@ namespace iris {
 			// stack_guard_t stack_guard(L);
 			int top = lua_gettop(L);
 			push_variable(L, std::forward<callable_t>(reference));
-			assert(lua_gettop(L) == top + 1);
+			IRIS_ASSERT(lua_gettop(L) == top + 1);
 			lua_insert(L, -param_count - 1);
 
 			if (lua_pcall(L, param_count, LUA_MULTRET, 0) == LUA_OK) {
@@ -627,7 +627,7 @@ namespace iris {
 			} else {
 				log_error(L, "[ERROR] iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
 				lua_pop(L, 1);
-				assert(lua_gettop(L) == top);
+				IRIS_ASSERT(lua_gettop(L) == top);
 				return 0;
 			}
 		}
@@ -870,7 +870,7 @@ namespace iris {
 				p->lua_finalize(iris_lua_t(L), 1);
 			}
 
-			assert(p != nullptr);
+			IRIS_ASSERT(p != nullptr);
 			// do not free the memory (let lua gc it), just call the destructor
 			p->~type_t();
 
@@ -1084,7 +1084,7 @@ namespace iris {
 					}
 
 					int count = lua_gettop(L) - top;
-					assert(count >= 0);
+					IRIS_ASSERT(count >= 0);
 					return count;
 				}
 			}
@@ -1158,7 +1158,7 @@ namespace iris {
 						int top = lua_gettop(L);
 						push_variable(L, std::move(value));
 						int count = lua_gettop(L) - top;
-						assert(count >= 0);
+						IRIS_ASSERT(count >= 0);
 						push_variable(L, address);
 						coroutine_continuation(L, address, count);
 					}).run();
@@ -1174,7 +1174,7 @@ namespace iris {
 				if (lua_touserdata(L, -1) == address) {
 					lua_pop(L, 1);
 					int count = lua_gettop(L) - top;
-					assert(count >= 0);
+					IRIS_ASSERT(count >= 0);
 					return count;
 				} else {
 					return -1;

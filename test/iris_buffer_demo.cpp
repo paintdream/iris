@@ -27,15 +27,15 @@ int main(void) {
 	std::vector<double> dbl_vec;
 	iris::iris_binary_insert(dbl_vec, 1234.0f);
 	auto it = iris::iris_binary_find(dbl_vec.begin(), dbl_vec.end(), 1234.0f);
-	assert(it != dbl_vec.end());
+	IRIS_ASSERT(it != dbl_vec.end());
 	iris::iris_binary_erase(dbl_vec, 1234.0f);
 
 	std::vector<iris::iris_key_value_t<int, const char*>> str_vec;
 	iris::iris_binary_insert(str_vec, iris::iris_make_key_value(1234, "asdf"));
 	iris::iris_binary_insert(str_vec, iris::iris_make_key_value(2345, "defa"));
 	auto it2 = iris::iris_binary_find(str_vec.begin(), str_vec.end(), 1234);
-	assert(it2 != str_vec.end());
-	assert(iris::iris_binary_find(str_vec.begin(), str_vec.end(), 1236) == str_vec.end());
+	IRIS_ASSERT(it2 != str_vec.end());
+	IRIS_ASSERT(iris::iris_binary_find(str_vec.begin(), str_vec.end(), 1236) == str_vec.end());
 	iris::iris_binary_erase(str_vec, 1234);
 	iris::iris_binary_erase(str_vec, iris::iris_make_key_value(1234, ""));
 

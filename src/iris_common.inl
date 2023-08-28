@@ -61,7 +61,7 @@ namespace iris {
 #ifdef _WIN32
 		// 64k page, use low-level allocation
 		if (size >= large_page && ((size & (large_page - 1)) == 0)) {
-			assert(alignment <= large_page);
+			IRIS_ASSERT(alignment <= large_page);
 			// usually, VirtualAlloc allocates memory in page with 64k
 			return ::VirtualAlloc(nullptr, size, MEM_COMMIT, PAGE_READWRITE);
 		} else {
@@ -69,7 +69,7 @@ namespace iris {
 		}
 #else
 		if (size >= large_page && ((size & (large_page - 1)) == 0)) {
-			assert(alignment <= large_page);
+			IRIS_ASSERT(alignment <= large_page);
 			// mmap also aligns at 64k without any gaps between pages in most of implementations
 			return mmap(0, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 		} else {

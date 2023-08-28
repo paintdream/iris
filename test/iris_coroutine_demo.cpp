@@ -30,7 +30,7 @@ coroutine_int_t cascade_ret(warp_t* warp) {
 
 coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, warp_t* warp_end, int value) {
 	if (warp != nullptr) {
-		assert(warp_end - warp >= 3);
+		IRIS_ASSERT(warp_end - warp >= 3);
 		warp_t* current = co_await iris_switch(warp);
 		printf("Switch to warp %p\n", warp);
 		co_await iris_switch<warp_t>(nullptr);
@@ -38,15 +38,15 @@ coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, warp_t* 
 		co_await iris_switch(warp);
 		printf("Attached\n");
 		co_await iris_switch(current);
-		assert(current == warp_t::get_current_warp());
+		IRIS_ASSERT(current == warp_t::get_current_warp());
 
 		// randomly select warp
-		assert(warp_end != nullptr);
+		IRIS_ASSERT(warp_end != nullptr);
 		co_await iris_switch<warp_t>(nullptr); // iris_select requires warp_t::get_current_warp() == nullptr
 		warp_t* selected = co_await iris_select(warp, warp_end);
 		printf("Select warp: %d\n", iris_verify_cast<int>(selected - warp));
 
-		assert(warp_end - warp > 1);
+		IRIS_ASSERT(warp_end - warp > 1);
 		if (warp == selected) {
 			co_await iris_switch(warp + 1, warp + 2);
 		} else {
@@ -95,7 +95,7 @@ coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, warp_t* 
 		warp_t* current = co_await iris_switch(warp);
 		printf("Another switch to warp %p\n", warp);
 		co_await iris_switch(current);
-		assert(current == warp_t::get_current_warp());
+		IRIS_ASSERT(current == warp_t::get_current_warp());
 		printf("I'm back %d\n", (int)pending_count.load(std::memory_order_acquire));
 	}
 
@@ -150,7 +150,7 @@ static coroutine_t example_quota(quota_queue_t& q) {
 		auto guard = co_await q.guard({ 1, 3 });
 		std::array<int, 2> req = { 2, 2 };
 		bool b = q.acquire(req);
-		assert(b);
+		IRIS_ASSERT(b);
 		q.get_async_worker().queue([&q, req]() mutable {
 			std::this_thread::sleep_for(std::chrono::milliseconds{ 10 });
 			printf("Release quota holder!\n");

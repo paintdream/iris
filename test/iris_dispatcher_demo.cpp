@@ -55,7 +55,7 @@ void external_poll() {
 			while (!worker.is_terminated()) {
 				if (worker.poll_delay(0, 20)) {
 					// there is no 0 priority task, assert it
-					assert(false);
+					IRIS_ASSERT(false);
 				}
 			}
 
@@ -101,7 +101,7 @@ void stack_op() {
 	for (size_t i = 0; i < warp_count; i++) {
 		warps[i].queue_routine_external([&, i]() {
 			for (size_t k = 0; k < warp_count; k++) {
-				assert(i == warp_t::get_current_warp() - &warps[0]);
+				IRIS_ASSERT(i == warp_t::get_current_warp() - &warps[0]);
 				warp_t::preempt_guard_t<true> guard(warps[k]);
 				printf("take warp %d based on %d %s\n", int(k), int(i), guard ? "success!" : "failed!");
 			}
@@ -153,7 +153,7 @@ void framed_data() {
 		int other[4];
 		data.pop(other, other + 4);
 		for (size_t k = 0; k < 4; k++) {
-			assert(other[k] == temp[k]);
+			IRIS_ASSERT(other[k] == temp[k]);
 		}
 
 		// thread 2
@@ -270,7 +270,7 @@ void simple_explosion(void) {
 					// only read operations
 					std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 40));
 					int32_t v = shared_value->exchange(warp_data[warp_index], std::memory_order_release);
-					assert(v == warp_data[warp_index] || v == -0x7fffffff);
+					IRIS_ASSERT(v == warp_data[warp_index] || v == -0x7fffffff);
 				}, 1);
 			}
 		}
@@ -351,7 +351,7 @@ void garbage_collection() {
 			size_t warp_index = &current_warp - &warps[0];
 
 			node_t& node = graph.nodes[node_index];
-			assert(node.warp_index == warp_index);
+			IRIS_ASSERT(node.warp_index == warp_index);
 			current_warp.validate();
 
 			if (node.visit_count == 0) {
@@ -371,7 +371,7 @@ void garbage_collection() {
 				size_t collected_count = 0;
 				for (size_t k = 0; k < graph.nodes.size(); k++) {
 					node_t& subnode = graph.nodes[k];
-					assert(subnode.visit_count < 2);
+					IRIS_ASSERT(subnode.visit_count < 2);
 					collected_count += subnode.visit_count;
 					subnode.visit_count = 0;
 				}
@@ -468,7 +468,7 @@ void graph_dispatch() {
 			size_t sum = 0;
 			for (size_t m = 2; m < n; m++) {
 				if (n % m == 0) {
-					assert(executed[m]);
+					IRIS_ASSERT(executed[m]);
 					sum += n;
 				}
 			}
@@ -493,7 +493,7 @@ void graph_dispatch() {
 
 	dispatcher.dispatch(last);
 	worker.join();
-	assert(task_count.load(std::memory_order_acquire) == 0);
+	IRIS_ASSERT(task_count.load(std::memory_order_acquire) == 0);
 	printf("sum of factors: %d\n", (int)sum_factors);
 
 	// finished!
@@ -542,7 +542,7 @@ void graph_dispatch_exception() {
 	dispatcher.order(excepted, next);
 
 	exception_handler = [&dispatcher]() {
-		assert(dispatcher.has_exception());
+		IRIS_ASSERT(dispatcher.has_exception());
 		dispatcher.resurrect();
 	};
 
@@ -578,7 +578,7 @@ void acquire_release() {
 				// place a barrier here so that the queue_routine_post below must be scheduled after the one above
 				main_warp.queue_barrier();
 				main_warp.queue_routine_post([&worker, shared, &counter]() {
-					assert(*shared == true);
+					IRIS_ASSERT(*shared == true);
 					if (counter.fetch_add(1, std::memory_order_acquire) + 1 == 1000)
 						worker.terminate();
 				});

@@ -146,7 +146,7 @@ namespace iris {
 		template <typename component_t>
 		component_t& get(entity_t entity) noexcept {
 			auto guard = read_fence();
-			assert(valid(entity));
+			IRIS_ASSERT(valid(entity));
 			return std::get<fetch_index<component_t>::value>(components).get(iris_binary_find(entity_components.begin(), entity_components.end(), entity)->second);
 		}
 
@@ -154,15 +154,15 @@ namespace iris {
 		const component_t& get(entity_t entity) const noexcept {
 			auto guard = read_fence();
 
-			assert(valid(entity));
+			IRIS_ASSERT(valid(entity));
 			return std::get<fetch_index<component_t>::value>(components).get(iris_binary_find(entity_components.begin(), entity_components.end(), entity)->second);
 		}
 
 		// entity-based component removal
 		void remove(entity_t entity) {
-			assert(valid(entity));
+			IRIS_ASSERT(valid(entity));
 			auto guard = write_fence();
-			assert(!entities.empty());
+			IRIS_ASSERT(!entities.empty());
 
 			entity_t top_entity = entities.top();
 
@@ -200,7 +200,7 @@ namespace iris {
 			auto guard = read_fence();
 			auto& target_components = std::get<fetch_index<component_t>::value>(components);
 			warp_t* warp = warp_t::get_current_warp();
-			assert(warp != nullptr);
+			IRIS_ASSERT(warp != nullptr);
 
 			using node_t = typename queue_list_t::node_t;
 			if (n <= node_t::element_count) {
