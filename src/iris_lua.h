@@ -1022,10 +1022,10 @@ namespace iris {
 					}
 
 #if LUA_VERSION_NUM <= 502
-					lua_getfield(L, index, "__hash");
+					lua_getfield(L, -1, "__hash");
 					if (lua_type(L, -1) == LUA_TNIL) {
 #else
-					if (lua_getfield(L, index, "__hash") == LUA_TNIL) {
+					if (lua_getfield(L, -1, "__hash") == LUA_TNIL) {
 #endif
 						lua_pop(L, 2);
 						return value_t();
@@ -1442,7 +1442,7 @@ namespace iris {
 							target.native_push_variable(nullptr);
 						} else {
 #if LUA_VERSION_NUM <= 502
-							lua_getfield(L, index, "__hash");
+							lua_getfield(L, -1, "__hash");
 							if (lua_type(L, -1) != LUA_TNIL) {
 #else
 							if (lua_getfield(L, -1, "__hash") != LUA_TNIL) {
