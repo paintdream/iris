@@ -233,6 +233,12 @@ struct example_t {
 	const int const_value = 0;
 };
 
+static int error_handler(lua_State* L) {
+	return lua_t::forward(L, [](std::string_view message) {
+		printf("ERROR_HANDLER %s\n", message.data());
+	});
+}
+
 int main(void) {
 	lua_State* L = luaL_newstate();
 	luaL_openlibs(L);
@@ -351,6 +357,12 @@ end\n"));
 		return false;
 	});
 	lua.deref(std::move(tab));
+
+	lua.deref(lua.load("err"));
+	lua.set_global("warn", error_handler);
+	lua.deref(lua.load("err"));
+	lua.set_global("warn", lua_error);
+	lua.deref(lua.load("err"));
 
 #if USE_LUA_COROUTINE
 	lua.call<void>(lua.load("\n\

@@ -100,6 +100,18 @@ namespace iris {
 
 		template <typename... args_t>
 		static void log_error(lua_State* L, const char* format, args_t&&... args) {
+			stack_guard_t stack_guard(L);
+			lua_getglobal(L, "warn"); // try lua 5.4 warning system dynamically.
+			if (lua_type(L, -1) == LUA_TFUNCTION) {
+				lua_pushfstring(L, format, std::forward<args_t>(args)...);
+				if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+					fprintf(stderr, "iris_lua_t::log_error() -> Unresolved warn function!\n");
+					lua_pop(L, 1);
+				}
+			} else {
+				lua_pop(L, 1);
+			}
+			
 			fprintf(stderr, format, std::forward<args_t>(args)...);
 		}
 
@@ -296,7 +308,7 @@ namespace iris {
 			stack_guard_t stack_guard(L);
 
 			if (luaL_loadbuffer(L, code.data(), code.size(), name.data()) != LUA_OK) {
-				log_error(L, "[ERROR] iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
+				log_error(L, "iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
 				lua_pop(L, 1);
 				return ref_t();
 			}
@@ -625,7 +637,7 @@ namespace iris {
 			if (lua_pcall(L, param_count, LUA_MULTRET, 0) == LUA_OK) {
 				return lua_gettop(L) - top + param_count;
 			} else {
-				log_error(L, "[ERROR] iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
+				log_error(L, "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
 				lua_pop(L, 1);
 				IRIS_ASSERT(lua_gettop(L) == top);
 				return 0;
@@ -652,7 +664,7 @@ namespace iris {
 					return true;
 				}
 			} else {
-				log_error(L, "[ERROR] iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
+				log_error(L, "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
 				lua_pop(L, 1);
 				return std::nullopt;
 			}
@@ -1035,7 +1047,7 @@ namespace iris {
 					void* object_hash = lua_touserdata(L, -1);
 					void* type_hash = reinterpret_cast<void*>(get_hash<std::remove_volatile_t<std::remove_const_t<std::remove_pointer_t<value_t>>>>());
 					if (object_hash != type_hash) {
-						log_error(L, "[ERROR] Object Hash %p is not matched with Type Hash %p\n", object_hash, type_hash);
+						log_error(L, "iris_lua_t::get_variable() -> Object Hash %p is not matched with Type Hash %p\n", object_hash, type_hash);
 						lua_pop(L, 2);
 						return value_t();
 					}
@@ -1195,7 +1207,7 @@ namespace iris {
 #endif
 				if (ret != LUA_OK && ret != LUA_YIELD) {
 					// error!
-					log_error(L, "[ERROR] iris_lua_t::function_coutine_proxy() -> resume error: %s\n", lua_tostring(L, -1));
+					log_error(L, "iris_lua_t::function_coutine_proxy() -> resume error: %s\n", lua_tostring(L, -1));
 					lua_pop(L, 1);
 				}
 			}
@@ -1294,6 +1306,8 @@ namespace iris {
 				}
 			} else if constexpr (iris_lua_convert_t<value_t>::value) {
 				guard.append(iris_lua_convert_t<value_t>::to_lua(L, std::forward<type_t>(variable)) - 1);
+			} else if constexpr (std::is_convertible_v<value_t, int (*)(lua_State*)> || std::is_convertible_v<value_t, int (*)(lua_State*) noexcept>) {
+				lua_pushcfunction(L, variable);
 			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {
 				lua_pushlightuserdata(L, const_cast<void*>(variable));
 			} else if constexpr (std::is_same_v<value_t, bool>) {
