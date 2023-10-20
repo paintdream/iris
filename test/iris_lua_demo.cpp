@@ -358,6 +358,10 @@ end\n"));
 	});
 	lua.deref(std::move(tab));
 
+	lua.set_global<&lua_error>("other_error");
+	lua.set_registry<&lua_error>("other_error");
+	// lua.native_push_variable<&lua_error>();
+	// lua.load("a").set<&lua_error>(lua, "test");
 	lua.deref(lua.load("err"));
 	lua.set_global("warn", error_handler);
 	lua.deref(lua.load("err"));
