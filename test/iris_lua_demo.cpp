@@ -53,32 +53,32 @@ struct iris::iris_lua_convert_t<vector3> : std::true_type {
 
 struct example_t {
 	static void lua_registar(lua_t lua) {
-		lua.define<&example_t::value>("value");
-		lua.define<&example_t::value_raw>("value_raw");
-		lua.define<&example_t::const_value>("const_value");
-		lua.define<&example_t::accum_value>("accum_value");
-		lua.define<&example_t::join_value>("join_value");
-		lua.define<&example_t::join_value_required>("join_value_required");
-		lua.define<&example_t::join_value_refptr>("join_value_refptr");
-		lua.define<&example_t::join_value_required_refptr>("join_value_required_refptr");
-		lua.define<&example_t::get_value>("get_value");
-		lua.define<&example_t::get_value_raw>("get_value_raw");
-		lua.define<&example_t::get_value_raw_lambda>("get_value_raw_lambda");
-		lua.define<&example_t::call>("call");
-		lua.define<&example_t::forward_pair>("forward_pair");
-		lua.define<&example_t::forward_tuple>("forward_tuple");
-		lua.define<&example_t::forward_tuple_raw>("forward_tuple_raw");
-		lua.define<&example_t::forward_map>("forward_map");
-		lua.define<&example_t::forward_vector>("forward_vector");
-		lua.define<&example_t::prime>("prime");
-		lua.define<&example_t::get_vector3>("get_vector3");
-		lua.define<&example_t::native_call>("native_call");
-		lua.define<&example_t::native_call_noexcept>("native_call_noexcept");
+		lua.set_current<&example_t::value>("value");
+		lua.set_current<&example_t::value_raw>("value_raw");
+		lua.set_current<&example_t::const_value>("const_value");
+		lua.set_current<&example_t::accum_value>("accum_value");
+		lua.set_current<&example_t::join_value>("join_value");
+		lua.set_current<&example_t::join_value_required>("join_value_required");
+		lua.set_current<&example_t::join_value_refptr>("join_value_refptr");
+		lua.set_current<&example_t::join_value_required_refptr>("join_value_required_refptr");
+		lua.set_current<&example_t::get_value>("get_value");
+		lua.set_current<&example_t::get_value_raw>("get_value_raw");
+		lua.set_current<&example_t::get_value_raw_lambda>("get_value_raw_lambda");
+		lua.set_current<&example_t::call>("call");
+		lua.set_current<&example_t::forward_pair>("forward_pair");
+		lua.set_current<&example_t::forward_tuple>("forward_tuple");
+		lua.set_current<&example_t::forward_tuple_raw>("forward_tuple_raw");
+		lua.set_current<&example_t::forward_map>("forward_map");
+		lua.set_current<&example_t::forward_vector>("forward_vector");
+		lua.set_current<&example_t::prime>("prime");
+		lua.set_current<&example_t::get_vector3>("get_vector3");
+		lua.set_current<&example_t::native_call>("native_call");
+		lua.set_current<&example_t::native_call_noexcept>("native_call_noexcept");
 #if USE_LUA_COROUTINE
-		lua.define<&example_t::coro_get_int>("coro_get_int");
-		lua.define<&example_t::coro_get_none>("coro_get_none");
-		lua.define<&example_t::mem_coro_get_int>("mem_coro_get_int");
-		lua.define<&example_t::mem_coro_get_int_raw>("mem_coro_get_int_raw");
+		lua.set_current<&example_t::coro_get_int>("coro_get_int");
+		lua.set_current<&example_t::coro_get_none>("coro_get_none");
+		lua.set_current<&example_t::mem_coro_get_int>("mem_coro_get_int");
+		lua.set_current<&example_t::mem_coro_get_int_raw>("mem_coro_get_int_raw");
 #endif
 	}
 
@@ -197,10 +197,10 @@ struct example_t {
 
 	lua_t::ref_t prime(lua_t lua) const {
 		return lua.make_table([](lua_t lua) noexcept {
-			lua.define("name", "prime");
-			lua.define(1, 2);
-			lua.define(2, 3);
-			lua.define(3, 5);
+			lua.set_current("name", "prime");
+			lua.set_current(1, 2);
+			lua.set_current(2, 3);
+			lua.set_current(3, 5);
 		});
 	}
 
@@ -292,6 +292,15 @@ end\n"));
 	lua_t::refptr_t<example_t> example = lua.make_object<example_t>(lua.get_global<lua_t::ref_t>("example_t"));
 	example->value = 5;
 	lua.deref(std::move(example));
+	auto temp_tab = lua.make_table([](lua_t lua) {
+		lua.set_current("first", 1);
+	});
+
+	lua.with(temp_tab, [](lua_t lua) {
+		lua.set_current("second", 2);
+	});
+
+	lua.set_global("test_tab", std::move(temp_tab));
 
 	auto success = lua.call<void>(lua.load("\
 		print(_VERSION)\n\
@@ -339,9 +348,9 @@ end\n"));
 		end\n"));
 	IRIS_ASSERT(success);
 	auto tab = lua.make_table([](lua_t&& lua) {
-		lua.define("key", "value");
-		lua.define(1, "number");
-		lua.define(2, 2);
+		lua.set_current("key", "value");
+		lua.set_current(1, "number");
+		lua.set_current(2, 2);
 	});
 
 	tab.set(lua, "set", "newvalue");

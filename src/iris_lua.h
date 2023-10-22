@@ -542,7 +542,7 @@ namespace iris {
 
 		// define a variable by value
 		template <typename value_t, typename key_t>
-		void define(key_t&& key, value_t&& value) {
+		void set_current(key_t&& key, value_t&& value) {
 			auto guard = write_fence();
 
 			lua_State* L = state;
@@ -555,7 +555,7 @@ namespace iris {
 
 		// define a bound member function/property
 		template <auto ptr, typename key_t>
-		void define(key_t&& key) {
+		void set_current(key_t&& key) {
 			auto guard = write_fence();
 
 			lua_State* L = state;
@@ -564,6 +564,55 @@ namespace iris {
 			push_variable(L, std::forward<key_t>(key));
 			push_variable<ptr>(L);
 			lua_rawset(L, -3);
+		}
+
+		template <typename value_t, typename key_t>
+		value_t get_current(key_t&& key) {
+			auto guard = write_fence();
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+
+			push_variable(L, std::forward<key_t>(key));
+			lua_rawget(L, -2);
+			value_t value = get_variable<value_t>(L, -1);
+			lua_pop(L, 1);
+
+			return value;
+		}
+		
+		// define metatable for current table, should be called nested in make_table call
+		template <typename value_t>
+		void set_current_metatable(value_t&& metatable) {
+			auto guard = write_fence();
+
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+			push_variable(L, std::forward<value_t>(metatable));
+			lua_setmetatable(L, -2);
+		}
+
+		template <typename value_t, typename operation_t>
+		bool with(value_t&& value, operation_t&& op) {
+			auto guard = write_fence();
+
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+			push_variable(L, std::forward<value_t>(value));
+
+			if (!lua_isnoneornil(L, -1)) {
+				op(*this);
+
+				if constexpr (std::is_rvalue_reference_v<value_t&&>) {
+					deref(std::move(value));
+				}
+
+				lua_pop(L, 1);
+
+				return true;
+			} else {
+				lua_pop(L, 1);
+				return false;
+			}
 		}
 
 		template <typename function_t>
@@ -579,17 +628,6 @@ namespace iris {
 			} else {
 				return forward_functor<function_t>(L, std::forward<function_t>(ptr), &function_t::operator ());
 			}
-		}
-
-		// define metatable for current table, should be called nested in make_table call
-		template <typename value_t>
-		void define_metatable(value_t&& metatable) {
-			auto guard = write_fence();
-
-			lua_State* L = state;
-			stack_guard_t stack_guard(L);
-			push_variable(L, std::forward<value_t>(metatable));
-			lua_setmetatable(L, -2);
 		}
 
 		// make a table, defining variables via define_* series functions in a callback function
