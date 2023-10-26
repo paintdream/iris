@@ -99,6 +99,11 @@ namespace iris {
 		}
 
 		template <typename... args_t>
+		void log_error(const char* format, args_t&&... args) {
+			log_error(L, format, std::forward<args_t>(args)...);
+		}
+
+		template <typename... args_t>
 		static void log_error(lua_State* L, const char* format, args_t&&... args) {
 			stack_guard_t stack_guard(L);
 			lua_getglobal(L, "warn"); // try lua 5.4 warning system dynamically.
@@ -368,6 +373,7 @@ namespace iris {
 		// register a new type, taking registar from &type_t::lua_registar by default, and you could also specify your own registar.
 		template <typename type_t, int user_value_count = 0, auto registar = has_registar<type_t>::get_registar(), typename... args_t>
 		ref_t make_type(std::string_view name, args_t&&... args) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = write_fence();
 
 			lua_State* L = state;
@@ -421,6 +427,8 @@ namespace iris {
 
 		template <typename value_t, int user_value_count = 0, typename type_t, typename... args_t>
 		refptr_t<value_t> make_object(type_t&& type, args_t&&... args) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
 			lua_State* L = state;
 			stack_guard_t guard(L);
 			IRIS_ASSERT(*type.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<value_t>()));
@@ -698,6 +706,7 @@ namespace iris {
 
 		template <typename callable_t>
 		int native_call(callable_t&& reference, int param_count) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = write_fence();
 
 			lua_State* L = state;
@@ -976,6 +985,7 @@ namespace iris {
 		// create a lua managed object
 		template <typename type_t, int user_value_count, typename... args_t>
 		static int create_object(lua_State* L) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			check_required_parameters<1, args_t...>(L);
 
 			stack_guard_t guard(L, 1);
@@ -1135,6 +1145,8 @@ namespace iris {
 		// invoke C++ function from lua stack
 		template <typename function_t, int index, typename return_t, typename tuple_t, typename... params_t>
 		static int function_invoke(lua_State* L, const function_t& function, int stack_index, params_t&&... params) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
 			if constexpr (index < std::tuple_size_v<tuple_t>) {
 				if constexpr (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::tuple_element_t<index, tuple_t>>>>>) {
 					return function_invoke<function_t, index + 1, return_t, tuple_t>(L, function, stack_index, std::forward<params_t>(params)..., iris_lua_t(L));
@@ -1217,6 +1229,7 @@ namespace iris {
 					return function_coroutine_invoke<function_t, index + 1, coroutine_t, tuple_t>(L, function, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>>(L, stack_index));
 				}
 			} else {
+				IRIS_PROFILE_SCOPE(__FUNCTION__);
 				// mark state
 				using return_t = typename coroutine_t::return_type_t;
 				auto coroutine = function(std::forward<params_t>(params)...);
@@ -1230,6 +1243,7 @@ namespace iris {
 				int top = lua_gettop(L);
 				if constexpr (!std::is_void_v<return_t>) {
 					coroutine.complete([L, address](return_t&& value) {
+						IRIS_PROFILE_SCOPE(__FUNCTION__);
 						int top = lua_gettop(L);
 						push_variable(L, std::move(value));
 						int count = lua_gettop(L) - top;
@@ -1239,6 +1253,7 @@ namespace iris {
 					}).run();
 				} else {
 					coroutine.complete([L, address]() {
+						IRIS_PROFILE_SCOPE(__FUNCTION__);
 						lua_pushnil(L);
 						push_variable(L, address);
 						coroutine_continuation(L, address, 1);
