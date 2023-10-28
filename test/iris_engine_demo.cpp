@@ -86,7 +86,6 @@ struct engine_t {
 		iris_cache_t<uint8_t> frame_cache;
 		iris_system_t<uint32_t, block_allocator_t, parent_t, position_t, velocity_t> geo_system;
 		iris_system_t<uint32_t, block_allocator_t, parent_t, hitpoint_t, manapoint_t> attribute_system;
-		iris_systems_t<block_allocator_t, decltype(geo_system), decltype(attribute_system)> systems(geo_system, attribute_system);
 
 		for (uint32_t i = 0; i < 32; i++) {
 			geo_system.insert(i, parent_t{ i - 1 }, position_t{ 0.0f, 0.0f, float(i) }, velocity_t{ 0.0f, float(i), 0.0f });
@@ -106,10 +105,6 @@ struct engine_t {
 			printf("coroutine main ticks\n");
 			transient_vector<std::function<void()>> callbacks(&frame_cache);
 			callbacks.emplace_back([]() { printf("callback A\n"); });
-
-			int count = 0;
-			systems.components<parent_t>().for_each([&count](auto&& p) { count++; });
-			printf("system component parent_t count: %d\n", count);
 
 			co_await iris_switch(&warp_script);
 			printf("coroutine main script ticks\n");

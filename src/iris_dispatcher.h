@@ -125,7 +125,7 @@ namespace iris {
 	//     2. from external thread to warp (queue_routine_external).
 	//     3. from warp to external in parallel (queue_routine_parallel).
 	// you can select implemention from warp/strand via 'strand' template parameter.
-	template <typename worker_t, bool strand = false, typename func_t = std::function<void()>, template <typename...> typename allocator_t = iris_default_block_allocator_t>
+	template <typename worker_t, bool strand = false, typename func_t = std::function<void()>, template <typename...> class allocator_t = iris_default_block_allocator_t>
 	struct iris_warp_t {
 		// for exception safe!
 		struct suspend_guard_t {
@@ -937,7 +937,7 @@ namespace iris {
 
 	// here we code a trivial worker demo
 	// could be replaced by your implementation
-	template <typename thread_t = std::thread, typename callback_t = std::function<void()>, template <typename...> typename allocator_t = iris_default_object_allocator_t>
+	template <typename thread_t = std::thread, typename callback_t = std::function<void()>, template <typename...> class allocator_t = iris_default_object_allocator_t>
 	struct iris_async_worker_t {
 		// task wrapper
 		struct alignas(64) task_t {

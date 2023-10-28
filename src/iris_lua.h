@@ -100,7 +100,7 @@ namespace iris {
 
 		template <typename... args_t>
 		void log_error(const char* format, args_t&&... args) {
-			log_error(L, format, std::forward<args_t>(args)...);
+			iris_lua_t::log_error(state, format, std::forward<args_t>(args)...);
 		}
 
 		template <typename... args_t>
@@ -828,7 +828,7 @@ namespace iris {
 
 		template <auto function, typename return_t, typename... args_t>
 		static void push_function_internal(lua_State* L) {
-			if constexpr (iris_is_coroutine_v<return_t>) {
+			if constexpr (iris_is_coroutine<return_t>::value) {
 				lua_pushcclosure(L, &iris_lua_t::function_coroutine_proxy<function, return_t, args_t...>, 0);
 			} else {
 				lua_pushcclosure(L, &iris_lua_t::function_proxy<function, return_t, args_t...>, 0);
@@ -876,7 +876,7 @@ namespace iris {
 				}
 			};
 
-			if constexpr (iris_is_coroutine_v<return_t>) {
+			if constexpr (iris_is_coroutine<return_t>::value) {
 				return function_coroutine_proxy_dispatch<decltype(adapter), return_t, required_t<type_t*>&&, args_t...>(L, adapter);
 			} else {
 				return function_proxy_dispatch<decltype(adapter), return_t, required_t<type_t*>&&, args_t...>(L, adapter);
@@ -895,7 +895,7 @@ namespace iris {
 
 		template <typename function_t, typename return_t, typename... args_t>
 		static int forward_function_internal(lua_State* L, const function_t& function) {
-			if constexpr (iris_is_coroutine_v<return_t>) {
+			if constexpr (iris_is_coroutine<return_t>::value) {
 				return function_coroutine_proxy_dispatch<function_t, return_t, args_t...>(L, function);
 			} else {
 				return function_proxy_dispatch<function_t, return_t, args_t...>(L, function);
@@ -1027,7 +1027,7 @@ namespace iris {
 
 			if constexpr (std::is_null_pointer_v<value_t>) {
 				return nullptr;
-			} else if constexpr (iris_is_reference_wrapper_v<type_t>) {
+			} else if constexpr (iris_is_reference_wrapper<type_t>::value) {
 				// pass reference wrapper as plain pointer without lifetime management, usually used by create_object() internally
 				return std::ref(*reinterpret_cast<typename type_t::type*>(lua_touserdata(L, index)));
 			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
@@ -1066,12 +1066,12 @@ namespace iris {
 				} else {
 					return "";
 				}
-			} else if constexpr (iris_is_tuple_v<value_t>) {
+			} else if constexpr (iris_is_tuple<value_t>::value) {
 				return get_tuple_variables<0, value_t>(L, lua_absindex(L, index));
-			} else if constexpr (iris_is_iterable_v<value_t>) {
+			} else if constexpr (iris_is_iterable<value_t>::value) {
 				type_t result;
 				if (lua_istable(L, index)) {
-					if constexpr (iris_is_map_v<value_t>) {
+					if constexpr (iris_is_map<value_t>::value) {
 						// for map-like containers, convert to lua hash table 
 						using key_type = typename value_t::key_type;
 						using mapped_type = typename value_t::mapped_type;
@@ -1387,7 +1387,7 @@ namespace iris {
 
 			if constexpr (std::is_null_pointer_v<value_t>) {
 				lua_pushnil(L);
-			} else if constexpr (iris_is_reference_wrapper_v<value_t>) {
+			} else if constexpr (iris_is_reference_wrapper<value_t>::value) {
 				lua_pushlightuserdata(L, const_cast<void*>(reinterpret_cast<const void*>(&variable.get())));
 			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
 				lua_rawgeti(L, LUA_REGISTRYINDEX, variable.value);
@@ -1410,11 +1410,11 @@ namespace iris {
 			} else if constexpr (std::is_constructible_v<std::string_view, value_t>) {
 				std::string_view view = variable;
 				lua_pushlstring(L, view.data(), view.length());
-			} else if constexpr (iris_is_tuple_v<value_t>) {
+			} else if constexpr (iris_is_tuple<value_t>::value) {
 				lua_createtable(L, std::tuple_size_v<value_t>, 0);
 				push_tuple_variables<0>(L, std::forward<type_t>(variable));
-			} else if constexpr (iris_is_iterable_v<value_t>) {
-				if constexpr (iris_is_map_v<value_t>) {
+			} else if constexpr (iris_is_iterable<value_t>::value) {
+				if constexpr (iris_is_map<value_t>::value) {
 					lua_createtable(L, 0, static_cast<int>(variable.size()));
 
 					for (auto&& pair : variable) {

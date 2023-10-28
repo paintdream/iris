@@ -28,8 +28,7 @@ SOFTWARE.
 */
 
 #pragma once
-#include "iris_dispatcher.h"
-#include <array>
+#include "iris_common.h"
 
 namespace iris {
 	// a compile-time typed entity-component-system
@@ -75,15 +74,21 @@ namespace iris {
 
 		template <typename... type_t>
 		struct placeholder {};
+
+		template <typename iterators_t, typename operation_t, size_t... i>
+		static void step_operation(iterators_t& iterators, operation_t& op, iris_sequence<i...>) {
+			op(*std::get<i>(iterators)++...);
+		}
 	}
 
 	// components_t is not allowed to contain repeated types
-	template <typename entity_t, template <typename...> typename allocator_t, typename... components_t>
+	template <typename entity_t, template <typename...> class allocator_t, typename... components_t>
 	struct iris_system_t : protected enable_read_write_fence_t<> {
 		template <typename target_t>
 		struct fetch_index : fetch_index_impl<target_t, components_t...> {};
 		static constexpr size_t block_size = allocator_t<entity_t>::block_size;
 		using index_t = entity_t; // just for alignment
+		using components_tuple_t = std::tuple<entity_t, components_t...>;
 
 		iris_system_t() {
 			// check if there are duplicated types
@@ -184,72 +189,41 @@ namespace iris {
 		}
 
 		// iterate components
-		template <typename component_t, typename operation_t>
-		void for_each(operation_t&& op) noexcept(noexcept(std::declval<iris_queue_list_t<component_t, allocator_t>>().for_each(op))) {
+		template <typename... for_components_t, typename operation_t>
+		void for_each(operation_t&& op) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			auto guard = read_fence();
-			std::get<fetch_index<component_t>::value>(components).for_each(op);
-		}
+			auto iterators_begin = std::make_tuple(component<for_components_t>().begin()...);
+			const auto iterators_end = std::make_tuple(component<for_components_t>().end()...);
 
-		// n is the expected group size
-		template <typename component_t, typename warp_t, typename operand_t, typename queue_list_t = iris_queue_list_t<component_t, allocator_t>>
-		void for_each_parallel(operand_t&& op, size_t n = queue_list_t::element_count) {
-			IRIS_PROFILE_SCOPE(__FUNCTION__);
-
-			auto guard = read_fence();
-			auto& target_components = std::get<fetch_index<component_t>::value>(components);
-			warp_t* warp = warp_t::get_current_warp();
-			IRIS_ASSERT(warp != nullptr);
-
-			using node_t = typename queue_list_t::node_t;
-			if (n <= node_t::element_count) {
-				// one node per group, go fast path
-				target_components.for_each_queue([warp, &op](node_t* p) {
-					warp->queue_routine_parallel([p, op]() mutable {
-						p->for_each(std::move(op));
-					});
-				});
-			} else {
-				// use cache list
-				std::vector<node_t*> cache;
-				size_t count = 0;
-				target_components.for_each_queue([&cache, &count, n, &op, warp](node_t* p) {
-					cache.emplace_back(p);
-					count += p->size();
-					if (count >= n) {
-						warp->queue_routine_parallel([cache, op]() mutable {
-							for (auto&& p : cache) {
-								p->for_each(op);
-							}
-						});
-
-						cache.clear();
-						count = 0;
-					}
-				});
-
-				// dispatch the remaining
-				if (count != 0) {
-					warp->queue_routine_parallel([cache, op]() mutable {
-						for (auto&& p : cache) {
-							p->for_each(op);
-						}
-					});
-				}
+			while (std::get<0>(iterators_begin) != std::get<0>(iterators_end)) {
+				step_operation(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>());
 			}
 		}
 
 		template <typename component_t>
-		iris_queue_list_t<component_t, allocator_t>& component() noexcept {
+		typename std::enable_if<!std::is_same<component_t, entity_t>::value, iris_queue_list_t<component_t, allocator_t>&>::type component() noexcept {
 			auto guard = read_fence();
 			return std::get<fetch_index<component_t>::value>(components);
 		}
 
 		template <typename component_t>
-		const iris_queue_list_t<component_t, allocator_t>& component() const noexcept {
+		typename std::enable_if<std::is_same<component_t, entity_t>::value, iris_queue_list_t<component_t, allocator_t>&>::type component() noexcept {
+			auto guard = read_fence();
+			return entities;
+		}
+
+		template <typename component_t>
+		typename std::enable_if<!std::is_same<component_t, entity_t>::value, const iris_queue_list_t<component_t, allocator_t>&>::type component() const noexcept {
 			auto guard = read_fence();
 			return std::get<fetch_index<component_t>::value>(components);
+		}
+
+		template <typename component_t>
+		typename std::enable_if<std::is_same<component_t, entity_t>::value, const iris_queue_list_t<component_t, allocator_t>&>::type component() const noexcept {
+			auto guard = read_fence();
+			return entities;
 		}
 
 		template <typename component_t>
@@ -315,7 +289,7 @@ namespace iris {
 		iris_queue_list_t<entity_t, allocator_t> entities;
 	};
 
-	template <typename entity_t, template <typename...> typename allocator_t = iris_default_block_allocator_t>
+	template <typename entity_t, template <typename...> class allocator_t = iris_default_block_allocator_t>
 	struct iris_entity_allocator_t : protected enable_in_out_fence_t<> {
 		entity_t allocate() noexcept(noexcept(std::declval<iris_entity_allocator_t>().free_entities.pop())) {
 			auto guard = in_fence();
@@ -346,404 +320,92 @@ namespace iris {
 		entity_t max_allocated_entity = 0;
 	};
 
-	template <template <typename...> typename allocator_t, typename... subsystems_t>
-	struct iris_systems_t {
-		iris_systems_t(subsystems_t&... args) : subsystems(args...) {}
-		static constexpr size_t block_size = locate_type<0, subsystems_t...>::block_size;
-
-		template <typename component_t>
-		using component_queue_t = iris_queue_list_t<component_t, allocator_t>;
-
-		template <size_t system_count, typename... components_t>
-		struct component_view {
-			using queue_tuple_t = std::tuple<iris_queue_list_t<components_t, allocator_t>*...>;
-			using queue_iterator_t = std::tuple<typename iris_queue_list_t<components_t, allocator_t>::iterator...>;
-
-			struct iterator {
-				using difference_type = ptrdiff_t;
-				using value_type = typename std::conditional<sizeof...(components_t) == 1, locate_type<0, components_t...>, std::tuple<std::reference_wrapper<components_t>...>>::type;
-				using reference = value_type&;
-				using pointer = value_type*;
-				using iterator_category = std::input_iterator_tag;
-
-				template <typename... iter_t>
-				iterator(component_view& view_host, size_t i, iter_t&&... iter) : host(&view_host), index(i), it(std::forward<iter_t>(iter)...) {}
-
-				template <size_t... s>
-				static iterator make_iterator_begin(component_view& view_host, size_t i, queue_tuple_t& sub, iris_sequence<s...>) noexcept {
-					return iterator(view_host, i, std::get<s>(sub)->begin()...);
-				}
-
-				template <size_t... s>
-				static iterator make_iterator_end(component_view& view_host, size_t i, queue_tuple_t& sub, iris_sequence<s...>) noexcept {
-					return iterator(view_host, i, std::get<s>(sub)->end()...);
-				}
-
-				iterator& operator ++ () noexcept {
-					step();
-					return *this;
-				}
-
-				iterator operator ++ (int) noexcept {
-					iterator r = *this;
-					step();
-
-					return r;
-				}
-
-				bool operator == (const iterator& rhs) const noexcept {
-					return index == rhs.index && std::get<0>(it) == std::get<0>(rhs.it);
-				}
-
-				bool operator != (const iterator& rhs) const noexcept {
-					return index != rhs.index || std::get<0>(it) != std::get<0>(rhs.it);
-				}
-
-				template <size_t... s>
-				std::tuple<std::reference_wrapper<components_t>...> make_value(iris_sequence<s...>) const noexcept {
-					return std::make_tuple<std::reference_wrapper<components_t>...>(*std::get<s>(it)...);
-				}
-
-				reference filter_value(std::true_type) const noexcept {
-					return *std::get<0>(it);
-				}
-
-				std::tuple<std::reference_wrapper<components_t>...> filter_value(std::false_type) const noexcept {
-					return make_value(iris_make_sequence<sizeof...(components_t)>());
-				}
-
-				typename std::conditional<sizeof...(components_t) == 1, reference, value_type>::type operator * () const noexcept {
-					return filter_value(std::integral_constant<bool, sizeof...(components_t) == 1>());
-				}
-
-				template <typename operation_t>
-				void invoke(operation_t&& op) const {
-					invoke_impl(std::forward<operation_t>(op), iris_make_sequence<sizeof...(components_t)>());
-				}
-
-			protected:
-				template <typename operation_t, size_t... s>
-				void invoke_impl(operation_t&& op, iris_sequence<s...>) const {
-					op(*std::get<s>(it)...);
-				}
-
-				template <typename first_t>
-				static bool reduce(first_t f) noexcept { return f; }
-				template <typename first_t, typename... args_t>
-				static bool reduce(first_t f, args_t&&...) noexcept { return f; }
-
-				template <size_t... s>
-				bool step_impl(iris_sequence<s...>) noexcept {
-					return reduce(std::get<s>(it).step()...);
-				}
-
-				void step() noexcept {
-					if (!step_impl(iris_make_sequence<sizeof...(components_t)>())) {
-						while (index + 1 < system_count) {
-							if (!std::get<0>(host->subcomponents[++index])->empty()) {
-								*this = make_iterator_begin(*host, index, host->subcomponents[index], iris_make_sequence<sizeof...(components_t)>());
-
-								return;
-							}
-						}
-
-						*this = make_iterator_end(*host, index, host->subcomponents[index], iris_make_sequence<sizeof...(components_t)>());
-					}
-				}
-
-				component_view* host;
-				size_t index;
-				queue_iterator_t it;
-			};
-
-			iterator begin() noexcept {
-				for (size_t i = 0; i < subcomponents.size(); i++) {
-					if (!std::get<0>(subcomponents[i])->empty()) {
-						return iterator::make_iterator_begin(*this, i, subcomponents[i], iris_make_sequence<sizeof...(components_t)>());
-					}
-				}
-
-				return end();
-			}
-
-			iterator end() noexcept {
-				return iterator::make_iterator_end(*this, system_count - 1, subcomponents[system_count - 1], iris_make_sequence<sizeof...(components_t)>());
-			}
-
-			template <typename operation_t>
-			void for_each(operation_t&& op) {
-				IRIS_PROFILE_SCOPE(__FUNCTION__);
-
-				for_each_impl(std::forward<operation_t>(op), std::integral_constant<bool, sizeof...(components_t) == 1>());
-			}
-
-			template <typename operation_t>
-			void for_each_system(operation_t&& op) {
-				IRIS_PROFILE_SCOPE(__FUNCTION__);
-
-				for_each_system_impl(std::forward<operation_t>(op), iris_make_sequence<sizeof...(components_t)>());
-			}
-
-			std::array<queue_tuple_t, system_count> subcomponents;
-
-		protected:
-			template <typename operation_t>
-			void for_each_impl(operation_t&& op, std::true_type) {
-				// simple path
-				for (size_t i = 0; i < subcomponents.size(); i++) {
-					std::get<0>(subcomponents[i])->for_each(op);
-				}
-			}
-
-			template <typename operation_t>
-			void for_each_impl(operation_t&& op, std::false_type) {
-				// complex path
-				for (auto it = begin(); it != end(); ++it) {
-					it.invoke(op);
-				}
-			}
-
-			template <typename operation_t, size_t... s>
-			void for_each_system_impl(operation_t&& op, iris_sequence<s...>) {
-				for (size_t i = 0; i < subcomponents.size(); i++) {
-					op(*std::get<s>(subcomponents[i])...);
-				}
-			}
-		};
-
-		template <size_t system_count, typename... components_t>
-		struct const_component_view {
-			using queue_tuple_t = std::tuple<const iris_queue_list_t<components_t, allocator_t>*...>;
-			using queue_iterator_t = std::tuple<typename iris_queue_list_t<components_t, allocator_t>::const_iterator...>;
-
-			struct iterator {
-				using difference_type = ptrdiff_t;
-				using value_type = typename std::conditional<sizeof...(components_t) == 1, const locate_type<0, components_t...>, std::tuple<std::reference_wrapper<const components_t>...>>::type;
-				using reference = value_type&;
-				using pointer = value_type*;
-				using iterator_category = std::input_iterator_tag;
-
-				template <typename... iter_t>
-				iterator(const_component_view& view_host, size_t i, iter_t&&... iter) : host(&view_host), index(i), it(std::forward<iter_t>(iter)...) {}
-
-				template <size_t... s>
-				static iterator make_iterator_begin(const_component_view& view_host, size_t i, queue_tuple_t& sub, iris_sequence<s...>) noexcept {
-					return iterator(view_host, i, std::get<s>(sub)->begin()...);
-				}
-
-				template <size_t... s>
-				static iterator make_iterator_end(const_component_view& view_host, size_t i, queue_tuple_t& sub, iris_sequence<s...>) noexcept {
-					return iterator(view_host, i, std::get<s>(sub)->end()...);
-				}
-
-				iterator& operator ++ () noexcept {
-					step();
-					return *this;
-				}
-
-				iterator operator ++ (int) noexcept {
-					iterator r = *this;
-					step();
-
-					return r;
-				}
-
-				bool operator == (const iterator& rhs) const noexcept {
-					return index == rhs.index && std::get<0>(it) == std::get<0>(rhs.it);
-				}
-
-				bool operator != (const iterator& rhs) const noexcept {
-					return index != rhs.index || std::get<0>(it) != std::get<0>(rhs.it);
-				}
-
-				template <size_t... s>
-				std::tuple<std::reference_wrapper<const components_t>...> make_value(iris_sequence<s...>) const noexcept {
-					return std::make_tuple<std::reference_wrapper<const components_t>...>(*std::get<s>(it)...);
-				}
-
-				reference filter_value(std::true_type) const noexcept {
-					return *std::get<0>(it);
-				}
-
-				std::tuple<std::reference_wrapper<const components_t>...> filter_value(std::false_type) const noexcept {
-					return make_value(iris_make_sequence<sizeof...(components_t)>());
-				}
-
-				typename std::conditional<sizeof...(components_t) == 1, reference, value_type>::type operator * () const noexcept {
-					return filter_value(std::integral_constant<bool, sizeof...(components_t) == 1>());
-				}
-
-				template <typename operation_t>
-				void invoke(operation_t&& op) const {
-					invoke_impl(std::forward<operation_t>(op), iris_make_sequence<sizeof...(components_t)>());
-				}
-
-			protected:
-				template <typename operation_t, size_t... s>
-				void invoke_impl(operation_t&& op, iris_sequence<s...>) const {
-					op(*std::get<s>(it)...);
-				}
-
-				template <typename first_t>
-				static bool reduce(first_t f) noexcept { return f; }
-				template <typename first_t, typename... args_t>
-				static bool reduce(first_t f, args_t&&...) noexcept { return f; }
-
-				template <size_t... s>
-				bool step_impl(iris_sequence<s...>) noexcept {
-					return reduce(std::get<s>(it).step()...);
-				}
-
-				void step() noexcept {
-					if (!step_impl(iris_make_sequence<sizeof...(components_t)>())) {
-						while (index + 1 < system_count) {
-							if (!std::get<0>(host->subcomponents[++index])->empty()) {
-								*this = make_iterator_begin(*host, index, host->subcomponents[index], iris_make_sequence<sizeof...(components_t)>());
-
-								return;
-							}
-						}
-
-						*this = make_iterator_end(*host, index, host->subcomponents[index], iris_make_sequence<sizeof...(components_t)>());
-					}
-				}
-
-				const_component_view* host;
-				size_t index;
-				queue_iterator_t it;
-			};
-
-			iterator begin() noexcept {
-				for (size_t i = 0; i < subcomponents.size(); i++) {
-					if (!std::get<0>(subcomponents[i])->empty()) {
-						return iterator::make_iterator_begin(*this, i, subcomponents[i], iris_make_sequence<sizeof...(components_t)>());
-					}
-				}
-
-				return end();
-			}
-
-			iterator end() noexcept {
-				return iterator::make_iterator_end(*this, system_count - 1, subcomponents[system_count - 1], iris_make_sequence<sizeof...(components_t)>());
-			}
-
-			template <typename operation_t>
-			void for_each(operation_t&& op) {
-				IRIS_PROFILE_SCOPE(__FUNCTION__);
-
-				for_each_impl(std::forward<operation_t>(op), std::integral_constant<bool, sizeof...(components_t) == 1>());
-			}
-
-			template <typename operation_t>
-			void for_each_system(operation_t&& op) {
-				IRIS_PROFILE_SCOPE(__FUNCTION__);
-
-				for_each_system_impl(std::forward<operation_t>(op), iris_make_sequence<sizeof...(components_t)>());
-			}
-
-			std::array<queue_tuple_t, system_count> subcomponents;
-
-		protected:
-			template <typename operation_t>
-			void for_each_impl(operation_t&& op, std::true_type) {
-				// simple path
-				for (size_t i = 0; i < subcomponents.size(); i++) {
-					std::get<0>(subcomponents[i])->for_each(op);
-				}
-			}
-
-			template <typename operation_t>
-			void for_each_impl(operation_t&& op, std::false_type) {
-				// complex path
-				for (auto it = begin(); it != end(); ++it) {
-					it.invoke(op);
-				}
-			}
-
-			template <typename operation_t, size_t... s>
-			void for_each_system_impl(operation_t&& op, iris_sequence<s...>) {
-				for (size_t i = 0; i < subcomponents.size(); i++) {
-					op(*std::get<s>(subcomponents[i])...);
-				}
-			}
-		};
-
-		template <size_t n, typename target_t, typename system_t>
-		struct count_components : std::integral_constant<size_t, (system_t::template has<typename std::tuple_element<n - 1, target_t>::type>() ? 1 : 0) + count_components<n - 1, target_t, system_t>::value> {};
-
-		template <typename target_t, typename system_t>
-		struct count_components<0, target_t, system_t> : std::integral_constant<size_t, 0> {};
-
-		template <typename target_t, typename... types_t>
-		struct count_match : std::integral_constant<size_t, 0> {};
-
-		template <typename target_t, typename next_t, typename... types_t>
-		struct count_match<target_t, next_t, types_t...> : std::integral_constant<size_t, 
-			// must have all components required
-			(count_components<std::tuple_size<target_t>::value, target_t, next_t>::value == std::tuple_size<target_t>::value)
-			+ count_match<target_t, types_t...>::value> {};
-
-		template <bool fill, size_t i, size_t n, typename components_tuple_t, typename view_t>
-		struct fill_view_impl {
-			template <typename system_t, size_t... s>
-			static void execute_impl(view_t& view, system_t& sys, iris_sequence<s...>) {
-				view.subcomponents[n] = std::make_tuple(&sys.template component<typename std::tuple_element<s, components_tuple_t>::type>()...);
-			}
-
-			template <typename sub_t>
-			static void execute(view_t& view, sub_t& subsystems) noexcept {
-				execute_impl(view, std::get<i>(subsystems), iris_make_sequence<std::tuple_size<components_tuple_t>::value>());
-			}
-		};
-
-		template <size_t i, size_t n, typename components_tuple_t, typename view_t>
-		struct fill_view_impl<false, i, n, components_tuple_t, view_t> {
-			template <typename sub_t>
-			static void execute(view_t& view, sub_t& subsystems) noexcept {}
-		};
-
-		template <size_t i, size_t n, typename components_tuple_t, typename view_t>
-		struct fill_view {
-			template <typename sub_t>
-			static void execute(view_t& view, sub_t& subsystems) noexcept {
-				constexpr bool fill = count_components<std::tuple_size<components_tuple_t>::value, components_tuple_t, locate_type<i - 1, subsystems_t...>>::value == std::tuple_size<components_tuple_t>::value;
-				fill_view_impl<fill, i - 1, n, components_tuple_t, view_t>::execute(view, subsystems);
-				fill_view<i - 1, n + fill, components_tuple_t, view_t>::execute(view, subsystems);
-			}
-		};
-
-		template <size_t n, typename components_tuple_t, typename view_t>
-		struct fill_view<0, n, components_tuple_t, view_t> {
-			template <typename sub_t>
-			static void execute(view_t& view, sub_t& subsystems) noexcept {}
-		};
-
-		template <typename... components_t>
-		component_view<count_match<std::tuple<components_t...>, subsystems_t...>::value, components_t...> components() noexcept {
-			static_assert(check_duplicated_components<components_t...>(), "duplicated components detected!");
-			constexpr size_t system_count = count_match<std::tuple<components_t...>, subsystems_t...>::value;
-			static_assert(system_count != 0, "specified component types not found. use constexpr has() before calling me!");
-			component_view<system_count, components_t...> view;
-			fill_view<sizeof...(subsystems_t), 0, std::tuple<components_t...>, component_view<system_count, components_t...>>::execute(view, subsystems);
-			return view;
+	template <typename entity_t, template <typename...> class allocator_t>
+	struct iris_systems_t : protected enable_read_write_fence_t<> {
+		template <typename type_t>
+		struct component_info_t {};
+
+		template <typename type_t>
+		static size_t get_type_hash() noexcept {
+			return iris_static_instance_t<component_info_t<type_t>>::get_unique_hash();
 		}
 
-		template <typename... components_t>
-		const_component_view<count_match<std::tuple<components_t...>, subsystems_t...>::value, components_t...> components() const noexcept {
-			static_assert(check_duplicated_components<components_t...>(), "duplicated components detected!");
-			constexpr size_t system_count = count_match<std::tuple<components_t...>, subsystems_t...>::value;
-			static_assert(system_count != 0, "specified component types not found. use constexpr has() before calling me!");
-			const_component_view<system_count, components_t...> view;
-			fill_view<sizeof...(subsystems_t), 0, std::tuple<components_t...>, const_component_view<system_count, components_t...>>::execute(view, subsystems);
-			return view;
+		struct system_info_t {
+			void* address = nullptr;
+			std::vector<iris_key_value_t<size_t, void*>> components;
+		};
+
+		template <typename system_t>
+		void attach(system_t& sys) {
+			auto guard = write_fence();
+			system_info_t info;
+			info.address = &sys;
+			info.components = generate_info(info, sys, iris_make_sequence<std::tuple_size<typename system_t::components_tuple_t>::value>());
+			std::sort(info.components.begin(), info.components.end());
+
+			system_infos.emplace_back(std::move(info));
 		}
 
-		template <typename... components_t>
-		static constexpr bool has() noexcept {
-			return check_duplicated_components<components_t...>() && count_match<std::tuple<components_t...>, subsystems_t...>::value != 0;
+		template <typename system_t>
+		void detach(system_t& sys) {
+			auto guard = write_fence();
+			for (size_t i = 0; i < system_infos.size(); i++) {
+				if (system_infos[i].address == &sys) {
+					system_infos.erase(system_infos.begin() + i);
+					break;
+				}
+			}
+		}
+
+		void clear() {
+			system_infos.clear();
+		}
+
+		template <typename... components_t, typename operation_t>
+		void for_each(operation_t&& op) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
+			auto guard = read_fence();
+
+			for (size_t i = 0; i < system_infos.size(); i++) {
+				auto& system_info = system_infos[i];
+				auto iterators_begin = std::make_tuple(typename iris_queue_list_t<components_t, allocator_t>::iterator()...);
+				auto iterators_end = std::make_tuple(typename iris_queue_list_t<components_t, allocator_t>::iterator()...);
+
+				if (match_iterators<decltype(iterators_begin), 0, components_t...>(iterators_begin, iterators_end, system_info)) {
+					while (std::get<0>(iterators_begin) != std::get<0>(iterators_end)) {
+						step_operation(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>());
+					}
+				}
+			}
 		}
 
 	protected:
-		std::tuple<subsystems_t&...> subsystems;
+		template <typename system_t, size_t... i>
+		std::vector<iris_key_value_t<size_t, void*>> generate_info(system_info_t& info, system_t& sys, iris_sequence<i...>) {
+			return std::vector<iris_key_value_t<size_t, void*>>{ iris_make_key_value(get_type_hash<typename std::tuple_element<i, typename system_t::components_tuple_t>::type>(), reinterpret_cast<void*>(&sys.template component<typename std::tuple_element<i, typename system_t::components_tuple_t>::type>()))... };
+		}
+
+		template <typename iterators_t, size_t i>
+		bool match_iterators(iterators_t& iterators_begin, iterators_t& iterators_end, const system_info_t& system_info) noexcept {
+			return true;
+		}
+
+		template <typename iterators_t, size_t i, typename first_component_t, typename... components_t>
+		bool match_iterators(iterators_t& iterators_begin, iterators_t& iterators_end, const system_info_t& system_info) noexcept {
+			size_t hash = get_type_hash<first_component_t>();
+			auto it = iris_binary_find(system_info.components.begin(), system_info.components.end(), hash);
+			if (it != system_info.components.end()) {
+				auto* list = reinterpret_cast<iris_queue_list_t<first_component_t, allocator_t>*>(it->second);
+				std::get<i>(iterators_begin) = list->begin();
+				std::get<i>(iterators_end) = list->end();
+
+				return match_iterators<iterators_t, i + 1, components_t...>(iterators_begin, iterators_end, system_info);
+			} else {
+				return false;
+			}
+		}
+
+	protected:
+		std::vector<system_info_t> system_infos;
 	};
 }

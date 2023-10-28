@@ -505,7 +505,7 @@ namespace iris {
 
 	using iris_bytes_t = iris_buffer_t<uint8_t>;
 
-	template <typename element_t, size_t block_size = default_block_size, template <typename...> typename allocator_t = iris_default_block_allocator_t>
+	template <typename element_t, size_t block_size = default_block_size, template <typename...> class allocator_t = iris_default_block_allocator_t>
 	struct iris_cache_t {
 		iris_buffer_t<element_t> allocate(size_t size, size_t alignment = 16) {
 			size_t pack = allocator.pack_size(alignment);
@@ -569,7 +569,7 @@ namespace iris {
 
 	using bytes_cache_t = iris_cache_t<uint8_t>;
 
-	template <typename element_t, typename base_t = uint8_t, size_t block_size = default_block_size, template <typename...> typename large_allocator_t = std::allocator>
+	template <typename element_t, typename base_t = uint8_t, size_t block_size = default_block_size, template <typename...> class large_allocator_t = std::allocator>
 	struct iris_cache_allocator_t : private large_allocator_t<element_t> {
 		using value_type = element_t;
 		using pointer = element_t*;
