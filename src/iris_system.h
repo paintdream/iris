@@ -31,16 +31,6 @@ SOFTWARE.
 #include "iris_common.h"
 
 namespace iris {
-	// a compile-time typed entity-component-system
-	// thread safety:
-	// 1. [no ] insert/insert
-	// 2. [no ] remove/remove
-	// 3. [no ] insert/iterate
-	// 4. [no ] remove/iterate
-	// 5. [yes] iterate/iterate
-	// 6. [yes] iterate/insert
-	// 
-
 	namespace {
 		// find type index for given type
 		// https://stackoverflow.com/questions/26169198/how-to-get-the-index-of-a-type-in-a-variadic-type-pack
@@ -78,6 +68,15 @@ namespace iris {
 		template <typename iterators_t, typename operation_t, size_t... i>
 		static void step_operation(iterators_t& iterators, operation_t& op, iris_sequence<i...>) {
 			op(*std::get<i>(iterators)++...);
+		}
+
+		template <typename iterators_t>
+		void step_iterators(iterators_t&&...) {}
+
+		template <typename iterators_t, typename operation_t, size_t... i>
+		static void step_operation(iterators_t& iterators, operation_t& op, iris_sequence<i...>, size_t count) {
+			op(count, std::get<i>(iterators)...);
+			step_iterators((std::get<i>(iterators) += static_cast<ptrdiff_t>(count))...);
 		}
 	}
 
@@ -199,6 +198,22 @@ namespace iris {
 
 			while (std::get<0>(iterators_begin) != std::get<0>(iterators_end)) {
 				step_operation(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>());
+			}
+		}
+
+		template <typename... for_components_t, typename operation_t>
+		void for_each_batch(size_t batch_count, operation_t&& op) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
+			auto guard = read_fence();
+			auto iterators_begin = std::make_tuple(component<for_components_t>().begin()...);
+			const auto iterators_end = std::make_tuple(component<for_components_t>().end()...);
+
+			size_t counter = 0;
+			auto iterators_current = iterators_begin;
+			size_t total = iris_verify_cast<size_t>(std::get<0>(iterators_end) - std::get<0>(iterators_begin));
+			for (size_t i = 0; i < total; i += batch_count) {
+				step_operation(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>(), std::min(i + batch_count, total) - i);
 			}
 		}
 
@@ -361,19 +376,37 @@ namespace iris {
 			system_infos.clear();
 		}
 
-		template <typename... components_t, typename operation_t>
+		template <typename... for_components_t, typename operation_t>
 		void for_each(operation_t&& op) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = read_fence();
 
 			for (size_t i = 0; i < system_infos.size(); i++) {
 				auto& system_info = system_infos[i];
-				auto iterators_begin = std::make_tuple(typename iris_queue_list_t<components_t, allocator_t>::iterator()...);
-				auto iterators_end = std::make_tuple(typename iris_queue_list_t<components_t, allocator_t>::iterator()...);
+				auto iterators_begin = std::make_tuple(typename iris_queue_list_t<for_components_t, allocator_t>::iterator()...);
+				auto iterators_end = std::make_tuple(typename iris_queue_list_t<for_components_t, allocator_t>::iterator()...);
 
-				if (match_iterators<decltype(iterators_begin), 0, components_t...>(iterators_begin, iterators_end, system_info)) {
+				if (match_iterators<decltype(iterators_begin), 0, for_components_t...>(iterators_begin, iterators_end, system_info)) {
 					while (std::get<0>(iterators_begin) != std::get<0>(iterators_end)) {
 						step_operation(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>());
+					}
+				}
+			}
+		}
+
+		template <typename... for_components_t, typename operation_t>
+		void for_each_batch(size_t batch_count, operation_t&& op) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
+			auto guard = read_fence();
+			for (size_t i = 0; i < system_infos.size(); i++) {
+				auto& system_info = system_infos[i];
+				auto iterators_begin = std::make_tuple(typename iris_queue_list_t<for_components_t, allocator_t>::iterator()...);
+				auto iterators_end = std::make_tuple(typename iris_queue_list_t<for_components_t, allocator_t>::iterator()...);
+
+				if (match_iterators<decltype(iterators_begin), 0, for_components_t...>(iterators_begin, iterators_end, system_info)) {
+					size_t total = iris_verify_cast<size_t>(std::get<0>(iterators_end) - std::get<0>(iterators_begin));
+					for (size_t i = 0; i < total; i += batch_count) {
+						step_operation(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>(), std::min(i + batch_count, total) - i);
 					}
 				}
 			}

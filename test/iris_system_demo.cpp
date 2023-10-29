@@ -99,6 +99,13 @@ int main(void) {
 		matrix.values[3][0] = 0; matrix.values[3][1] = 0; matrix.values[3][2] = 0; matrix.values[3][3] = 1;
 	});
 
+	matrix_system.for_each_batch<iris_component_matrix_t>(4, [](size_t count, iris_queue_list_t<iris_component_matrix_t, block_allocator_t>::iterator it) {
+		while (count-- != 0) {
+			it->values[3][3] = 2;
+			it++;
+		}
+	});
+
 	matrix_system.for_each<entity_t, iris_component_matrix_t>([](entity_t entity, iris_component_matrix_t& matrix) {
 		// initialize with identity matrix
 		assert(matrix.values[0][0] == 1);
@@ -115,6 +122,13 @@ int main(void) {
 	int counter = 0;
 	systems.for_each<uint8_t>([&counter](uint8_t& i) {
 		i = counter++;
+	});
+
+	systems.for_each_batch<iris_component_matrix_t>(4, [](size_t count, iris_queue_list_t<iris_component_matrix_t, block_allocator_t>::iterator it) {
+		while (count-- != 0) {
+			assert(it->values[3][3] == 2);
+			it++;
+		}
 	});
 
 	systems.detach(other_system);
