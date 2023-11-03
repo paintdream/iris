@@ -111,6 +111,10 @@ int main(void) {
 		assert(matrix.values[0][0] == 1);
 	});
 
+	matrix_system.for_entity<iris_component_matrix_t>(0, [](iris_component_matrix_t& matrix) {
+		matrix.values[1][1] = 2;
+	});
+
 	iris_system_t<entity_t, block_allocator_t, float, uint8_t> other_system;
 	for (size_t k = 0; k < 5; k++) {
 		other_system.insert(iris::iris_verify_cast<entity_t>(k), 0.1f, (uint8_t)k);

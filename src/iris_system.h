@@ -154,6 +154,14 @@ namespace iris {
 			return std::get<fetch_index<component_t>::value>(components).get(iris_binary_find(entity_components.begin(), entity_components.end(), entity)->second);
 		}
 
+		template <typename... for_components_t, typename operation_t>
+		void for_entity(entity_t entity, operation_t&& op) {
+			auto guard = read_fence();
+			IRIS_ASSERT(valid(entity));
+			index_t index = iris_binary_find(entity_components.begin(), entity_components.end(), entity)->second;
+			op(std::get<fetch_index<for_components_t>::value>(components).get(index)...);
+		}
+
 		template <typename component_t>
 		const component_t& get(entity_t entity) const noexcept {
 			auto guard = read_fence();
