@@ -979,6 +979,7 @@ namespace iris {
 		}
 
 		void await_suspend(std::coroutine_handle<> handle) noexcept(noexcept(queue(std::move(handle)))) {
+			auto guard = write_fence();
 			queue(std::move(handle));
 		}
 
@@ -1055,12 +1056,10 @@ namespace iris {
 				info.warp = warp_t::get_current_warp();
 			}
 
-			std::lock_guard<std::mutex> guard(frame_mutex);
 			frame_coroutine_handles.push(std::move(info));
 		}
 
 	protected:
-		std::mutex frame_mutex;
 		iris_queue_list_t<info_t> frame_coroutine_handles;
 		std::atomic<size_t> frame_pending_count;
 		std::atomic<size_t> frame_complete;
