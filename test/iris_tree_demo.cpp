@@ -11,6 +11,14 @@ struct float3 {
 	static constexpr size_t size = 3;
 
 	explicit float3(float xx = 0.0f, float yy = 0.0f, float zz = 0.0f) noexcept : x(xx), y(yy), z(zz) {}
+	constexpr float operator [] (size_t index) const noexcept {
+		return index == 0 ? x : index == 1 ? y : z;
+	}
+
+	constexpr float& operator [] (size_t index) noexcept {
+		return index == 0 ? x : index == 1 ? y : z;
+	}
+
 	float x, y, z;
 };
 

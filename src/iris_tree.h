@@ -46,11 +46,11 @@ namespace iris {
 		static constexpr size_t size = element_count;
 
 		static constexpr scalar_t get(const element_t& v, index_t index) noexcept {
-			return reinterpret_cast<const scalar_t*>(&v)[index];
+			return index < size / 2 ? v.first[index] : v.second[index - size / 2];
 		}
 
 		static constexpr scalar_t& get(element_t& v, index_t index) noexcept {
-			return reinterpret_cast<scalar_t*>(&v)[index];
+			return index < size / 2 ? v.first[index] : v.second[index - size / 2];
 		}
 
 		// compare element on given dimension (index)
