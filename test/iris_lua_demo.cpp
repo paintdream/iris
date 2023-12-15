@@ -259,20 +259,29 @@ int main(void) {
 #endif
 
 	lua_State* T = luaL_newstate();
+	luaL_openlibs(T);
 	lua_t target(T);
 	target.call<void>(target.load("\n\
 function test(a, b, c) \n\
 	print('cross ' .. tostring(a)) \n\
 	print('cross value ' .. b:value()) \n\
 	print('cross value ' .. c:value()) \n\
+	c:value(3333) \n\
+	print('cross value ' .. c:value()) \n\
 	return a \n\
 end\n"));
 	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test");
+	example_t existing_object;
+	existing_object.value = 2222;
+	auto temp_type = target.make_type<example_t>("example_temp_t");
+	target.call<void>(test, "existing", target.make_object_view<example_t>(temp_type, &existing_object), target.make_object_view<example_t>(temp_type, &existing_object));
+	target.deref(std::move(temp_type));
+	assert(existing_object.value == 3333);
+	existing_object.value = 2222;
 
-	luaL_openlibs(T);
 	lua.native_push_variable(1234);
 	lua.native_push_variable(lua.make_object<example_t>(lua.make_type<example_t>("example_duplicate_t")));
-	lua.native_push_variable(lua.make_object<example_t>(lua.make_type<example_t>("example_duplicate_t2")));
+	lua.native_push_variable(lua.make_object_view<example_t>(lua.make_type<example_t>("example_duplicate_view_t"), &existing_object));
 	lua.native_cross_transfer_variable<true>(target, -3);
 	lua.native_cross_transfer_variable<true>(target, -2);
 	lua.native_cross_transfer_variable<false>(target, -1);
@@ -280,6 +289,7 @@ end\n"));
 	lua.native_pop_variable(3);
 
 	int result = target.native_call(std::move(test), 3);
+	assert(existing_object.value == 3333);
 	int ret_val = target.native_get_variable<int>(-1);
 	IRIS_ASSERT(ret_val == 1234);
 	lua_close(T);
