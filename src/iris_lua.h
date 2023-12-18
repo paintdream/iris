@@ -433,6 +433,7 @@ namespace iris {
 			stack_guard_t guard(L);
 			IRIS_ASSERT(*meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<type_t>()));
 
+			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
 			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, std::max(sizeof(void*) + 1, sizeof(type_t)), user_value_count));
 			new (p) type_t(std::forward<args_t>(args)...);
 			lua_rawgeti(L, LUA_REGISTRYINDEX, meta.get());
@@ -723,9 +724,9 @@ namespace iris {
 		}
 	
 		template <bool move, typename lua_t>
-		void native_cross_transfer_variable(lua_t& target, int index) {
+		void native_cross_transfer_variable(lua_t& target, int index, int max_depth = 4) {
 			auto guard = write_fence();
-			cross_transfer_variable<move>(state, target, index, 0, 0);
+			cross_transfer_variable<move>(state, target, index, 0, 0, max_depth);
 		}
 
 		template <typename callable_t>
@@ -1013,6 +1014,7 @@ namespace iris {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			check_required_parameters<1, args_t...>(L);
 
+			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
 			stack_guard_t guard(L, 1);
 			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, std::max(sizeof(void*) + 1, sizeof(type_t)), user_value_count));
 			invoke_create<type_t, std::tuple<args_t...>>(p, L, std::make_index_sequence<sizeof...(args_t)>());
@@ -1491,7 +1493,10 @@ namespace iris {
 		}
 
 		template <bool move, typename lua_t>
-		static void cross_transfer_variable(lua_State* L, lua_t& target, int index, int recursion_src_index, int recursion_dst_index) {
+		static void cross_transfer_variable(lua_State* L, lua_t& target, int index, int recursion_src_index, int recursion_dst_index, int max_depth) {
+			if (max_depth == 0)
+				return;
+
 			stack_guard_t guard(L);
 			lua_State* T = target.get_state();
 			stack_guard_t guard_target(T, 1);
@@ -1540,8 +1545,8 @@ namespace iris {
 
 						while (lua_next(L, absindex) != 0) {
 							// since we do not allow implicit lua_tostring conversion, so it's safe to extract key without duplicating it
-							cross_transfer_variable<move>(L, target, -2, absindex, target_absindex);
-							cross_transfer_variable<move>(L, target, -1, absindex, target_absindex);
+							cross_transfer_variable<move>(L, target, -2, absindex, target_absindex, max_depth - 1);
+							cross_transfer_variable<move>(L, target, -1, absindex, target_absindex, max_depth - 1);
 							lua_rawset(T, -3);
 							lua_pop(L, 1);
 						}
@@ -1556,7 +1561,7 @@ namespace iris {
 							int absindex = lua_absindex(L, index);
 							int n = 1;
 							while (lua_getupvalue(L, absindex, n) != nullptr) {
-								cross_transfer_variable<false>(L, target, -1, recursion_src_index, recursion_dst_index);
+								cross_transfer_variable<false>(L, target, -1, recursion_src_index, recursion_dst_index, max_depth);
 								lua_pop(L, 1);
 								n++;
 							}
@@ -1593,7 +1598,7 @@ namespace iris {
 #endif
 									lua_pop(T, 1);
 									// copy metatable
-									cross_transfer_variable<false>(L, target, -2, 0, 0);
+									cross_transfer_variable<false>(L, target, -2, 0, 0, max_depth - 1);
 									lua_pushlightuserdata(T, hash);
 									lua_pushvalue(T, -2);
 									lua_rawset(T, LUA_REGISTRYINDEX);
