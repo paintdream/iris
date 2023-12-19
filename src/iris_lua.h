@@ -724,9 +724,22 @@ namespace iris {
 		}
 	
 		template <bool move, typename lua_t>
-		void native_cross_transfer_variable(lua_t& target, int index, int max_depth = 4) {
+		void native_cross_transfer_variable(lua_t& target, int index) {
 			auto guard = write_fence();
-			cross_transfer_variable<move>(state, target, index, 0, 0, max_depth);
+
+			lua_State* L = get_state();
+			stack_guard_t stack_guard_source(L);
+			lua_State* T = target.get_state();
+			stack_guard_t stack_guard_target(T, 1);
+
+			int src_index = lua_absindex(L, index);
+			lua_newtable(L);
+			lua_newtable(T);
+
+			cross_transfer_variable<move>(state, target, src_index, lua_absindex(L, -1), lua_absindex(T, -1), 0);
+
+			lua_replace(T, -2);
+			lua_pop(L, 1);
 		}
 
 		template <typename callable_t>
@@ -1493,172 +1506,194 @@ namespace iris {
 		}
 
 		template <bool move, typename lua_t>
-		static void cross_transfer_variable(lua_State* L, lua_t& target, int index, int recursion_src_index, int recursion_dst_index, int max_depth) {
-			if (max_depth == 0)
-				return;
-
+		static int cross_transfer_variable(lua_State* L, lua_t& target, int index, int recursion_source, int recursion_target, int recursion_index) {
 			stack_guard_t guard(L);
 			lua_State* T = target.get_state();
 			stack_guard_t guard_target(T, 1);
 
-			// avoid recursion
-			if (recursion_src_index != 0 && lua_rawequal(L, index, recursion_src_index)) {
-				lua_pushvalue(T, recursion_dst_index);
-			} else {
-				int type = lua_type(L, index);
-				switch (type) {
-					case LUA_TBOOLEAN:
-					{
-						target.native_push_variable(get_variable<bool>(L, index));
-						break;
-					}
-					case LUA_TLIGHTUSERDATA:
-					{
-						target.native_push_variable(get_variable<const void*>(L, index));
-						break;
-					}
-					case LUA_TNUMBER:
-					{
+			int type = lua_type(L, index);
+			switch (type) {
+				case LUA_TBOOLEAN:
+				{
+					target.native_push_variable(get_variable<bool>(L, index));
+					break;
+				}
+				case LUA_TLIGHTUSERDATA:
+				{
+					target.native_push_variable(get_variable<const void*>(L, index));
+					break;
+				}
+				case LUA_TNUMBER:
+				{
 #if LUA_VERSION_NUM <= 502
+					target.native_push_variable(get_variable<lua_Number>(L, index));
+#else
+					if (lua_isinteger(L, index)) {
+						target.native_push_variable(get_variable<lua_Integer>(L, index));
+					} else {
 						target.native_push_variable(get_variable<lua_Number>(L, index));
-#else
-						if (lua_isinteger(L, index)) {
-							target.native_push_variable(get_variable<lua_Integer>(L, index));
-						} else {
-							target.native_push_variable(get_variable<lua_Number>(L, index));
-						}
+					}
 #endif
-						break;
-					}
-					case LUA_TSTRING:
-					{
-						target.native_push_variable(get_variable<std::string_view>(L, index));
-						break;
-					}
-					case LUA_TTABLE:
-					{
-						lua_newtable(T);
-
-						int absindex = lua_absindex(L, index);
-						int target_absindex = lua_absindex(T, -1);
-						lua_pushnil(L);
-
-						while (lua_next(L, absindex) != 0) {
-							// since we do not allow implicit lua_tostring conversion, so it's safe to extract key without duplicating it
-							cross_transfer_variable<move>(L, target, -2, absindex, target_absindex, max_depth - 1);
-							cross_transfer_variable<move>(L, target, -1, absindex, target_absindex, max_depth - 1);
-							lua_rawset(T, -3);
+					break;
+				}
+				case LUA_TSTRING:
+				{
+					target.native_push_variable(get_variable<std::string_view>(L, index));
+					break;
+				}
+				case LUA_TTABLE:
+				{
+					// try avoid recursion
+					if (recursion_source != 0) {
+						lua_pushvalue(L, index);
+#if LUA_VERSION_NUM <= 502
+						lua_rawgeti(L, recursion_source);
+						if (lua_type(L, -1) != LUA_TNIL) {
+#else
+						if (lua_rawget(L, recursion_source) != LUA_TNIL) {
+#endif
+							int target_index = static_cast<int>(reinterpret_cast<size_t>(lua_touserdata(L, -1)));
 							lua_pop(L, 1);
+							lua_rawgeti(T, recursion_target, target_index);
+							break;
 						}
 
-						break;
+						lua_pop(L, 1);
 					}
-					case LUA_TFUNCTION:
-					{
-						if (lua_iscfunction(L, index)) {
-							lua_CFunction proxy = lua_tocfunction(L, index);
-							// copy upvalues
-							int absindex = lua_absindex(L, index);
-							int n = 1;
-							while (lua_getupvalue(L, absindex, n) != nullptr) {
-								cross_transfer_variable<false>(L, target, -1, recursion_src_index, recursion_dst_index, max_depth);
-								lua_pop(L, 1);
-								n++;
-							}
 
-							lua_pushcclosure(T, proxy, n - 1);
-						} else {
-							// do not convert lua functions
-							target.native_push_variable(nullptr);
-						}
-						break;
+					// not found, try creating a new table
+					lua_newtable(T);
+
+					if (recursion_source != 0) {
+						lua_pushvalue(L, index);
+						lua_pushlightuserdata(L, reinterpret_cast<void*>((size_t)recursion_index));
+						lua_rawset(L, recursion_source);
+
+						lua_pushvalue(T, -1);
+						lua_rawseti(T, recursion_target, recursion_index);
+						recursion_index++;
 					}
-					case LUA_TUSERDATA:
-					{
-						// get metatable
-						void* src = lua_touserdata(L, index);
+
+					int absindex = lua_absindex(L, index);
+					lua_pushnil(L);
+
+					while (lua_next(L, absindex) != 0) {
+						// since we do not allow implicit lua_tostring conversion, so it's safe to extract key without duplicating it
+						recursion_index = cross_transfer_variable<move>(L, target, -2, recursion_source, recursion_target, recursion_index);
+						recursion_index = cross_transfer_variable<move>(L, target, -1, recursion_source, recursion_target, recursion_index);
+						lua_rawset(T, -3);
+						lua_pop(L, 1);
+					}
+
+					break;
+				}
+				case LUA_TFUNCTION:
+				{
+					if (lua_iscfunction(L, index)) {
+						lua_CFunction proxy = lua_tocfunction(L, index);
+						// copy upvalues
 						int absindex = lua_absindex(L, index);
-						if (src == nullptr || !lua_getmetatable(L, index)) {
-							target.native_push_variable(nullptr);
-						} else {
+						int n = 1;
+						while (lua_getupvalue(L, absindex, n) != nullptr) {
+							recursion_index = cross_transfer_variable<false>(L, target, -1, recursion_source, recursion_target, recursion_index);
+							lua_pop(L, 1);
+							n++;
+						}
+
+						lua_pushcclosure(T, proxy, n - 1);
+					} else {
+						// do not convert lua functions
+						target.native_push_variable(nullptr);
+					}
+					break;
+				}
+				case LUA_TUSERDATA:
+				{
+					// get metatable
+					void* src = lua_touserdata(L, index);
+					int absindex = lua_absindex(L, index);
+					if (src == nullptr || !lua_getmetatable(L, index)) {
+						target.native_push_variable(nullptr);
+					} else {
 #if LUA_VERSION_NUM <= 502
-							lua_getfield(L, -1, "__hash");
-							if (lua_type(L, -1) != LUA_TNIL) {
+						lua_getfield(L, -1, "__hash");
+						if (lua_type(L, -1) != LUA_TNIL) {
 #else
-							if (lua_getfield(L, -1, "__hash") != LUA_TNIL) {
+						if (lua_getfield(L, -1, "__hash") != LUA_TNIL) {
 #endif
-								void* hash = lua_touserdata(L, -1);
-								stack_guard_t guard(T, 1);
+							void* hash = lua_touserdata(L, -1);
+							stack_guard_t guard(T, 1);
 #if LUA_VERSION_NUM <= 502
+							lua_pushlightuserdata(T, hash);
+							lua_rawget(T, LUA_REGISTRYINDEX);
+							if (lua_type(T, -1) == LUA_TNIL) {
+#else
+							if (lua_rawgetp(T, LUA_REGISTRYINDEX, hash) == LUA_TNIL) {
+#endif
+								lua_pop(T, 1);
+								// copy metatable
+								recursion_index = cross_transfer_variable<false>(L, target, -2, recursion_source, recursion_target, recursion_index);
 								lua_pushlightuserdata(T, hash);
-								lua_rawget(T, LUA_REGISTRYINDEX);
-								if (lua_type(T, -1) == LUA_TNIL) {
-#else
-								if (lua_rawgetp(T, LUA_REGISTRYINDEX, hash) == LUA_TNIL) {
-#endif
-									lua_pop(T, 1);
-									// copy metatable
-									cross_transfer_variable<false>(L, target, -2, 0, 0, max_depth - 1);
-									lua_pushlightuserdata(T, hash);
-									lua_pushvalue(T, -2);
-									lua_rawset(T, LUA_REGISTRYINDEX);
-								}
-								
-								if (lua_rawlen(L, absindex) > sizeof(void*)) {
-									// now metatable prepared
-									if constexpr (move) {
-										lua_getfield(T, -1, "__move");
-									} else {
-										lua_getfield(T, -1, "__copy");
-									}
-
-									void* ptr = lua_touserdata(T, -1);
-									if (ptr == nullptr) {
-										lua_pop(T, 2);
-										target.native_push_variable(nullptr);
-									} else {
-										if constexpr (move) {
-											reinterpret_cast<decltype(&copy_construct_stub<void*, 0>)>(ptr)(T, src);
-										} else {
-											reinterpret_cast<decltype(&move_construct_stub<void*, 0>)>(ptr)(T, src);
-										}
-
-										lua_pushvalue(T, -3);
-										lua_setmetatable(T, -2);
-
-										// notice that we do not copy user values
-										lua_replace(T, -3);
-										lua_pop(T, 1);
-									}
+								lua_pushvalue(T, -2);
+								lua_rawset(T, LUA_REGISTRYINDEX);
+							}
+							
+							if (lua_rawlen(L, absindex) > sizeof(void*)) {
+								// now metatable prepared
+								if constexpr (move) {
+									lua_getfield(T, -1, "__move");
 								} else {
-									void** p = reinterpret_cast<void**>(lua_newuserdatauv(T, sizeof(void*), 0));
-									*p = *reinterpret_cast<void**>(src);
-									lua_pushvalue(T, -2);
+									lua_getfield(T, -1, "__copy");
+								}
+
+								void* ptr = lua_touserdata(T, -1);
+								if (ptr == nullptr) {
+									lua_pop(T, 2);
+									target.native_push_variable(nullptr);
+								} else {
+									if constexpr (move) {
+										reinterpret_cast<decltype(&copy_construct_stub<void*, 0>)>(ptr)(T, src);
+									} else {
+										reinterpret_cast<decltype(&move_construct_stub<void*, 0>)>(ptr)(T, src);
+									}
+
+									lua_pushvalue(T, -3);
 									lua_setmetatable(T, -2);
 
-									lua_replace(T, -2);
+									// notice that we do not copy user values
+									lua_replace(T, -3);
+									lua_pop(T, 1);
 								}
 							} else {
-								target.native_push_variable(nullptr);
-							}
+								void** p = reinterpret_cast<void**>(lua_newuserdatauv(T, sizeof(void*), 0));
+								*p = *reinterpret_cast<void**>(src);
+								lua_pushvalue(T, -2);
+								lua_setmetatable(T, -2);
 
-							lua_pop(L, 2);
+								lua_replace(T, -2);
+							}
+						} else {
+							target.native_push_variable(nullptr);
 						}
 
-						break;
+						lua_pop(L, 2);
 					}
-					case LUA_TTHREAD:
-					{
-						target.native_push_variable(nullptr);
-						break;
-					}
-					default:
-					{
-						target.native_push_variable(nullptr);
-						break;
-					}
+
+					break;
+				}
+				case LUA_TTHREAD:
+				{
+					target.native_push_variable(nullptr);
+					break;
+				}
+				default:
+				{
+					target.native_push_variable(nullptr);
+					break;
 				}
 			}
+
+			return recursion_index;
 		}
 
 	protected:
