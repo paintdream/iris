@@ -782,10 +782,69 @@ namespace iris {
 		std::vector<info_t> handles;
 	};
 
-	// pipe-like multiple coroutine synchronization
+	// pipe-like multiple coroutine synchronization (spsc)
 	template <typename element_t, typename warp_t, typename async_worker_t = typename warp_t::async_worker_t>
-	struct iris_pipe_t : iris_sync_t<warp_t, async_worker_t> {
-		iris_pipe_t(async_worker_t& worker) : iris_sync_t<warp_t, async_worker_t>(worker) {
+	struct iris_pipe_t : iris_sync_t<warp_t, async_worker_t>, protected enable_in_out_fence_t<size_t> {
+		iris_pipe_t(async_worker_t& worker) : iris_sync_t<warp_t, async_worker_t>(worker), in_index(0), out_index(0) {}
+
+		constexpr bool await_ready() const noexcept {
+			auto guard = out_fence();
+			return !elements.empty();
+		}
+
+		void await_suspend(std::coroutine_handle<> handle) {
+			auto guard = out_fence();
+
+			info_t info;
+			info.handle = std::move(handle);
+
+			if constexpr (!std::is_same_v<warp_t, void>) {
+				info.warp = warp_t::get_current_warp();
+			}
+
+			std::atomic_thread_fence(std::memory_order_acquire);
+			IRIS_ASSERT(out_index == in_index);
+		
+			handles[out_index] = std::move(info);
+			std::atomic_thread_fence(std::memory_order_release);
+			out_index = out_index ^ 1;
+		}
+
+		element_t await_resume() noexcept {
+			auto fence = out_fence();
+			element_t element = std::move(elements.top());
+			elements.pop();
+
+			return element;
+		}
+
+		template <typename element_data_t>
+		void emplace(element_data_t&& element) {
+			auto fence = in_fence();
+			elements.push(std::forward<element_data_t>(element));
+
+			std::atomic_thread_fence(std::memory_order_acquire);
+			if (in_index != out_index) {
+				auto handle = std::move(handles[in_index]);
+				handles[in_index] = info_t { nullptr, nullptr };
+				iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(handle));
+				std::atomic_thread_fence(std::memory_order_release);
+				in_index = out_index;
+			}
+		}
+		
+	protected:
+		using info_t = typename iris_sync_t<warp_t, async_worker_t>::info_t;
+		uint32_t in_index;
+		uint32_t out_index;
+		info_t handles[2];
+		iris_queue_list_t<element_t> elements;
+	};
+
+	// stock-like multiple coroutine synchronization (mpmc)
+	template <typename element_t, typename warp_t, typename async_worker_t = typename warp_t::async_worker_t>
+	struct iris_stock_t : iris_sync_t<warp_t, async_worker_t> {
+		iris_stock_t(async_worker_t& worker) : iris_sync_t<warp_t, async_worker_t>(worker) {
 			prepared_count.store(0, std::memory_order_relaxed);
 			waiting_count.store(0, std::memory_order_release);
 		}
@@ -901,26 +960,35 @@ namespace iris {
 	};
 
 	// barrier-like multiple coroutine sychronization
-	template <typename warp_t, typename async_worker_t = typename warp_t::async_worker_t>
+	template <typename warp_t, typename value_t = bool, typename async_worker_t = typename warp_t::async_worker_t>
 	struct iris_barrier_t : iris_sync_t<warp_t, async_worker_t> {
-		iris_barrier_t(async_worker_t& worker, size_t yield_max_count) : iris_sync_t<warp_t, async_worker_t>(worker), yield_max(yield_max_count) {
+		iris_barrier_t(async_worker_t& worker, size_t yield_max_count, value_t init_value = value_t()) : iris_sync_t<warp_t, async_worker_t>(worker), yield_max(yield_max_count), value(init_value) {
 			handles.resize(yield_max);
-			resume_count.store(0, std::memory_order_relaxed);
 			yield_count.store(0, std::memory_order_release);
+		}
+
+		~iris_barrier_t() noexcept {
+#if IRIS_DEBUG
+			// no more suspended coroutines
+			for (size_t k = 0; k < handles.size(); k++) {
+				IRIS_ASSERT(handles[k].handle == std::coroutine_handle<>());
+			}
+#endif
 		}
 
 		constexpr bool await_ready() const noexcept {
 			return false;
 		}
 
+		template <typename func_t>
+		void dispatch(func_t&& cb) {
+			callback = std::forward<func_t>(cb);
+			await_suspend(std::coroutine_handle<>());
+		}
+
 		void await_suspend(std::coroutine_handle<> handle) {
 			size_t index = yield_count.fetch_add(1, std::memory_order_acquire);
 			IRIS_ASSERT(index < yield_max);
-#if IRIS_DEBUG
-			for (size_t k = 0; k < index; k++) {
-				IRIS_ASSERT(handles[index].handle != handle); // duplicated barrier of the same coroutine!
-			}
-#endif
 			auto& info = handles[index];
 			info.handle = std::move(handle);
 
@@ -930,10 +998,21 @@ namespace iris {
 
 			// all finished?
 			if (index + 1 == yield_max) {
-				yield_count.store(0, std::memory_order_relaxed);
-				resume_count.store(0, std::memory_order_release);
+				size_t old = yield_count.exchange(0, std::memory_order_release);
+				IRIS_ASSERT(old == yield_max);
 
 				// notify all coroutines
+				for (size_t i = 1; i < handles.size(); i++) {
+					if (handles[i].handle == std::coroutine_handle<>()) {
+						std::swap(handles[i], handles[0]);
+						break;
+					}
+				}
+
+				if (callback) {
+					callback(*this);
+				}
+
 				for (size_t i = 0; i < handles.size(); i++) {
 					auto info = std::move(handles[i]);
 #if IRIS_DEBUG
@@ -942,21 +1021,33 @@ namespace iris {
 						info.warp = nullptr;
 					}
 #endif
-					iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(info));
+					if (info.handle != std::coroutine_handle<>()) {
+						iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(info));
+					}
 				}
 			}
 		}
 
-		size_t await_resume() noexcept {
-			return resume_count.fetch_add(1, std::memory_order_acquire); // first resume!
+		template <typename type_t>
+		void set_value(type_t&& new_value) {
+			value = std::forward<type_t>(new_value);
+		}
+
+		const value_t& get_value() const noexcept {
+			return value;
+		}
+
+		const value_t& await_resume() const noexcept {
+			return get_value();
 		}
 
 	protected:
 		using info_t = typename iris_sync_t<warp_t, async_worker_t>::info_t;
 		size_t yield_max;
-		std::atomic<size_t> resume_count;
+		value_t value;
 		std::atomic<size_t> yield_count;
 		std::vector<info_t> handles;
+		std::function<void(iris_barrier_t&)> callback;
 	};
 
 	// specify warp_t = void for warp-ignored dispatch
@@ -965,124 +1056,31 @@ namespace iris {
 		return iris_barrier_t<warp_t, async_worker_t>(worker, yield_max_count);
 	}
 
-	// frame-like multiple coroutine sychronization
-	template <typename warp_t, typename async_worker_t = typename warp_t::async_worker_t>
-	struct iris_frame_t : iris_sync_t<warp_t, async_worker_t>, protected enable_read_write_fence_t<size_t> {
-		explicit iris_frame_t(async_worker_t& worker) : iris_sync_t<warp_t, async_worker_t>(worker) {
-			frame_pending_count.store(0, std::memory_order_relaxed);
-			frame_complete.store(0, std::memory_order_relaxed);
-			frame_terminated.store(0, std::memory_order_release);
-		}
-
-		bool await_ready() const noexcept {
-			return is_terminated();
-		}
-
-		void await_suspend(std::coroutine_handle<> handle) noexcept(noexcept(queue(std::move(handle)))) {
-			auto guard = write_fence();
-			queue(std::move(handle));
-		}
-
-		// dispatche a new frame loop
-		bool dispatch(bool running = true) {
-			auto guard = write_fence();
-			queue(std::coroutine_handle<>()); // mark for frame edge
-
-			if (frame_pending_count.load(std::memory_order_acquire) != 0) {
-				frame_complete.wait(0, std::memory_order_acquire);
-				frame_complete.store(0, std::memory_order_release);
-			}
-
-			frame_terminated.store(running ? 0 : 1, std::memory_order_release);
-
-			// frame loop
-			while (true) {
-				info_t info = std::move(frame_coroutine_handles.top());
-				frame_coroutine_handles.pop();
-
-				if (info.handle) {
-					if constexpr (!std::is_same_v<warp_t, void>) {
-						// dispatch() must not shared the same warp with any coroutines
-						IRIS_ASSERT(info.warp == nullptr || info.warp != warp_t::get_current_warp());
-					}
-
-					frame_pending_count.fetch_add(1, std::memory_order_acquire);
-					iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(info));
-				} else {
-					break;
-				}
-			}
-
-			return running;
-		}
-
-		struct resume_t {
-			explicit resume_t(iris_frame_t& host_frame) noexcept : frame(host_frame) {}
-			~resume_t() noexcept {
-				if (!frame.is_terminated()) {
-					frame.next();
-				}
-			}
-
-			operator bool() const noexcept {
-				return !frame.is_terminated();
-			}
-
-			iris_frame_t& frame;
-		};
-
-		resume_t await_resume() noexcept {
-			return resume_t(*this);
-		}
-
-		bool is_terminated() const noexcept {
-			return frame_terminated.load(std::memory_order_acquire);
-		}
-
-	protected:
-		// go next frame
-		void next() noexcept {
-			if (frame_pending_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
-				frame_complete.store(1, std::memory_order_release);
-				frame_complete.notify_one();
-			}
-		}
-
-		using info_t = typename iris_sync_t<warp_t, async_worker_t>::info_t;
-		void queue(std::coroutine_handle<>&& handle) {
-			info_t info;
-			info.handle = std::move(handle);
-			if constexpr (!std::is_same_v<warp_t, void>) {
-				info.warp = warp_t::get_current_warp();
-			}
-
-			frame_coroutine_handles.push(std::move(info));
-		}
-
-	protected:
-		iris_queue_list_t<info_t> frame_coroutine_handles;
-		std::atomic<size_t> frame_pending_count;
-		std::atomic<size_t> frame_complete;
-		std::atomic<size_t> frame_terminated;
-	};
-
 	// listen specified task completes
 	template <typename async_dispatcher_t>
-	struct iris_listen_dispatch_t : iris_sync_t<typename async_dispatcher_t::warp_t, typename async_dispatcher_t::async_worker_t> {
+	struct iris_listen_dispatch_t : iris_sync_t<typename async_dispatcher_t::warp_t, typename async_dispatcher_t::async_worker_t>
+	{
 		using warp_t = typename async_dispatcher_t::warp_t;
 		using async_worker_t = typename async_dispatcher_t::async_worker_t;
 		using routine_t = typename async_dispatcher_t::routine_t;
 
-		explicit iris_listen_dispatch_t(async_dispatcher_t& disp) : iris_sync_t<warp_t, async_worker_t>(disp.get_async_worker()), dispatcher(disp) {
+		explicit iris_listen_dispatch_t(async_dispatcher_t& disp) : iris_sync_t<warp_t, async_worker_t>(disp.get_async_worker()), dispatcher(disp)
+		{
 			warp_t* warp = nullptr;
-			if constexpr (!std::is_same_v<warp_t, void>) {
+			if constexpr (!std::is_same_v<warp_t, void>)
+			{
 				warp = warp_t::get_current_warp();
 			}
 
 			info.warp = warp;
-			routine = dispatcher.allocate(warp, [this]() {
+			routine = dispatcher.allocate(warp, [this]()
+			{
 				iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(info));
 			});
+		}
+
+		~iris_listen_dispatch_t() noexcept {
+			assert(routine == nullptr);
 		}
 
 		template <typename... args_t>
@@ -1106,6 +1104,7 @@ namespace iris {
 			}
 
 			dispatcher.dispatch(routine);
+			routine = nullptr;
 		}
 
 		constexpr void await_resume() const noexcept {}

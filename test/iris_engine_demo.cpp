@@ -10,14 +10,12 @@ using worker_t = iris_async_worker_t<>;
 
 struct engine_t {
 	using warp_t = iris_warp_t<worker_t>;
-	using frame_t = iris_frame_t<warp_t, worker_t>;
-	using barrier_t = iris_barrier_t<warp_t, worker_t>;
+	using barrier_t = iris_barrier_t<warp_t, bool, worker_t>;
 	using event_t = iris_event_t<warp_t, worker_t>;
 	using pipe_t = iris_pipe_t<int, warp_t, worker_t>;
 	using coroutine_t = iris_coroutine_t<>;
 
-	engine_t() : worker(std::thread::hardware_concurrency()), frame(worker), pipe(worker),
-		prepare_barrier(worker, 2u), sync_event(worker),
+	engine_t() : worker(std::thread::hardware_concurrency()), frame(worker, 3u), pipe(worker), sync_event(worker),
 		warp_audio(worker), warp_script(worker), warp_network(worker), warp_render(worker) {
 		worker.start();
 
@@ -28,6 +26,10 @@ struct engine_t {
 	~engine_t() noexcept {
 		worker.terminate();
 		worker.join();
+
+		while (!warp_audio.join() || !warp_script.join() || !warp_network.join() || !warp_render.join()) {
+			printf("finalizing ...\n");
+		}
 	}
 
 	coroutine_t coroutine_async() {
@@ -35,7 +37,6 @@ struct engine_t {
 		while (co_await frame) {
 			// place a barrier here to assure the completion of sync_event.reset() in main coroutine happends before we use it
 			printf("coroutine async prepare\n");
-			co_await prepare_barrier;
 			pipe.emplace(index++);
 
 			// pretend to do something
@@ -46,6 +47,7 @@ struct engine_t {
 
 			co_await sync_event;
 			printf("coroutine async after event\n");
+			assert(warp_t::get_current_warp() != nullptr);
 
 			co_await iris_switch(&warp_script);
 			printf("coroutine async script ticks\n");
@@ -96,8 +98,6 @@ struct engine_t {
 			sync_event.reset();
 			printf("coroutine main prepare\n");
 
-			co_await prepare_barrier;
-
 			int value = co_await pipe;
 			printf("coroutine main pipe value %d\n", value);
 
@@ -125,17 +125,15 @@ struct engine_t {
 		printf("coroutine main exit\n");
 	}
 
-	bool dispatch(bool running) {
-		printf("=================================\n");
-		return frame.dispatch(running);
+	barrier_t& get_frame() noexcept {
+		return frame;
 	}
 
 protected:
 	worker_t worker;
-	frame_t frame;
+	barrier_t frame;
 
 	pipe_t pipe;
-	barrier_t prepare_barrier;
 	event_t sync_event;
 	warp_t warp_audio;
 	warp_t warp_script;
@@ -145,10 +143,21 @@ protected:
 
 int main(void) {
 	engine_t engine;
+	auto& frame = engine.get_frame();
+	frame.set_value(true);
+	while (frame.get_value()) {
+		std::atomic<bool> signal = false;
+		frame.dispatch([&signal](auto& frame) {
+			if (rand() % 11 == 0) {
+				frame.set_value(false);
+			}
 
-	while (engine.dispatch(rand() % 11 != 0)) {
-		// simulate frame sync
-		std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 40));
+			signal.store(true, std::memory_order_release);
+			signal.notify_one();
+		});
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		signal.wait(false, std::memory_order_acquire);
 	}
 
 	return 0;

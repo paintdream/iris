@@ -5,10 +5,8 @@ using namespace iris;
 
 using worker_t = iris_async_worker_t<>;
 using warp_t = iris_warp_t<worker_t>;
-using barrier_t = iris_barrier_t<void, worker_t>;
+using barrier_t = iris_barrier_t<void, bool, worker_t>;
 using barrier_warp_t = iris_barrier_t<warp_t>; // worker_t implicit deduced from warp_t
-using frame_t = iris_frame_t<void, worker_t>;
-using frame_warp_t = iris_frame_t<warp_t, worker_t>;
 using coroutine_t = iris_coroutine_t<>;
 using coroutine_int_t = iris_coroutine_t<int>;
 using quota_t = iris_quota_t<int, 2>;
@@ -200,42 +198,8 @@ int main(void) {
 		example_barrier(barrier_warp, 8).run();
 	});
 
-	// test for frame
-	frame_t frame(worker);
-	example_frame(frame, 0).run();
-	example_frame(frame, 1).run();
-	example_frame(frame, 2).run();
-	example_frame(frame, 3).run();
-
-	for (size_t k = 0; k < 4; k++) {
-		frame.dispatch();
-		std::this_thread::sleep_for(std::chrono::milliseconds(200));
-		// frame_warp.join(); // optional: wait current frame to finish
-	}
-
 	// initialize pending count with `example` call count
-	pending_count.fetch_add(7, std::memory_order_acq_rel);
-
-	frame_warp_t frame_warp(worker);
-	// do not place the coroutines and the frame trigger in the same warp!
-	warps[1].queue_routine_external([&frame_warp]() {
-		example_frame(frame_warp, 5).run();
-		example_frame(frame_warp, 6).run();
-		example_frame(frame_warp, 7).run();
-		example_frame(frame_warp, 8).run();
-	});
-
-	warps[0].queue_routine_external([&worker, &frame_warp]() {
-		for (size_t k = 0; k < 4; k++) {
-			frame_warp.dispatch();
-			std::this_thread::sleep_for(std::chrono::milliseconds(200));
-		}
-
-		// if all tests finished, terminate the thread pool and exit the program
-		if (pending_count.fetch_sub(1, std::memory_order_release) == 1) {
-			worker.terminate();
-		}
-	});
+	pending_count.fetch_add(6, std::memory_order_acq_rel);
 
 	// test for running example from an external thread
 	example(worker, &warps[0], &warps[3], 1).complete([]() {

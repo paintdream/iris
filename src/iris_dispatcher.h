@@ -454,6 +454,8 @@ namespace iris {
 			// do cleanup
 			bool empty = true;
 			for (iterator_t p = begin; p != end; ++p) {
+				empty = empty && (*p).empty();
+
 				while (true) {
 					preempt_guard_t<true> preempt_guard(*p);
 					if (!preempt_guard) {
@@ -467,8 +469,6 @@ namespace iris {
 						break;
 					}
 				} 
-
-				empty = empty && (*p).empty();
 			}
 
 			// resume warps if not finalizing
