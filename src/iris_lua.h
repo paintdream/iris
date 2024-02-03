@@ -1653,7 +1653,7 @@ namespace iris {
 					if (recursion_source != 0) {
 						lua_pushvalue(L, index);
 #if LUA_VERSION_NUM <= 502
-						lua_rawgeti(L, recursion_source);
+						lua_rawget(L, recursion_source);
 						if (lua_type(L, -1) != LUA_TNIL) {
 #else
 						if (lua_rawget(L, recursion_source) != LUA_TNIL) {
