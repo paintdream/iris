@@ -503,6 +503,14 @@ namespace iris {
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
+		template <typename value_t>
+		ref_t make_value(value_t&& value) {
+			lua_State* L = state;
+			stack_guard_t guard(L);
+			push_variable(L, std::forward<value_t>(value));
+			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
+		}
+
 		struct context_this_t {};
 		struct context_table_t {};
 		struct context_upvalue_t {
