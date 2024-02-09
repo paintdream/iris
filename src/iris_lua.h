@@ -399,11 +399,11 @@ namespace iris {
 			lua_pushvalue(L, -2);
 			lua_rawset(L, -3);
 
-			push_variable(L, "create");
+			push_variable(L, "new");
 			lua_pushvalue(L, -2);
 
 			push_arguments(L, std::forward<args_t>(args)...);
-			lua_pushcclosure(L, &iris_lua_t::create_object<type_t, user_value_count, std::remove_reference_t<args_t>...>, 1 + sizeof...(args));
+			lua_pushcclosure(L, &iris_lua_t::new_object<type_t, user_value_count, std::remove_reference_t<args_t>...>, 1 + sizeof...(args));
 			lua_rawset(L, -3);
 
 			// call custom registar if needed
@@ -1136,7 +1136,7 @@ namespace iris {
 
 		// create a lua managed object
 		template <typename type_t, int user_value_count, typename... args_t>
-		static int create_object(lua_State* L) {
+		static int new_object(lua_State* L) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			check_required_parameters<1, args_t...>(L);
 
@@ -1181,7 +1181,7 @@ namespace iris {
 			if constexpr (std::is_null_pointer_v<value_t>) {
 				return nullptr;
 			} else if constexpr (iris_is_reference_wrapper<type_t>::value) {
-				// pass reference wrapper as plain pointer without lifetime management, usually used by create_object() internally
+				// pass reference wrapper as plain pointer without lifetime management, usually used by new_object() internally
 				return std::ref(*reinterpret_cast<typename type_t::type*>(lua_touserdata(L, index)));
 			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
 				using internal_type_t = typename value_t::internal_type_t;
