@@ -355,6 +355,7 @@ namespace iris {
 
 		struct system_info_t {
 			void* address = nullptr;
+			void (*remove)(void*, entity_t) = nullptr;
 			std::vector<iris_key_value_t<size_t, void*>> components;
 		};
 
@@ -363,6 +364,7 @@ namespace iris {
 			auto guard = write_fence();
 			system_info_t info;
 			info.address = &sys;
+			info.remove = &remove_handler<system_t>;
 			info.components = generate_info(info, sys, iris_make_sequence<std::tuple_size<typename system_t::components_tuple_t>::value>());
 			std::sort(info.components.begin(), info.components.end());
 
@@ -377,6 +379,14 @@ namespace iris {
 					system_infos.erase(system_infos.begin() + i);
 					break;
 				}
+			}
+		}
+
+		void remove(entity_t entity) {
+			auto guard = write_fence();
+			for (size_t i = 0; i < system_infos.size(); i++) {
+				auto& system_info = system_infos[i];
+				system_info.remove(system_info.address, entity);
 			}
 		}
 
@@ -421,6 +431,11 @@ namespace iris {
 		}
 
 	protected:
+		template <typename system_t>
+		static void remove_handler(void* address, entity_t entity) {
+			(reinterpret_cast<system_t*>(address))->remove(entity);
+		}
+
 		template <typename system_t, size_t... i>
 		std::vector<iris_key_value_t<size_t, void*>> generate_info(system_info_t& info, system_t& sys, iris_sequence<i...>) {
 			return std::vector<iris_key_value_t<size_t, void*>>{ iris_make_key_value(get_type_hash<typename std::tuple_element<i, typename system_t::components_tuple_t>::type>(), reinterpret_cast<void*>(&sys.template component<typename std::tuple_element<i, typename system_t::components_tuple_t>::type>()))... };
