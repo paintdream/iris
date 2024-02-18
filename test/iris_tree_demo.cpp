@@ -15,7 +15,7 @@ struct float3 {
 		return index == 0 ? x : index == 1 ? y : z;
 	}
 
-	constexpr float& operator [] (size_t index) noexcept {
+	float& operator [] (size_t index) noexcept {
 		return index == 0 ? x : index == 1 ? y : z;
 	}
 
