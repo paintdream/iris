@@ -382,8 +382,8 @@ end\n\
 		print(_VERSION)\n\
 		example_t.native_call() \n\
 		example_t.native_call_noexcept() \n\
-		local a = example_t.create()\n\
-		local b = example_t.create()\n\
+		local a = example_t.new()\n\
+		local b = example_t.new()\n\
 		b:join_value_required(a)\n\
 		--b:join_value_required()\n\
 		b:join_value_required_refptr(a)\n\
@@ -455,7 +455,7 @@ end\n\
 
 #if USE_LUA_COROUTINE
 	lua.call<void>(lua.load("\n\
-		local a = example_t.create()\n\
+		local a = example_t.new()\n\
 		local coro = coroutine.create(function() \n\
 			print('coro get ' .. a.coro_get_int('hello')) \n\
 			print('memcoro get ' .. a:mem_coro_get_int('world')) \n\

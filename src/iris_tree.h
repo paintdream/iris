@@ -38,18 +38,16 @@ SOFTWARE.
 
 namespace iris {
 	// meta operand for overlap rules with std::pair<begin, end> like bounding box
-	template <typename element_t, typename prim_type = typename element_t::first_type, size_t element_count = prim_type::size * 2>
+	template <typename element_t, typename prim_type = typename element_t::first_type, typename index_type_t = size_t, index_type_t prim_size = prim_type::size * 2>
 	struct iris_overlap_t {
-		using scalar_t = typename prim_type::type;
-		using index_t = size_t;
-		using bound_t = element_t;
-		static constexpr size_t size = element_count;
+		using index_t = index_type_t;
+		static constexpr index_t size = prim_size;
 
-		static constexpr scalar_t get(const element_t& v, index_t index) noexcept {
+		static constexpr auto get(const element_t& v, index_t index) noexcept -> decltype(v.first[0]) {
 			return index < size / 2 ? v.first[index] : v.second[index - size / 2];
 		}
 
-		static constexpr scalar_t& get(element_t& v, index_t index) noexcept {
+		static constexpr auto get(element_t& v, index_t index) noexcept -> typename std::add_lvalue_reference<decltype(v.first[0])>::type {
 			return index < size / 2 ? v.first[index] : v.second[index - size / 2];
 		}
 
@@ -71,10 +69,10 @@ namespace iris {
 		// hard to understand, do not waste time here.
 		// split by given index
 		template <bool right_skew>
-		static scalar_t split_push(element_t& value, const element_t& reference, index_t index) noexcept {
+		static auto split_push(element_t& value, const element_t& reference, index_t index) noexcept -> typename std::remove_reference<decltype(get(value, 0))>::type {
 			if (index < size / 2 != right_skew) {
-				scalar_t& target = get(value, index);
-				scalar_t save = target;
+				auto& target = get(value, index);
+				auto save = target;
 				target = get(reference, index);
 				return save;
 			} else {
@@ -83,8 +81,9 @@ namespace iris {
 		}
 
 		// recover split
-		static void split_pop(element_t& value, index_t index, scalar_t save) noexcept {
-			get(value, index) = save;
+		template <typename value_t>
+		static void split_pop(element_t& value, index_t index, value_t&& save) noexcept {
+			get(value, index) = std::forward<value_t>(save);
 		}
 
 		static constexpr element_t bound(const element_t& lhs) {
@@ -300,7 +299,7 @@ namespace iris {
 			std::vector<tree_code_t> all_nodes;
 			all_nodes.emplace_back(tree_code_t(this));
 			size_t n = 0;
-			typename meta::bound_t box = meta::bound(key);
+			auto box = meta::bound(key);
 
 			while (n < all_nodes.size()) {
 				iris_tree_t* tree = all_nodes[n++].tree;

@@ -147,6 +147,16 @@ int main(void) {
 	});
 
 	assert(counter == 0);
+	
+	iris_system_t<entity_t, block_allocator_t, uint8_t> re_system;
+	systems.attach(re_system);
+	re_system.insert(0, 1u);
+	systems.remove(0);
+	re_system.for_each<entity_t>([](entity_t entity) {
+		assert(false); // already removed
+	});
+
+	systems.detach(re_system);
 	return 0;
 }
 

@@ -1926,6 +1926,19 @@ namespace iris {
 			return push_head->empty();
 		}
 
+		bool probe(size_t request_size) const noexcept {
+			size_t counter = 0;
+			// sum up all sub queues
+			for (node_t* p = pop_head; p != nullptr; p = p->next) {
+				counter += p->size();
+				if (counter >= request_size) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
 		size_t size() const noexcept {
 			size_t counter = 0;
 			// sum up all sub queues

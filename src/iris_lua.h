@@ -279,11 +279,12 @@ namespace iris {
 
 		// requried_t is for validating parameters before actually call the C++ stub
 		// will raise a lua error if it fails
-		struct require_base_t {};
+		struct required_base_t {};
 
 		template <typename type_t>
-		struct required_t : require_base_t {
-			using internal_type_t = type_t;
+		struct required_t : required_base_t {
+			using required_type_t = type_t;
+
 			template <typename... args_t>
 			required_t(args_t&&... args) : value(std::forward<args_t>(args)...) {}
 
@@ -356,7 +357,7 @@ namespace iris {
 		}
 
 		template <typename type_t>
-		struct has_registar {
+		struct has_lua_registar {
 			template <typename> static std::false_type test(...);
 			template <typename impl_t> static auto test(int) -> decltype(std::declval<impl_t>().lua_registar(std::declval<iris_lua_t>()), std::true_type());
 			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
@@ -378,7 +379,7 @@ namespace iris {
 		};
 
 		// register a new type, taking registar from &type_t::lua_registar by default, and you could also specify your own registar.
-		template <typename type_t, int user_value_count = 0, auto registar = has_registar<type_t>::get_registar(), typename... args_t>
+		template <typename type_t, int user_value_count = 0, auto registar = has_lua_registar<type_t>::get_registar(), typename... args_t>
 		ref_t make_type(std::string_view name, args_t&&... args) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = write_fence();
@@ -398,11 +399,11 @@ namespace iris {
 			lua_pushvalue(L, -2);
 			lua_rawset(L, -3);
 
-			push_variable(L, "create");
+			push_variable(L, "new");
 			lua_pushvalue(L, -2);
 
 			push_arguments(L, std::forward<args_t>(args)...);
-			lua_pushcclosure(L, &iris_lua_t::create_object<type_t, user_value_count, std::remove_reference_t<args_t>...>, 1 + sizeof...(args));
+			lua_pushcclosure(L, &iris_lua_t::new_object<type_t, user_value_count, std::remove_reference_t<args_t>...>, 1 + sizeof...(args));
 			lua_rawset(L, -3);
 
 			// call custom registar if needed
@@ -1087,7 +1088,7 @@ namespace iris {
 		}
 
 		template <typename type_t>
-		struct has_finalize {
+		struct has_lua_finalize {
 			template <typename> static std::false_type test(...);
 			template <typename impl_t> static auto test(int) -> decltype(std::declval<impl_t>().lua_finalize(std::declval<iris_lua_t>(), 1), std::true_type());
 			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
@@ -1100,7 +1101,7 @@ namespace iris {
 				type_t* p = reinterpret_cast<type_t*>(lua_touserdata(L, 1));
 
 				// call lua_finalize if needed
-				if constexpr (has_finalize<type_t>::value) {
+				if constexpr (has_lua_finalize<type_t>::value) {
 					p->lua_finalize(iris_lua_t(L), 1);
 				}
 
@@ -1119,7 +1120,7 @@ namespace iris {
 		}
 
 		template <typename type_t>
-		struct has_initialize {
+		struct has_lua_initialize {
 			template <typename> static std::false_type test(...);
 			template <typename impl_t> static auto test(int) -> decltype(std::declval<impl_t>().lua_initialize(std::declval<iris_lua_t>(), 1), std::true_type());
 			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
@@ -1128,14 +1129,14 @@ namespace iris {
 		template <typename type_t>
 		static void initialize_object(lua_State* L, type_t* p, int index) {
 			// call lua_initialize if needed
-			if constexpr (has_initialize<type_t>::value) {
+			if constexpr (has_lua_initialize<type_t>::value) {
 				p->lua_initialize(iris_lua_t(L), index);
 			}
 		}
 
 		// create a lua managed object
 		template <typename type_t, int user_value_count, typename... args_t>
-		static int create_object(lua_State* L) {
+		static int new_object(lua_State* L) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			check_required_parameters<1, args_t...>(L);
 
@@ -1180,7 +1181,7 @@ namespace iris {
 			if constexpr (std::is_null_pointer_v<value_t>) {
 				return nullptr;
 			} else if constexpr (iris_is_reference_wrapper<type_t>::value) {
-				// pass reference wrapper as plain pointer without lifetime management, usually used by create_object() internally
+				// pass reference wrapper as plain pointer without lifetime management, usually used by new_object() internally
 				return std::ref(*reinterpret_cast<typename type_t::type*>(lua_touserdata(L, index)));
 			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
 				using internal_type_t = typename value_t::internal_type_t;
@@ -1285,8 +1286,8 @@ namespace iris {
 				} else {
 					return *reinterpret_cast<type_t*>(lua_touserdata(L, index));
 				}
-			} else if constexpr (std::is_base_of_v<require_base_t, value_t>) {
-				return get_variable<typename value_t::internal_type_t, true>(L, index);
+			} else if constexpr (std::is_base_of_v<required_base_t, value_t>) {
+				return get_variable<typename value_t::required_type_t, true>(L, index);
 			} else {
 				// by default, force iris_lua_convert_t
 				return iris_lua_convert_t<value_t>::from_lua(L, index);
@@ -1339,21 +1340,21 @@ namespace iris {
 		template <int index, typename first_t, typename... args_t>
 		static void check_required_parameters(lua_State* L) {
 			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<first_t>>>;
-			if constexpr (std::is_base_of_v<require_base_t, value_t>) {
-				using internal_type_t = typename value_t::internal_type_t;
+			if constexpr (std::is_base_of_v<required_base_t, value_t>) {
+				using required_type_t = typename value_t::required_type_t;
 				bool check_result = false;
 				do {
 					// make sure that var destroyed before luaL_error
-					auto var = get_variable<internal_type_t>(L, index);
+					auto var = get_variable<required_type_t>(L, index);
 					check_result = var;
 
-					if constexpr (std::is_base_of_v<ref_t, internal_type_t>) {
+					if constexpr (std::is_base_of_v<ref_t, required_type_t>) {
 						deref(L, std::move(var));
 					}
 				} while (false);
 
 				if (!check_result) {
-					luaL_error(L, "Required parameter %d of type %s is invalid.\n", index, typeid(first_t).name());
+					luaL_error(L, "Required parameter %d of type %s is invalid or inaccessable.\n", index, typeid(first_t).name());
 				}
 			}
 
@@ -1604,7 +1605,7 @@ namespace iris {
 						lua_rawseti(L, -2, ++i);
 					}
 				}
-			} else if constexpr (std::is_base_of_v<require_base_t, value_t>) {
+			} else if constexpr (std::is_base_of_v<required_base_t, value_t>) {
 				// move internal value if wrapper is rvalue
 				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
 					push_variable(L, std::move(variable.get()));
