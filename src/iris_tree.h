@@ -91,11 +91,11 @@ namespace iris {
 		}
 
 		static void merge(element_t& lhs, const element_t& rhs) {
-			for (size_t i = 0; i < size / 2; i++) {
+			for (index_t i = 0; i < size / 2; i++) {
 				get(lhs, i) = std::min(get(lhs, i), get(rhs, i));
 			}
 
-			for (size_t i = size / 2; i < size; i++) {
+			for (index_t i = size / 2; i < size; i++) {
 				get(lhs, i) = std::max(get(lhs, i), get(rhs, i));
 			}
 		}
@@ -116,7 +116,7 @@ namespace iris {
 			return code;
 		}
 
-		static constexpr size_t next_index(size_t index) {
+		static constexpr index_t next_index(index_t index) {
 			return (index + 1) % size;
 		}
 
@@ -125,11 +125,11 @@ namespace iris {
 			long range = (1 << (level + 1)) - 1;
 			long quantized_values[size];
 
-			for (size_t i = 0; i < size / 2; i++) {
+			for (index_t i = 0; i < size / 2; i++) {
 				quantized_values[i] = std::max((long)0, std::min(range, (long)(range * (get(value, i) - get(box, i)) / (get(box, i + size / 2) - get(box, i)))));
 			}
 
-			for (size_t i = size / 2; i < size; i++) {
+			for (index_t i = size / 2; i < size; i++) {
 				quantized_values[i] = std::max((long)0, std::min(range, (long)((get(value, i) - get(box, i - size / 2)) / (get(box, i) - get(box, i - size / 2)))));
 			}
 
@@ -334,7 +334,7 @@ namespace iris {
 		}
 
 	protected:
-		void build(iris_tree_t* root, tree_code_t* begin, tree_code_t* end, size_t index) {
+		void build(iris_tree_t* root, tree_code_t* begin, tree_code_t* end, index_t index) {
 			if (begin < end) {
 				tree_code_t* mid = begin + (end - begin) / 2;
 				mid->tree->key_index = index;
@@ -436,8 +436,6 @@ namespace iris {
 			}
 		}
 
-		key_t key;
-		index_t key_index;
 		union {
 			struct {
 				iris_tree_t* parent_node;
@@ -448,6 +446,9 @@ namespace iris {
 				iris_tree_t* links[3];
 			} links;
 		};
+
+		key_t key;
+		index_t key_index;
 	};
 }
 
