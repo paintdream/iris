@@ -118,58 +118,6 @@ namespace iris {
 			execute_handle.resume();
 		}
 
-		// run coroutine and wait util it completes
-		// this function will block the calling thread, so try to avoid it
-		return_t join() {
-			std::atomic<size_t> variable = 0;
-
-			// we apply a new completion handler to implement thread notification
-			// so here we need to save the original one and call it properly
-			auto prev = std::move(handle.promise().completion);
-
-			if constexpr (!std::is_void_v<return_t>) {
-				return_t ret;
-				if (prev) {
-					complete([&variable, &ret, prev = std::move(prev)](return_t&& value) {
-						ret = std::move(value);
-						// call original completion handler
-						prev(std::move(ret));
-
-						// notify the waiting thread
-						variable.store(1, std::memory_order_relaxed);
-						variable.notify_one();
-					});
-				} else {
-					complete([&variable, &ret](return_t&& value) {
-						ret = std::move(value);
-						variable.store(1, std::memory_order_relaxed);
-						variable.notify_one();
-					});
-				}
-				
-				// run and wait
-				run();
-				variable.wait(0, std::memory_order_acquire);
-				return ret;
-			} else {
-				if (prev) {
-					complete([&variable, prev = std::move(prev)]() {
-						prev();
-						variable.store(1, std::memory_order_relaxed);
-						variable.notify_one();
-					});
-				} else {
-					complete([&variable]() {
-						variable.store(1, std::memory_order_relaxed);
-						variable.notify_one();
-					});
-				}
-
-				run();
-				variable.wait(0, std::memory_order_acquire);
-			}
-		}
-
 		// iris_coroutine_t is also awaitable, so here we implement await_* series methods
 		constexpr bool await_ready() const noexcept {
 			return false;
