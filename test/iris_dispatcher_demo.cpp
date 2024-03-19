@@ -39,9 +39,7 @@ void external_poll() {
 	using warp_t = iris_warp_t<worker_t>;
 
 	worker_t worker(thread_count);
-
 	std::promise<bool> started;
-
 	std::future<bool> future = started.get_future();
 	size_t i = worker.get_thread_count();
 	worker.append([&future, &started, &worker, i]() mutable {
@@ -181,7 +179,6 @@ void simple_explosion(void) {
 	balancer.up();
 
 	std::promise<bool> started;
-
 	std::future<bool> future = started.get_future();
 	size_t i = worker.get_thread_count();
 	worker.append([&future, &started, &worker, i]() mutable {
