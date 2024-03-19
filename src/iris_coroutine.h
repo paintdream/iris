@@ -1006,23 +1006,19 @@ namespace iris {
 
 	// listen specified task completes
 	template <typename async_dispatcher_t>
-	struct iris_listen_dispatch_t : iris_sync_t<typename async_dispatcher_t::warp_t, typename async_dispatcher_t::async_worker_t>
-	{
+	struct iris_listen_dispatch_t : iris_sync_t<typename async_dispatcher_t::warp_t, typename async_dispatcher_t::async_worker_t> {
 		using warp_t = typename async_dispatcher_t::warp_t;
 		using async_worker_t = typename async_dispatcher_t::async_worker_t;
 		using routine_t = typename async_dispatcher_t::routine_t;
 
-		explicit iris_listen_dispatch_t(async_dispatcher_t& disp) : iris_sync_t<warp_t, async_worker_t>(disp.get_async_worker()), dispatcher(disp)
-		{
+		explicit iris_listen_dispatch_t(async_dispatcher_t& disp) : iris_sync_t<warp_t, async_worker_t>(disp.get_async_worker()), dispatcher(disp) {
 			warp_t* warp = nullptr;
-			if constexpr (!std::is_same_v<warp_t, void>)
-			{
+			if constexpr (!std::is_same_v<warp_t, void>) {
 				warp = warp_t::get_current_warp();
 			}
 
 			info.warp = warp;
-			routine = dispatcher.allocate(warp, [this]()
-			{
+			routine = dispatcher.allocate(warp, [this]() {
 				iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(info));
 			});
 		}

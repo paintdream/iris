@@ -166,9 +166,10 @@ static coroutine_t example_quota(quota_queue_t& q) {
 }
 
 int main(void) {
-	static constexpr size_t thread_count = 8;
+	static constexpr size_t thread_count = 0;
 	static constexpr size_t warp_count = 16;
 	iris_async_worker_t<> worker(thread_count);
+	worker.append(std::thread());
 	worker.start();
 
 	iris_dispatcher_t<warp_t> dispatcher(worker);
@@ -211,7 +212,6 @@ int main(void) {
 	}).run();
 
 	example_empty().run();
-
 	example(worker, nullptr, nullptr, 2).run();
 
 	warps[0].queue_routine_external([&worker, &warps]() {
