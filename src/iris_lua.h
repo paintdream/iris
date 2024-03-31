@@ -519,7 +519,11 @@ namespace iris {
 			int index;
 		};
 
-		struct context_stack_top {};
+		struct context_stack_top_t {};
+		struct context_stack_where_t {
+			context_stack_where_t(int lv) noexcept : level(lv) {}
+			int level;
+		};
 
 		template <typename value_t, typename key_t>
 		value_t get_context(key_t&& key) {
@@ -536,8 +540,13 @@ namespace iris {
 				return get_variable<value_t>(L, -1);
 			} else if constexpr (std::is_same_v<type_t, context_upvalue_t>) {
 				return get_variable<value_t>(L, lua_upvalueindex(key.index));
-			} else if constexpr (std::is_same_v<type_t, context_stack_top>) {
+			} else if constexpr (std::is_same_v<type_t, context_stack_top_t>) {
 				return lua_gettop(L);
+			} else if constexpr (std::is_same_v<type_t, context_stack_where_t>) {
+				luaL_where(L, key.level);
+				value_t ret = get_variable<value_t>(L, -1);
+				lua_pop(L, 1);
+				return std::move(ret);
 			} else {
 				return value_t();
 			}
