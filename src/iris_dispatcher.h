@@ -419,7 +419,7 @@ namespace iris {
 			async_worker.queue(external_t<typename std::remove_reference<callable_t>::type>(*this, std::forward<callable_t>(func)), priority);
 		}
 
-		// queue a barrier here, any routines queued after this barrier must be scheduled before any routines before this barrier
+		// queue a barrier here, any routines queued after this barrier must be scheduled after any routines before this barrier
 		void queue_barrier() {
 			queue_barrier_internal<strand>();
 		}
