@@ -411,6 +411,33 @@ namespace iris {
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
+		template <typename base_t, typename target_t, typename meta_base_t, typename meta_target_t>
+		void cast_type(meta_base_t&& base_meta, meta_target_t&& target_meta) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
+			static_assert(std::is_base_of<base_t, target_t>::value, "Incompatible type cast!");
+			IRIS_ASSERT(static_cast<base_t*>(reinterpret_cast<target_t*>(~size_t(0))) == reinterpret_cast<base_t*>(~size_t(0)));
+
+			lua_State* L = state;
+			stack_guard_t guard(L);
+			IRIS_ASSERT(*base_meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<base_t>()));
+			IRIS_ASSERT(*target_meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<target_t>()));
+
+			lua_rawgeti(L, LUA_REGISTRYINDEX, target_meta.get());
+			IRIS_ASSERT(lua_type(L, -1) == LUA_TTABLE);
+			lua_rawgeti(L, LUA_REGISTRYINDEX, base_meta.get());
+			IRIS_ASSERT(lua_type(L, -1) == LUA_TTABLE);
+			lua_setmetatable(L, -2);
+			lua_pop(L, 1);
+
+			if constexpr (std::is_rvalue_reference_v<meta_base_t&&>) {
+				deref(std::move(base_meta));
+			}
+
+			if constexpr (std::is_rvalue_reference_v<meta_target_t&&>) {
+				deref(std::move(target_meta));
+			}
+		}
+
 		template <typename type_t, int user_value_count = 0, typename meta_t, typename... args_t>
 		refptr_t<type_t> make_object(meta_t&& meta, args_t&&... args) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
@@ -1264,23 +1291,40 @@ namespace iris {
 			} else if constexpr (std::is_pointer_v<value_t>) {
 				if constexpr (!skip_checks) {
 					// try to extract object
-					if (lua_getmetatable(L, index) == LUA_TNIL) {
+					if (!lua_getmetatable(L, index)) {
 						return value_t();
 					}
 
-#if LUA_VERSION_NUM <= 502
-					lua_getfield(L, -1, "__hash");
-					if (lua_type(L, -1) == LUA_TNIL) {
-#else
-					if (lua_getfield(L, -1, "__hash") == LUA_TNIL) {
-#endif
-						lua_pop(L, 2);
-						return value_t();
-					}
-
-					// returns empty if hashes are not equal!
-					void* object_hash = lua_touserdata(L, -1);
+					void* object_hash = nullptr;
 					void* type_hash = reinterpret_cast<void*>(get_hash<std::remove_volatile_t<std::remove_const_t<std::remove_pointer_t<value_t>>>>());
+
+					while (true) {
+#if LUA_VERSION_NUM <= 502
+						lua_getfield(L, -1, "__hash");
+						if (lua_type(L, -1) == LUA_TNIL) {
+#else
+						if (lua_getfield(L, -1, "__hash") == LUA_TNIL) {
+#endif
+							lua_pop(L, 2);
+							return value_t();
+						}
+
+						// returns empty if hashes are not equal!
+						object_hash = lua_touserdata(L, -1);
+
+						if (object_hash != type_hash) {
+							lua_pop(L, 1);
+							if (lua_getmetatable(L, -1)) {
+								lua_replace(L, -2);
+							} else {
+								lua_pop(L, 1);
+								return value_t();
+							}
+						} else {
+							break;
+						}
+					}
+
 					if (object_hash != type_hash) {
 						log_error(L, "iris_lua_t::get_variable() -> Object Hash %p is not matched with Type Hash %p\n", object_hash, type_hash);
 						lua_pop(L, 2);
@@ -1756,7 +1800,17 @@ namespace iris {
 #endif
 								lua_pop(T, 1);
 								// copy metatable
+								if (lua_getmetatable(L, -2)) {
+									recursion_index = cross_transfer_variable<false>(L, target, -1, recursion_source, recursion_target, recursion_index);
+									lua_pop(L, 1);
+								} else {
+									lua_pushnil(T);
+								}
+
 								recursion_index = cross_transfer_variable<false>(L, target, -2, recursion_source, recursion_target, recursion_index);
+								lua_insert(T, -2);
+								lua_setmetatable(T, -2);
+
 								lua_pushlightuserdata(T, hash);
 								lua_pushvalue(T, -2);
 								lua_rawset(T, LUA_REGISTRYINDEX);

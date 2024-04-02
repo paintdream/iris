@@ -51,7 +51,20 @@ struct iris::iris_lua_convert_t<vector3> : std::true_type {
 	}
 };
 
-struct example_t {
+struct example_base_t {
+	static void lua_registar(lua_t lua) {
+		lua.set_current<&example_base_t::base_value>("base_value");
+		lua.set_current<&example_base_t::base_func>("base_func");
+	}
+
+	void base_func() {
+		printf("base func\n");
+	}
+
+	int base_value = 2222;
+};
+
+struct example_t : example_base_t {
 	static void lua_registar(lua_t lua) {
 		lua.set_current("lambda", [lua](int v) {
 			IRIS_ASSERT(v == 4);
@@ -249,7 +262,10 @@ int main(void) {
 	luaL_openlibs(L);
 
 	lua_t lua(L);
-	lua.set_global("example_t", lua.make_type<example_t>("example_t"));
+	auto example_type = lua.make_type<example_t>("example_t");
+	auto example_base_type = lua.make_type<example_base_t>("example_base_t");
+	lua.cast_type<example_base_t, example_t>(std::move(example_base_type), example_type);
+	lua.set_global("example_t", std::move(example_type));
 	int capture = 2;
 
 	struct lambda {
@@ -308,6 +324,8 @@ int main(void) {
 	lua_t target(T);
 	target.call<void>(target.load("\n\
 function test(a, b, c) \n\
+	b:base_func() \n\
+	print('base value ======== ' .. tostring(b:base_value())) \n\
 	print('cross ' .. tostring(a)) \n\
 	print('cross value ' .. b:value()) \n\
 	print('lambda value ' .. b.lambda(4)) \n\
@@ -326,13 +344,18 @@ end\n\
 	example_t existing_object;
 	existing_object.value = 2222;
 	auto temp_type = target.make_type<example_t>("example_temp_t");
+	{
+		auto example_base_type = target.make_type<example_base_t>("example_base_t");
+		target.cast_type<example_base_t, example_t>(std::move(example_base_type), temp_type);
+	}
+
 	target.call<void>(test, "existing", target.make_object_view<example_t>(temp_type, &existing_object), target.make_object_view<example_t>(temp_type, &existing_object));
 	target.deref(std::move(temp_type));
 	IRIS_ASSERT(existing_object.value == 3333);
 	existing_object.value = 2222;
 
 	lua.native_push_variable(1234);
-	lua.native_push_variable(lua.make_object<example_t>(lua.make_type<example_t>("example_duplicate_t")));
+	lua.native_push_variable(lua.make_object<example_t>(lua.get_global<lua_t::ref_t>("example_t")));
 	lua.native_push_variable(lua.make_object_view<example_t>(lua.make_type<example_t>("example_duplicate_view_t"), &existing_object));
 	lua.native_cross_transfer_variable<true>(target, -3);
 	lua.native_cross_transfer_variable<true>(target, -2);
@@ -385,6 +408,8 @@ end\n\
 		example_t.native_call_noexcept() \n\
 		local a = example_t.new()\n\
 		local b = example_t.new()\n\
+		b:base_func() \n\
+		print('base value ' .. tostring(b:base_value())) \n\
 		b:join_value_required(a)\n\
 		--b:join_value_required()\n\
 		b:join_value_required_refptr(a)\n\
