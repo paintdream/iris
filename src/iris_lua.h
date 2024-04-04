@@ -1783,39 +1783,8 @@ namespace iris {
 					if (src == nullptr || !lua_getmetatable(L, index)) {
 						target.native_push_variable(nullptr);
 					} else {
-#if LUA_VERSION_NUM <= 502
-						lua_getfield(L, -1, "__hash");
-						if (lua_type(L, -1) != LUA_TNIL) {
-#else
-						if (lua_getfield(L, -1, "__hash") != LUA_TNIL) {
-#endif
-							void* hash = lua_touserdata(L, -1);
-							stack_guard_t guard(T, 1);
-#if LUA_VERSION_NUM <= 502
-							lua_pushlightuserdata(T, hash);
-							lua_rawget(T, LUA_REGISTRYINDEX);
-							if (lua_type(T, -1) == LUA_TNIL) {
-#else
-							if (lua_rawgetp(T, LUA_REGISTRYINDEX, hash) == LUA_TNIL) {
-#endif
-								lua_pop(T, 1);
-								// copy metatable
-								if (lua_getmetatable(L, -2)) {
-									recursion_index = cross_transfer_variable<false>(L, target, -1, recursion_source, recursion_target, recursion_index);
-									lua_pop(L, 1);
-								} else {
-									lua_pushnil(T);
-								}
-
-								recursion_index = cross_transfer_variable<false>(L, target, -2, recursion_source, recursion_target, recursion_index);
-								lua_insert(T, -2);
-								lua_setmetatable(T, -2);
-
-								lua_pushlightuserdata(T, hash);
-								lua_pushvalue(T, -2);
-								lua_rawset(T, LUA_REGISTRYINDEX);
-							}
-							
+						stack_guard_t guard(T, 1);
+						if (cross_transfer_metatable(L, target, recursion_source, recursion_target, recursion_index) != -1) {
 							if (lua_rawlen(L, absindex) > sizeof(void*)) {
 								// now metatable prepared
 								if constexpr (move) {
@@ -1854,7 +1823,7 @@ namespace iris {
 							target.native_push_variable(nullptr);
 						}
 
-						lua_pop(L, 2);
+						lua_pop(L, 1);
 					}
 
 					break;
@@ -1872,6 +1841,57 @@ namespace iris {
 			}
 
 			return recursion_index;
+		}
+
+	protected:
+		template <typename lua_t>
+		static int cross_transfer_metatable(lua_State* L, lua_t& target, int recursion_source, int recursion_target, int recursion_index) {
+			stack_guard_t guard(L);
+			lua_State* T = target.get_state();
+			stack_guard_t guard_target(T, 1);
+
+#if LUA_VERSION_NUM <= 502
+			lua_getfield(L, -1, "__hash");
+			if (lua_type(L, -1) != LUA_TNIL) {
+#else
+			if (lua_getfield(L, -1, "__hash") != LUA_TNIL) {
+#endif
+				void* hash = lua_touserdata(L, -1);
+
+#if LUA_VERSION_NUM <= 502
+				lua_pushlightuserdata(T, hash);
+				lua_rawget(T, LUA_REGISTRYINDEX);
+				if (lua_type(T, -1) == LUA_TNIL) {
+#else
+				if (lua_rawgetp(T, LUA_REGISTRYINDEX, hash) == LUA_TNIL) {
+#endif
+					lua_pop(T, 1);
+
+					// copy table
+					recursion_index = cross_transfer_variable<false>(L, target, -2, recursion_source, recursion_target, recursion_index);
+
+					// copy metatable
+					if (lua_getmetatable(L, -2)) {
+						int new_index = cross_transfer_metatable(L, target, recursion_source, recursion_target, recursion_index);
+						if (new_index != -1) {
+							recursion_index = new_index;
+							lua_setmetatable(T, -2);
+						}
+						
+						lua_pop(L, 1);
+					}
+
+					lua_pushlightuserdata(T, hash);
+					lua_pushvalue(T, -2);
+					lua_rawset(T, LUA_REGISTRYINDEX);
+				}
+
+				lua_pop(L, 1);
+				return recursion_index;
+			} else {
+				lua_pop(L, 1);
+				return -1;
+			}
 		}
 
 	protected:
