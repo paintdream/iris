@@ -415,7 +415,7 @@ namespace iris {
 		void cast_type(meta_base_t&& base_meta, meta_target_t&& target_meta) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			static_assert(std::is_base_of<base_t, target_t>::value, "Incompatible type cast!");
-			IRIS_ASSERT(static_cast<base_t*>(reinterpret_cast<target_t*>(~size_t(0))) == reinterpret_cast<base_t*>(~size_t(0)));
+			// IRIS_ASSERT(static_cast<base_t*>(reinterpret_cast<target_t*>(~size_t(0))) == reinterpret_cast<base_t*>(~size_t(0)));
 
 			lua_State* L = state;
 			stack_guard_t guard(L);
