@@ -511,6 +511,19 @@ namespace iris {
 		}
 	}
 
+	template <typename version_t, typename update_t>
+	bool iris_update_version(std::atomic<version_t>& version, version_t target, update_t&& update) {
+		static_assert(std::is_signed<version_t>::value, "Version type must be signed.");
+		version_t current = version.load(std::memory_order_acquire);
+		do {
+			if (target - current <= 0) {
+				return false; // already updated by a newer routine
+			}
+		} while (!version.compare_exchange_weak(current, target, std::memory_order_release));
+
+		return update([&version, target]() { return version.load(std::memory_order_acquire) == target; });
+	}
+
 	extern IRIS_SHARED_LIBRARY_DECORATOR void* iris_alloc_aligned(size_t size, size_t alignment);
 	extern IRIS_SHARED_LIBRARY_DECORATOR void iris_free_aligned(void* data, size_t size) noexcept;
 

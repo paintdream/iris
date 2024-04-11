@@ -13,6 +13,7 @@ static void garbage_collection();
 static void acquire_release();
 static void graph_dispatch();
 static void graph_dispatch_exception();
+static void update_version();
 
 int main(void) {
 	external_poll();
@@ -24,6 +25,7 @@ int main(void) {
 	acquire_release();
 	graph_dispatch();
 	graph_dispatch_exception();
+	update_version();
 
 	return 0;
 }
@@ -587,4 +589,46 @@ void acquire_release() {
 
 	worker.join();
 	main_warp.join();
+}
+
+void update_version() {
+	static constexpr size_t thread_count = 8;
+	static constexpr int version_count = 12;
+	iris_async_worker_t<> worker(thread_count);
+	std::atomic<int> version;
+	std::mutex mutex;
+	version.store(0, std::memory_order_relaxed);
+	size_t final_version = 0;
+	std::atomic<int> success_count;
+	std::atomic<int> finish_count;
+	success_count.store(0, std::memory_order_relaxed);
+	finish_count.store(0, std::memory_order_relaxed);
+	worker.start();
+
+	for (int i = 0; i < version_count; i++) {
+		worker.queue([i, &version, &mutex, &final_version, &success_count, &finish_count, &worker]() {
+			std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 50));
+			bool success = iris_update_version(version, i + 1, [&mutex, i, &final_version](auto&& cond) {
+				std::lock_guard<std::mutex> guard(mutex);
+				if (cond()) {
+					final_version = i + 1;
+					return true;
+				} else {
+					return false;
+				}
+			});
+
+			if (success) {
+				success_count.fetch_add(1, std::memory_order_relaxed);
+			}
+
+			if (finish_count.fetch_add(1, std::memory_order_relaxed) + 1 == version_count) {
+				worker.terminate();
+			}
+		});
+	}
+
+	worker.join();
+	assert(final_version == version_count);
+	printf("Success of update %d/%d\n", success_count.load(std::memory_order_acquire), version_count);
 }
