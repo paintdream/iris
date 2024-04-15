@@ -4,6 +4,21 @@
 using namespace iris;
 
 int main(void) {
+	int union_set[10];
+	iris_union_set_init(union_set, 0u, sizeof(union_set) / sizeof(union_set[0]));
+	iris_union_set_join(union_set, 3u, 6u);
+	iris_union_set_join(union_set, 6u, 9u);
+	iris_union_set_join(union_set, 2u, 4u);
+	iris_union_set_join(union_set, 8u, 4u);
+	iris_union_set_join(union_set, 7u, 5u);
+	iris_union_set_join(union_set, 1u, 5u);
+
+	assert(iris_union_set_find(union_set, 1u) == iris_union_set_find(union_set, 7u));
+	assert(iris_union_set_find(union_set, 4u) != iris_union_set_find(union_set, 6u));
+	assert(iris_union_set_find(union_set, 2u) == iris_union_set_find(union_set, 8u));
+	assert(iris_union_set_find(union_set, 5u) != iris_union_set_find(union_set, 9u));
+	assert(iris_union_set_find(union_set, 0u) != iris_union_set_find(union_set, 3u));
+
 	iris_bytes_t bytes;
 	iris_buffer_t<uint8_t> buffer;
 	iris_cache_t<uint8_t> cache;

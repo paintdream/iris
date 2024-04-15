@@ -524,6 +524,37 @@ namespace iris {
 		return update([&version, target]() { return version.load(std::memory_order_acquire) == target; });
 	}
 
+	template <typename type_t, typename index_t>
+	void iris_union_set_init(type_t&& vec, index_t from, index_t to) {
+		while (from != to) {
+			vec[from] = from;
+			from++;
+		}
+	}
+
+	template <typename type_t, typename index_t>
+	index_t iris_union_set_find(type_t&& vec, index_t pos) {
+		index_t next = pos;
+		if (next != vec[next]) {
+			do {
+				next = vec[next];
+			} while (next != vec[next]);
+
+			while (pos != next) {
+				index_t i = vec[pos];
+				vec[pos] = next;
+				pos = i;
+			}
+		}
+
+		return next;
+	}
+
+	template <typename type_t, typename index_t>
+	void iris_union_set_join(type_t&& vec, index_t from, index_t to) {
+		vec[iris_union_set_find(vec, to)] = iris_union_set_find(vec, from);
+	}
+
 	extern IRIS_SHARED_LIBRARY_DECORATOR void* iris_alloc_aligned(size_t size, size_t alignment);
 	extern IRIS_SHARED_LIBRARY_DECORATOR void iris_free_aligned(void* data, size_t size) noexcept;
 
