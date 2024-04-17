@@ -422,20 +422,12 @@ namespace iris {
 			IRIS_ASSERT(*base_meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<base_t>()));
 			IRIS_ASSERT(*target_meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<target_t>()));
 
-			lua_rawgeti(L, LUA_REGISTRYINDEX, target_meta.get());
+			push_variable(L, std::forward<meta_target_t>(target_meta));
 			IRIS_ASSERT(lua_type(L, -1) == LUA_TTABLE);
-			lua_rawgeti(L, LUA_REGISTRYINDEX, base_meta.get());
+			push_variable(L, std::forward<meta_base_t>(base_meta));
 			IRIS_ASSERT(lua_type(L, -1) == LUA_TTABLE);
 			lua_setmetatable(L, -2);
 			lua_pop(L, 1);
-
-			if constexpr (std::is_rvalue_reference_v<meta_base_t&&>) {
-				deref(std::move(base_meta));
-			}
-
-			if constexpr (std::is_rvalue_reference_v<meta_target_t&&>) {
-				deref(std::move(target_meta));
-			}
 		}
 
 		template <typename type_t, int user_value_count = 0, typename meta_t, typename... args_t>
@@ -449,13 +441,9 @@ namespace iris {
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
 			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, std::max(sizeof(void*) + 1, sizeof(type_t)), user_value_count));
 			new (p) type_t(std::forward<args_t>(args)...);
-			lua_rawgeti(L, LUA_REGISTRYINDEX, meta.get());
+			push_variable(L, std::forward<meta_t>(meta));
 			lua_setmetatable(L, -2);
 			initialize_object(L, p, lua_absindex(L, -1));
-
-			if constexpr (std::is_rvalue_reference_v<meta_t&&>) {
-				deref(std::move(meta));
-			}
 
 			return refptr_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX), p);
 		}
@@ -473,13 +461,9 @@ namespace iris {
 			type_t** p = reinterpret_cast<type_t**>(lua_newuserdatauv(L, sizeof(type_t*), 0));
 			*p = object;
 
-			lua_rawgeti(L, LUA_REGISTRYINDEX, meta.get());
+			push_variable(L, std::forward<meta_t>(meta));
 			lua_setmetatable(L, -2);
 			initialize_object(L, p, lua_absindex(L, -1));
-
-			if constexpr (std::is_rvalue_reference_v<meta_t&&>) {
-				deref(std::move(meta));
-			}
 
 			return refptr_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX), object);
 		}
@@ -904,6 +888,31 @@ namespace iris {
 			push_arguments(L, std::forward<args_t>(args)...);
 		}
 
+		static int equal_stub(lua_State* L) noexcept {
+			if (lua_rawequal(L, 1, 2)) {
+				lua_pushboolean(L, 1);
+			} else {
+				const void* lhs = nullptr;
+				const void* rhs = nullptr;
+
+				if (lua_rawlen(L, 1) > sizeof(void*)) {
+					lhs = reinterpret_cast<const void*>(lua_touserdata(L, 1));
+				} else {
+					lhs = *reinterpret_cast<const void**>(lua_touserdata(L, 1));
+				}
+
+				if (lua_rawlen(L, 2) > sizeof(void*)) {
+					rhs = reinterpret_cast<const void*>(lua_touserdata(L, 2));
+				} else {
+					rhs = *reinterpret_cast<const void**>(lua_touserdata(L, 2));
+				}
+
+				lua_pushboolean(L, lhs == rhs ? 1 : 0);
+			}
+			
+			return 1;
+		}
+
 		// copy constructor stub
 		template <typename type_t, int user_value_count>
 		static void copy_construct_stub(lua_State* L, const void* prototype) {
@@ -1101,6 +1110,10 @@ namespace iris {
 			// hash code is to check types when passing as a argument to C++
 			push_variable(L, "__hash");
 			push_variable(L, reinterpret_cast<void*>(get_hash<type_t>()));
+			lua_rawset(L, -3);
+
+			push_variable(L, "__eq");
+			push_variable(L, &equal_stub);
 			lua_rawset(L, -3);
 
 			// copy constructor

@@ -325,6 +325,7 @@ int main(void) {
 	target.call<void>(target.load("\n\
 function test(a, b, c) \n\
 	b:base_func() \n\
+	print('equal value ======== ' .. tostring(b == c)) \n\
 	print('base value ======== ' .. tostring(b:base_value())) \n\
 	print('cross ' .. tostring(a)) \n\
 	print('cross value ' .. b:value()) \n\
