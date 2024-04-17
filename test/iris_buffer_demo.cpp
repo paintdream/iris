@@ -5,7 +5,7 @@ using namespace iris;
 
 int main(void) {
 	int union_set[10];
-	iris_union_set_init(union_set, 0u, sizeof(union_set) / sizeof(union_set[0]));
+	iris_union_set_init(union_set, (int)0u, (int)(sizeof(union_set) / sizeof(union_set[0])));
 	iris_union_set_join(union_set, 3u, 6u);
 	iris_union_set_join(union_set, 6u, 9u);
 	iris_union_set_join(union_set, 2u, 4u);
