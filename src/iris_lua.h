@@ -239,6 +239,36 @@ namespace iris {
 				return len;
 			}
 
+			const void* get_hash(iris_lua_t lua) {
+				return get<const void*>(lua, "__hash").value_or(nullptr);
+			}
+
+			ref_t& make_registry(iris_lua_t lua, bool enable = true) & {
+				const void* hash = get_hash(lua);
+				if (hash != nullptr) {
+					if (enable) {
+						lua.set_registry(hash, *this);
+					} else {
+						lua.set_registry(hash, nullptr);
+					}
+				}
+
+				return *this;
+			}
+
+			ref_t&& make_registry(iris_lua_t lua, bool enable = true) && {
+				const void* hash = get_hash(lua);
+				if (hash != nullptr) {
+					if (enable) {
+						lua.set_registry(hash, *this);
+					} else {
+						lua.set_registry(hash, nullptr);
+					}
+				}
+
+				return std::move(*this);
+			}
+
 			friend struct iris_lua_t;
 
 		private:
@@ -430,6 +460,11 @@ namespace iris {
 			lua_pop(L, 1);
 		}
 
+		template <typename type_t, int user_value_count = 0, typename... args_t>
+		refptr_t<type_t> make_registry_object(args_t&&... args) {
+			return make_object<type_t, user_value_count>(get_registry<ref_t>(reinterpret_cast<const void*>(get_hash<type_t>())), std::forward<args_t>(args)...);
+		}
+
 		template <typename type_t, int user_value_count = 0, typename meta_t, typename... args_t>
 		refptr_t<type_t> make_object(meta_t&& meta, args_t&&... args) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
@@ -446,6 +481,11 @@ namespace iris {
 			initialize_object(L, p, lua_absindex(L, -1));
 
 			return refptr_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX), p);
+		}
+
+		template <typename type_t>
+		refptr_t<type_t> make_registry_object_view(type_t* object) {
+			return make_object_view<type_t>(get_registry<ref_t>(reinterpret_cast<const void*>(get_hash<type_t>())), object);
 		}
 
 		template <typename type_t, typename meta_t, typename... args_t>

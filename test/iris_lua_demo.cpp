@@ -262,7 +262,7 @@ int main(void) {
 	luaL_openlibs(L);
 
 	lua_t lua(L);
-	auto example_type = lua.make_type<example_t>("example_t");
+	auto example_type = lua.make_type<example_t>("example_t").make_registry(lua);
 	auto example_base_type = lua.make_type<example_base_t>("example_base_t");
 	lua.cast_type<example_base_t, example_t>(std::move(example_base_type), example_type);
 	lua.set_global("example_t", std::move(example_type));
@@ -344,19 +344,19 @@ end\n\
 	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test");
 	example_t existing_object;
 	existing_object.value = 2222;
-	auto temp_type = target.make_type<example_t>("example_temp_t");
+	auto temp_type = target.make_type<example_t>("example_temp_t").make_registry(target);
 	{
 		auto example_base_type = target.make_type<example_base_t>("example_base_t");
 		target.cast_type<example_base_t, example_t>(std::move(example_base_type), temp_type);
 	}
 
-	target.call<void>(test, "existing", target.make_object_view<example_t>(temp_type, &existing_object), target.make_object_view<example_t>(temp_type, &existing_object));
+	target.call<void>(test, "existing", target.make_registry_object_view<example_t>(&existing_object), target.make_object_view<example_t>(temp_type, &existing_object));
 	target.deref(std::move(temp_type));
 	IRIS_ASSERT(existing_object.value == 3333);
 	existing_object.value = 2222;
 
 	lua.native_push_variable(1234);
-	lua.native_push_variable(lua.make_object<example_t>(lua.get_global<lua_t::ref_t>("example_t")));
+	lua.native_push_variable(lua.make_registry_object<example_t>());
 	lua.native_push_variable(lua.make_object_view<example_t>(lua.make_type<example_t>("example_duplicate_view_t"), &existing_object));
 	lua.native_cross_transfer_variable<true>(target, -3);
 	lua.native_cross_transfer_variable<true>(target, -2);
