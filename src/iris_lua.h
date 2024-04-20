@@ -239,12 +239,27 @@ namespace iris {
 				return len;
 			}
 
-			const void* get_hash(iris_lua_t lua) {
-				return get<const void*>(lua, "__hash").value_or(nullptr);
+			friend struct iris_lua_t;
+
+		private:
+			int value;
+		};
+
+		template <typename subtype_t>
+		struct reftype_t : ref_t {
+			using type_t = subtype_t;
+			reftype_t(int v = LUA_REFNIL) noexcept : ref_t(v) {}
+			reftype_t(reftype_t&& rhs) noexcept : ref_t(std::move(static_cast<ref_t&>(rhs))) {}
+			reftype_t(const reftype_t& rhs) = delete;
+			reftype_t& operator = (const reftype_t& rhs) = delete;
+			reftype_t& operator = (reftype_t&& rhs) noexcept { ref_t::operator = (std::move(static_cast<ref_t&>(rhs))); }
+
+			const void* get_type_hash() noexcept {
+				return reinterpret_cast<const void*>(get_hash<type_t>());
 			}
 
-			ref_t& make_registry(iris_lua_t lua, bool enable = true) & {
-				const void* hash = get_hash(lua);
+			reftype_t& make_registry(iris_lua_t lua, bool enable = true) & {
+				const void* hash = get_type_hash();
 				if (hash != nullptr) {
 					if (enable) {
 						lua.set_registry(hash, *this);
@@ -256,8 +271,8 @@ namespace iris {
 				return *this;
 			}
 
-			ref_t&& make_registry(iris_lua_t lua, bool enable = true) && {
-				const void* hash = get_hash(lua);
+			reftype_t&& make_registry(iris_lua_t lua, bool enable = true) && {
+				const void* hash = get_type_hash();
 				if (hash != nullptr) {
 					if (enable) {
 						lua.set_registry(hash, *this);
@@ -268,11 +283,6 @@ namespace iris {
 
 				return std::move(*this);
 			}
-
-			friend struct iris_lua_t;
-
-		private:
-			int value;
 		};
 
 		template <typename type_t>
@@ -410,7 +420,7 @@ namespace iris {
 
 		// register a new type, taking registar from &type_t::lua_registar by default, and you could also specify your own registar.
 		template <typename type_t, int user_value_count = 0, auto registar = has_lua_registar<type_t>::get_registar(), typename... args_t>
-		ref_t make_type(std::string_view name, args_t&&... args) {
+		reftype_t<type_t> make_type(std::string_view name, args_t&&... args) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = write_fence();
 
@@ -438,19 +448,17 @@ namespace iris {
 
 			// call custom registar if needed
 			registar(iris_lua_t(L));
-			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
+			return reftype_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
-		template <typename base_t, typename target_t, typename meta_base_t, typename meta_target_t>
+		template <typename meta_base_t, typename meta_target_t>
 		void cast_type(meta_base_t&& base_meta, meta_target_t&& target_meta) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
-			static_assert(std::is_base_of<base_t, target_t>::value, "Incompatible type cast!");
-			// IRIS_ASSERT(static_cast<base_t*>(reinterpret_cast<target_t*>(~size_t(0))) == reinterpret_cast<base_t*>(~size_t(0)));
+			static_assert(std::is_base_of<typename std::remove_reference_t<meta_base_t>::type_t, typename std::remove_reference_t<meta_target_t>::type_t>::value, "Incompatible type cast!");
+			// IRIS_ASSERT(static_cast<typename std::remove_reference_t<meta_base_t>::type_t*>(reinterpret_cast<typename std::remove_reference_t<meta_target_t>::type_t*>(~size_t(0))) == reinterpret_cast<typename std::remove_reference_t<meta_base_t>::type_t*>(~size_t(0)));
 
 			lua_State* L = state;
 			stack_guard_t guard(L);
-			IRIS_ASSERT(*base_meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<base_t>()));
-			IRIS_ASSERT(*target_meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<target_t>()));
 
 			push_variable(L, std::forward<meta_target_t>(target_meta));
 			IRIS_ASSERT(lua_type(L, -1) == LUA_TTABLE);

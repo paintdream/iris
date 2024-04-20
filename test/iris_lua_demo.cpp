@@ -264,7 +264,7 @@ int main(void) {
 	lua_t lua(L);
 	auto example_type = lua.make_type<example_t>("example_t").make_registry(lua);
 	auto example_base_type = lua.make_type<example_base_t>("example_base_t");
-	lua.cast_type<example_base_t, example_t>(std::move(example_base_type), example_type);
+	lua.cast_type(std::move(example_base_type), example_type);
 	lua.set_global("example_t", std::move(example_type));
 	int capture = 2;
 
@@ -347,7 +347,7 @@ end\n\
 	auto temp_type = target.make_type<example_t>("example_temp_t").make_registry(target);
 	{
 		auto example_base_type = target.make_type<example_base_t>("example_base_t");
-		target.cast_type<example_base_t, example_t>(std::move(example_base_type), temp_type);
+		target.cast_type(std::move(example_base_type), temp_type);
 	}
 
 	target.call<void>(test, "existing", target.make_registry_object_view<example_t>(&existing_object), target.make_object_view<example_t>(temp_type, &existing_object));
