@@ -1509,7 +1509,7 @@ namespace iris {
 				// save current thread to registry in case of gc
 				lua_pushlightuserdata(L, address);
 				lua_pushthread(L);
-				lua_settable(L, LUA_REGISTRYINDEX);
+				lua_rawset(L, LUA_REGISTRYINDEX);
 
 				int top = lua_gettop(L);
 				if constexpr (!std::is_void_v<return_t>) {
@@ -1564,7 +1564,7 @@ namespace iris {
 			// clear thread reference to allow gc collecting
 			lua_pushlightuserdata(L, address);
 			lua_pushnil(L);
-			lua_settable(L, LUA_REGISTRYINDEX);
+			lua_rawset(L, LUA_REGISTRYINDEX);
 		}
 
 		template <typename function_t, typename coroutine_t, typename... args_t>
