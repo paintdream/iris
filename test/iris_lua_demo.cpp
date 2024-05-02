@@ -316,7 +316,7 @@ int main(void) {
 	warpptr = &warp;
 	warpptr2 = &warp2;
 	worker.start();
-	warp.preempt();
+	warp_t::preempt_guard_t preempt_guard(warp, 0);
 #endif
 
 	lua_State* T = luaL_newstate();
@@ -497,8 +497,8 @@ end\n\
 	worker.join();
 	warp.join();
 	warp2.join();
+	preempt_guard.cleanup();
 #endif
-
 	lua_close(L);
 	return 0;
 }

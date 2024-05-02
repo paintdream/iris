@@ -166,7 +166,7 @@ static coroutine_t example_quota(quota_queue_t& q) {
 }
 
 int main(void) {
-	static constexpr size_t thread_count = 0;
+	static constexpr size_t thread_count = 8;
 	static constexpr size_t warp_count = 16;
 	iris_async_worker_t<> worker(thread_count);
 	worker.append(std::thread());
@@ -227,6 +227,7 @@ int main(void) {
 		example(worker, nullptr, nullptr, 6).run();
 	});
 
+	worker.thread_loop(0);
 	worker.join();
 
 	// finished!

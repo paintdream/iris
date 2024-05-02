@@ -102,7 +102,7 @@ void stack_op() {
 		warps[i].queue_routine_external([&, i]() {
 			for (size_t k = 0; k < warp_count; k++) {
 				IRIS_ASSERT(i == warp_t::get_current_warp() - &warps[0]);
-				warp_t::preempt_guard_t<true> guard(warps[k]);
+				warp_t::preempt_guard_t guard(warps[k], 0);
 				printf("take warp %d based on %d %s\n", int(k), int(i), guard ? "success!" : "failed!");
 			}
 
@@ -264,13 +264,17 @@ void simple_explosion(void) {
 			// read-write lock example: multiple reading blocks writing
 			std::shared_ptr<std::atomic<int32_t>> shared_value = std::make_shared<std::atomic<int32_t>>(-0x7fffffff);
 			for (size_t i = 0; i < parallel_count; i++) {
-				current_warp.queue_routine_parallel([shared_value, warp_index, &warp_data, &fences, &warps]() {
+				current_warp.queue_routine_parallel_post([shared_value, warp_index, &warp_data, &fences, &warps]() {
 					auto read_guard = fences[warp_index].read_fence();
 					// only read operations
 					std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 40));
 					int32_t v = shared_value->exchange(warp_data[warp_index], std::memory_order_release);
 					IRIS_ASSERT(v == warp_data[warp_index] || v == -0x7fffffff);
-				}, 1);
+				});
+
+				if (i == parallel_count / 2) {
+					current_warp.yield();
+				}
 			}
 		}
 	};

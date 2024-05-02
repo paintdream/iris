@@ -171,7 +171,7 @@ namespace iris {
 
 		// constructed from a given target warp and routine function
 		// notice that we do not initialize `caller` here, let `await_suspend` do
-		// parallel_priority: ~(size_t)0 means no parallization, other value indicates the dispatch priority of parallel routines
+		// parallel_priority: ~size_t(0) means no parallization, other value indicates the dispatch priority of parallel routines
 		template <typename callable_t>
 		iris_awaitable_t(warp_t* target_warp, callable_t&& f, size_t p) noexcept : target(target_warp), parallel_priority(p), func(std::forward<callable_t>(f)) {
 			IRIS_ASSERT(target_warp != nullptr || parallel_priority == ~size_t(0));
@@ -476,9 +476,12 @@ namespace iris {
 	template <typename warp_t>
 	struct iris_switch_t {
 		using async_worker_t = typename warp_t::async_worker_t;
-		iris_switch_t(warp_t* target_warp, warp_t* other_warp) noexcept : source(warp_t::get_current_warp()), target(target_warp), other(other_warp) {}
+		iris_switch_t(warp_t* target_warp, warp_t* other_warp, bool parallel_target_warp, bool parallel_other_warp) noexcept : source(warp_t::get_current_warp()), target(target_warp), other(other_warp), parallel_target(parallel_target_warp), parallel_other(parallel_other_warp) {}
 
 		bool await_ready() const noexcept {
+			if (parallel_target || parallel_other)
+				return false;
+
 			if (source == target) {
 				return other == nullptr || source == other;
 			} else {
@@ -490,20 +493,36 @@ namespace iris {
 			// 1-1 mapping, just resume directly
 			if (other == nullptr) {
 				handle.resume();
+				return;
+			} else if (parallel_other) {
+				other->suspend();
+				typename warp_t::suspend_guard_t guard(other);
+				if (!other->running()) {
+					handle.resume();
+					return;
+				}
 			} else {
 				// try to preempt the other one
-				typename warp_t::template preempt_guard_t<false> guard(*other);
+				typename warp_t::preempt_guard_t guard(*other, 0);
 				if (guard) {
 					// success, go resume directly
 					handle.resume();
-				} else {
-					// preempt failed, swap and continue dispatching until success!
-					std::swap(other, target);
-
-					target->queue_routine_post([this, handle = std::move(handle)]() mutable noexcept(noexcept(handle.resume())) {
-						handler(std::move(handle));
-					});
+					return;
 				}
+			}
+
+			// failed, swap and continue dispatching until success!
+			std::swap(other, target);
+			std::swap(parallel_other, parallel_target);
+
+			if (parallel_target) {
+				target->queue_routine_parallel_post([this, handle = std::move(handle)]() mutable noexcept(noexcept(handle.resume())) {
+					handler(std::move(handle));
+				});
+			} else {
+				target->queue_routine_post([this, handle = std::move(handle)]() mutable noexcept(noexcept(handle.resume())) {
+					handler(std::move(handle));
+				});
 			}
 		}
 
@@ -521,9 +540,15 @@ namespace iris {
 			} else {
 				// dispatching under warp context
 				if (target->get_async_worker().get_current_thread_index() != ~size_t(0)) {
-					target->queue_routine_post([this, handle = std::move(handle)]() mutable {
-						handler(std::move(handle));
-					});
+					if (parallel_target) {
+						target->queue_routine_parallel([this, handle = std::move(handle)]() mutable {
+							handler(std::move(handle));
+						});
+					} else {
+						target->queue_routine_post([this, handle = std::move(handle)]() mutable {
+							handler(std::move(handle));
+						});
+					}
 				} else {
 					target->queue_routine_external([this, handle = std::move(handle)]() mutable {
 						handler(std::move(handle));
@@ -541,11 +566,13 @@ namespace iris {
 		warp_t* source;
 		warp_t* target;
 		warp_t* other;
+		bool parallel_target;
+		bool parallel_other;
 	};
 
 	template <typename warp_t>
-	auto iris_switch(warp_t* target, warp_t* other = nullptr) noexcept {
-		return iris_switch_t<warp_t>(target, other);
+	auto iris_switch(warp_t* target, warp_t* other = nullptr, bool parallel_target = false, bool parallel_other = false) noexcept {
+		return iris_switch_t<warp_t>(target, other, parallel_target, parallel_other);
 	}
 
 	// switch to any warp from specified range [from, to] 
@@ -567,7 +594,7 @@ namespace iris {
 			// try fast preempt
 			for (iterator_t p = begin; p != end; ++p) {
 				warp_t* target = &(*p);
-				typename warp_t::template preempt_guard_t<false> guard(*target);
+				typename warp_t::template preempt_guard_t guard(*target, 0);
 				if (guard) {
 					selected = target;
 					handle.resume();
