@@ -195,6 +195,13 @@ namespace iris {
 			entities.pop();
 		}
 
+		void clear() {
+			auto guard = write_fence();
+			clear_components(placeholder<components_t...>());
+			entities.clear();
+			entity_components.clear();
+		}
+
 		// iterate components
 		template <typename... for_components_t, typename operation_t>
 		void for_each(operation_t&& op) {
@@ -306,6 +313,14 @@ namespace iris {
 
 		void pop_components(placeholder<>) noexcept {}
 
+		template <typename first_t, typename... elements_t>
+		void clear_components(placeholder<first_t, elements_t...>) noexcept {
+			std::get<sizeof...(elements_t)>(components).clear();
+			clear_components(placeholder<elements_t...>());
+		}
+
+		void clear_components(placeholder<>) noexcept {}
+
 	protected:
 		std::tuple<iris_queue_list_t<components_t, allocator_t>...> components;
 		std::vector<iris_key_value_t<entity_t, index_t>> entity_components;
@@ -356,6 +371,7 @@ namespace iris {
 		struct system_info_t {
 			void* address = nullptr;
 			void (*remove)(void*, entity_t) = nullptr;
+			void (*clear)(void*) = nullptr;
 			std::vector<iris_key_value_t<size_t, void*>> components;
 		};
 
@@ -365,6 +381,7 @@ namespace iris {
 			system_info_t info;
 			info.address = &sys;
 			info.remove = &remove_handler<system_t>;
+			info.clear = &clear_handler<system_t>;
 			info.components = generate_info(info, sys, iris_make_sequence<std::tuple_size<typename system_t::components_tuple_t>::value>());
 			std::sort(info.components.begin(), info.components.end());
 
@@ -390,8 +407,16 @@ namespace iris {
 			}
 		}
 
-		void clear() {
+		void reset() {
 			system_infos.clear();
+		}
+
+		void clear() {
+			auto guard = write_fence();
+			for (size_t i = 0; i < system_infos.size(); i++) {
+				auto& system_info = system_infos[i];
+				system_info.clear(system_info.address);
+			}
 		}
 
 		template <typename... for_components_t, typename operation_t>
@@ -434,6 +459,11 @@ namespace iris {
 		template <typename system_t>
 		static void remove_handler(void* address, entity_t entity) {
 			(reinterpret_cast<system_t*>(address))->remove(entity);
+		}
+
+		template <typename system_t>
+		static void clear_handler(void* address) {
+			(reinterpret_cast<system_t*>(address))->clear();
 		}
 
 		template <typename system_t, size_t... i>

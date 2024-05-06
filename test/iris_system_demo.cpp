@@ -156,7 +156,10 @@ int main(void) {
 		assert(false); // already removed
 	});
 
+	re_system.clear();
+	systems.clear();
 	systems.detach(re_system);
+
 	return 0;
 }
 
