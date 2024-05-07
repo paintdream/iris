@@ -272,7 +272,6 @@ namespace iris {
 			thread_warp.store(nullptr, std::memory_order_relaxed);
 			parallel_task_head.store(nullptr, std::memory_order_relaxed);
 			suspend_count.store(0, std::memory_order_relaxed);
-			interrupting.store(0, std::memory_order_relaxed);
 			queueing.store(queue_state_idle, std::memory_order_release);
 		}
 
@@ -280,14 +279,12 @@ namespace iris {
 			thread_warp.store(rhs.thread_warp.load(std::memory_order_relaxed), std::memory_order_relaxed);
 			parallel_task_head.store(rhs.parallel_task_head.load(std::memory_order_relaxed), std::memory_order_relaxed);
 			suspend_count.store(rhs.suspend_count.load(std::memory_order_relaxed), std::memory_order_relaxed);
-			interrupting.store(rhs.interrupting.load(std::memory_order_relaxed), std::memory_order_relaxed);
 			queueing.store(rhs.queueing.load(std::memory_order_relaxed), std::memory_order_relaxed);
 
 			rhs.stack_next_warp = nullptr;
 			rhs.thread_warp.store(nullptr, std::memory_order_relaxed);
 			rhs.parallel_task_head.store(nullptr, std::memory_order_relaxed);
 			rhs.suspend_count.store(0, std::memory_order_relaxed);
-			rhs.interrupting.store(0, std::memory_order_relaxed);
 			rhs.queueing.store(queue_state_idle, std::memory_order_release);
 		}
 
@@ -304,11 +301,6 @@ namespace iris {
 		// get stack warp pointer
 		iris_warp_t* get_stack_next() const noexcept {
 			return stack_next_warp;
-		}
-
-		// interrupt warp on running
-		bool interrupt() noexcept {
-			return interrupting.exchange(1, std::memory_order_relaxed) == 0;
 		}
 
 		// check if running, the result is meaningless for most calls in multithreaded context
@@ -557,7 +549,7 @@ namespace iris {
 			IRIS_ASSERT(*warp_ptr == this);
 			queue_buffer_t& buffer = storage.queue_buffer;
 
-			// execute tasks in queue_buffer until suspended or interruption occurred
+			// execute tasks in queue_buffer until suspended
 			size_t execute_counter;
 
 			do {
@@ -570,12 +562,7 @@ namespace iris {
 					execute_counter++;
 
 					if ((!force && suspend_count.load(std::memory_order_relaxed) != 0) || *warp_ptr != this)
-						break;
-
-					if (interrupting.load(std::memory_order_relaxed) != 0) {
-						interrupting.store(0, std::memory_order_release);
-						break;
-					}
+						return;
 				}
 			} while (execute_counter != 0);
 		}
@@ -590,7 +577,7 @@ namespace iris {
 			iris_warp_t** warp_ptr = &get_current_warp_internal();
 			IRIS_ASSERT(*warp_ptr == this);
 
-			// execute tasks in queue_buffer until suspended or interruption occurred
+			// execute tasks in queue_buffer until suspended 
 			std::vector<queue_buffer_t>& queue_buffers = storage.queue_buffers;
 			std::vector<size_t>& queue_versions = storage.queue_versions;
 			size_t& current_version = storage.current_version;
@@ -615,11 +602,6 @@ namespace iris {
 
 						if ((!force && suspend_count.load(std::memory_order_relaxed) != 0) || *warp_ptr != this)
 							return;
-
-						if (interrupting.load(std::memory_order_relaxed) != 0) {
-							interrupting.store(0, std::memory_order_release);
-							return;
-						}
 					}
 
 					if (current_version + 1 == counter) {
@@ -665,7 +647,7 @@ namespace iris {
 		}
 
 		void execute_parallel() {
-			if (parallel_task_head.load(std::memory_order_acquire) != nullptr) {
+			while (parallel_task_head.load(std::memory_order_acquire) != nullptr) {
 				task_t* task = parallel_task_head.exchange(nullptr, std::memory_order_acquire);
 				if (task != nullptr) {
 					IRIS_ASSERT(is_suspended());
