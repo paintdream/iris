@@ -245,9 +245,7 @@ if (rand() % parallel_factor == 0) {
 }
 ```
 
-The function **queue_routine_parallel** invokes a special parallelized task on current_warp, which can be run at the same time. As one parallelized task running, other normal tasks on current_warp remains to be **blocked**. After all parallelized task finishes, the normal tasks can resume to be scheduled.
-
-After calling queue_routine_parallel, the caller task will also be downgraded to parallelized task. 
+The function **queue_routine_parallel** invokes a special parallelized task on current_warp, which can be run at the same time. As one parallelized task running, other normal tasks on current_warp remains to be **blocked**. After all parallelized task finishes, the normal tasks then could to be scheduled.
 
 **Parallelized tasks to normal tasks is what read locks to write locks**. It's an advanced feature and you must be careful when use them.
 
