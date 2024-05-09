@@ -47,7 +47,7 @@ struct engine_t {
 
 			co_await sync_event;
 			printf("coroutine async after event\n");
-			assert(warp_t::get_current_warp() != nullptr);
+			IRIS_ASSERT(warp_t::get_current_warp() != nullptr);
 
 			co_await iris_switch(&warp_script);
 			printf("coroutine async script ticks\n");

@@ -633,6 +633,6 @@ void update_version() {
 	}
 
 	worker.join();
-	assert(final_version == version_count);
+	IRIS_ASSERT(final_version == version_count);
 	printf("Success of update %d/%d\n", success_count.load(std::memory_order_acquire), version_count);
 }

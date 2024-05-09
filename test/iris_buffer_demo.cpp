@@ -13,11 +13,11 @@ int main(void) {
 	iris_union_set_join(union_set, 7u, 5u);
 	iris_union_set_join(union_set, 1u, 5u);
 
-	assert(iris_union_set_find(union_set, 1u) == iris_union_set_find(union_set, 7u));
-	assert(iris_union_set_find(union_set, 4u) != iris_union_set_find(union_set, 6u));
-	assert(iris_union_set_find(union_set, 2u) == iris_union_set_find(union_set, 8u));
-	assert(iris_union_set_find(union_set, 5u) != iris_union_set_find(union_set, 9u));
-	assert(iris_union_set_find(union_set, 0u) != iris_union_set_find(union_set, 3u));
+	IRIS_ASSERT(iris_union_set_find(union_set, 1u) == iris_union_set_find(union_set, 7u));
+	IRIS_ASSERT(iris_union_set_find(union_set, 4u) != iris_union_set_find(union_set, 6u));
+	IRIS_ASSERT(iris_union_set_find(union_set, 2u) == iris_union_set_find(union_set, 8u));
+	IRIS_ASSERT(iris_union_set_find(union_set, 5u) != iris_union_set_find(union_set, 9u));
+	IRIS_ASSERT(iris_union_set_find(union_set, 0u) != iris_union_set_find(union_set, 3u));
 
 	iris_bytes_t bytes;
 	iris_buffer_t<uint8_t> buffer;

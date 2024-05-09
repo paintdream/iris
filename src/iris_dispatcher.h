@@ -5,7 +5,7 @@ This software is a C++ 11 Header-Only reimplementation of core part from project
 
 The MIT License (MIT)
 
-Copyright (c) 2014-2023 PaintDream
+Copyright (c) 2014-2024 PaintDream
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -295,7 +295,7 @@ namespace iris {
 			// execute remaining tasks on destruction
 			while (!join<true, true>()) {}
 
-			assert(parallel_task_head.load(std::memory_order_relaxed) == nullptr);
+			IRIS_ASSERT(parallel_task_head.load(std::memory_order_relaxed) == nullptr);
 		}
 
 		// get stack warp pointer
@@ -706,7 +706,6 @@ namespace iris {
 		async_worker_t& async_worker; // host async worker
 		std::atomic<iris_warp_t**> thread_warp; // save the running thread warp address.
 		std::atomic<size_t> suspend_count; // current suspend count
-		std::atomic<size_t> interrupting; // is interrupting by external request?
 		std::atomic<size_t> queueing; // is flush request sent to async_worker? 0 : not yet, 1 : yes, 2 : is to flush right away.
 		std::atomic<task_t*> parallel_task_head; // linked-list for pending parallel tasks
 		impl::storage_t<queue_buffer_t, strand> storage; // task storage
@@ -1176,7 +1175,7 @@ namespace iris {
 		}
 
 		void queue_task(task_t* task, size_t priority = 0) {
-			assert(task != nullptr && task->next == nullptr);
+			IRIS_ASSERT(task != nullptr && task->next == nullptr);
 			if (!is_terminated()) {
 				IRIS_ASSERT(!threads.empty());
 				priority = std::min(priority, std::max(internal_thread_count, (size_t)1) - 1u);

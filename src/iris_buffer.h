@@ -5,7 +5,7 @@ This software is a C++ 11 Header-Only reimplementation of core part from project
 
 The MIT License (MIT)
 
-copyright (c) 2014-2023 PaintDream
+copyright (c) 2014-2024 PaintDream
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

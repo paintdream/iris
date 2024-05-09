@@ -108,7 +108,7 @@ int main(void) {
 
 	matrix_system.for_each<entity_t, iris_component_matrix_t>([](entity_t entity, iris_component_matrix_t& matrix) {
 		// initialize with identity matrix
-		assert(matrix.values[0][0] == 1);
+		IRIS_ASSERT(matrix.values[0][0] == 1);
 	});
 
 	matrix_system.for_entity<iris_component_matrix_t>(0, [](iris_component_matrix_t& matrix) {
@@ -130,7 +130,7 @@ int main(void) {
 
 	systems.for_each_batch<iris_component_matrix_t>(4, [](size_t count, iris_queue_list_t<iris_component_matrix_t, block_allocator_t>::iterator it) {
 		while (count-- != 0) {
-			assert(it->values[3][3] == 2);
+			IRIS_ASSERT(it->values[3][3] == 2);
 			it++;
 		}
 	});
@@ -139,21 +139,21 @@ int main(void) {
 	systems.for_each<entity_t, uint8_t>([&counter](entity_t e, uint8_t& i) {
 		counter--;
 	});
-	assert(counter == 5);
+	IRIS_ASSERT(counter == 5);
 	systems.attach(other_system);
 
 	systems.for_each<float>([&counter](float& i) {
 		counter--;
 	});
 
-	assert(counter == 0);
+	IRIS_ASSERT(counter == 0);
 	
 	iris_system_t<entity_t, block_allocator_t, uint8_t> re_system;
 	systems.attach(re_system);
 	re_system.insert(0, 1u);
 	systems.remove(0);
 	re_system.for_each<entity_t>([](entity_t entity) {
-		assert(false); // already removed
+		IRIS_ASSERT(false); // already removed
 	});
 
 	re_system.clear();

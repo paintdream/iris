@@ -5,7 +5,7 @@ This software is a C++ 17 Header-Only reimplementation of core part from project
 
 The MIT License (MIT)
 
-Copyright (c) 2014-2023 PaintDream
+Copyright (c) 2014-2024 PaintDream
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -499,7 +499,7 @@ namespace iris {
 		template <typename type_t, typename meta_t, typename... args_t>
 		refptr_t<type_t> make_object_view(meta_t&& meta, type_t* object) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
-			assert(object != nullptr);
+			IRIS_ASSERT(object != nullptr);
 
 			lua_State* L = state;
 			stack_guard_t guard(L);
@@ -913,7 +913,7 @@ namespace iris {
 		static return_t method_functor_adapter(iris_lua_t lua, std::remove_reference_t<args_t>&&... args) {
 			lua_State* L = lua.get_state();
 			type_t* ptr = reinterpret_cast<type_t*>(lua_touserdata(L, lua_upvalueindex(1)));
-			assert(ptr != nullptr);
+			IRIS_ASSERT(ptr != nullptr);
 
 			if constexpr (!std::is_void_v<return_t>) {
 				return (ptr->*method)(std::move(args)...);
