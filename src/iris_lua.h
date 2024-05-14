@@ -79,8 +79,11 @@ namespace iris {
 		}
 
 		iris_lua_t& operator = (iris_lua_t&& rhs) noexcept {
-			state = rhs.state;
-			rhs.state = nullptr;
+			if (this != &rhs) {
+				state = rhs.state;
+				rhs.state = nullptr;
+			}
+
 			return *this;
 		}
 
@@ -99,7 +102,7 @@ namespace iris {
 		}
 
 		template <typename... args_t>
-		void log_error(const char* format, args_t&&... args) {
+		void log_error(const char* format, args_t&&... args) const {
 			iris_lua_t::log_error(state, format, std::forward<args_t>(args)...);
 		}
 
@@ -127,7 +130,14 @@ namespace iris {
 			ref_t(ref_t&& rhs) noexcept : value(rhs.value) { rhs.value = LUA_REFNIL; }
 			ref_t(const ref_t& rhs) = delete;
 			ref_t& operator = (const ref_t& rhs) = delete;
-			ref_t& operator = (ref_t&& rhs) noexcept { IRIS_ASSERT(value == LUA_REFNIL); std::swap(rhs.value, value); return *this; }
+			ref_t& operator = (ref_t&& rhs) noexcept {
+				if (this != &rhs) {
+					IRIS_ASSERT(value == LUA_REFNIL);
+					std::swap(rhs.value, value);
+				}
+				
+				return *this;
+			}
 
 			using internal_type_t = void;
 
@@ -252,7 +262,13 @@ namespace iris {
 			reftype_t(reftype_t&& rhs) noexcept : ref_t(std::move(static_cast<ref_t&>(rhs))) {}
 			reftype_t(const reftype_t& rhs) = delete;
 			reftype_t& operator = (const reftype_t& rhs) = delete;
-			reftype_t& operator = (reftype_t&& rhs) noexcept { ref_t::operator = (std::move(static_cast<ref_t&>(rhs))); }
+			reftype_t& operator = (reftype_t&& rhs) noexcept {
+				if (this != &rhs) {
+					ref_t::operator = (std::move(static_cast<ref_t&>(rhs)));
+				}
+
+				return *this;
+			}
 
 			const void* get_type_hash() noexcept {
 				return reinterpret_cast<const void*>(get_hash<type_t>());
@@ -291,7 +307,14 @@ namespace iris {
 			refptr_t(refptr_t&& rhs) noexcept : ref_t(std::move(static_cast<ref_t&>(rhs))), ptr(rhs.ptr) {}
 			refptr_t(const refptr_t& rhs) = delete;
 			refptr_t& operator = (const refptr_t& rhs) = delete;
-			refptr_t& operator = (refptr_t&& rhs) noexcept { ref_t::operator = (std::move(static_cast<ref_t&>(rhs))); std::swap(ptr, rhs.ptr); return *this; }
+			refptr_t& operator = (refptr_t&& rhs) noexcept {
+				if (this != &rhs) {
+					ref_t::operator = (std::move(static_cast<ref_t&>(rhs)));
+					std::swap(ptr, rhs.ptr);
+				}
+
+				return *this;
+			}
 
 			using internal_type_t = type_t*;
 

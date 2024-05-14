@@ -131,7 +131,10 @@ namespace iris {
 		}
 
 		iris_buffer_t& operator = (const iris_buffer_t& rhs) noexcept(noexcept(std::declval<iris_buffer_t>().copy(rhs))) {
-			copy(rhs);
+			if (this != &rhs) {
+				copy(rhs);
+			}
+
 			return *this;
 		}
 

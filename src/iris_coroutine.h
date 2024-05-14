@@ -92,8 +92,11 @@ namespace iris {
 
 		iris_coroutine_t& operator = (const iris_coroutine_t& rhs) = delete;
 		iris_coroutine_t& operator = (iris_coroutine_t&& rhs) noexcept {
-			std::swap(handle, rhs.handle);
-			rhs.handle = std::coroutine_handle<promise_type>();
+			if (this != &rhs) {
+				std::swap(handle, rhs.handle);
+				rhs.handle = std::coroutine_handle<promise_type>();
+			}
+
 			return *this;
 		}
 
@@ -340,9 +343,12 @@ namespace iris {
 		// atomic variables are not movable.
 		iris_awaitable_multiple_t(iris_awaitable_multiple_t&& rhs) noexcept : caller(rhs.caller), async_worker(rhs.async_worker), awaitables(std::move(rhs.awaitables)), returns(rhs.returns) {}
 
-		iris_awaitable_multiple_t& operator = (iris_awaitable_multiple_t&& rhs) noexcept {
-			iris_awaitable_multiple_t t(std::move(rhs));
-			std::swap(*this, t);
+		iris_awaitable_multiple_t& operator = (iris_awaitable_multiple_t&& rhs) noexcept {\
+			if (this != &rhs) {
+				iris_awaitable_multiple_t t(std::move(rhs));
+				std::swap(*this, t);
+			}
+
 			return *this;
 		}
 
@@ -594,7 +600,7 @@ namespace iris {
 			// try fast preempt
 			for (iterator_t p = begin; p != end; ++p) {
 				warp_t* target = &(*p);
-				typename warp_t::template preempt_guard_t guard(*target, 0);
+				typename warp_t::preempt_guard_t guard(*target, 0);
 				if (guard) {
 					selected = target;
 					handle.resume();
@@ -1109,11 +1115,13 @@ namespace iris {
 
 			resource_t& operator = (const resource_t&) = delete;
 			resource_t& operator = (resource_t&& rhs) noexcept {
-				clear();
+				if (this != &rhs) {
+					clear();
 
-				host = rhs.host;
-				amount = rhs.amount;
-				rhs.host = nullptr;
+					host = rhs.host;
+					amount = rhs.amount;
+					rhs.host = nullptr;
+				}
 
 				return *this;
 			}

@@ -1217,12 +1217,15 @@ namespace iris {
 
 		iris_queue_t& operator = (const iris_queue_t& rhs) = delete;
 		iris_queue_t& operator = (iris_queue_t&& rhs) noexcept {
-			static_cast<node_allocator_t&>(*this) = std::move(static_cast<node_allocator_t&>(rhs));
-			ring_buffer = rhs.ring_buffer;
-			push_count = rhs.push_count;
-			pop_count = rhs.pop_count;
+			if (this != &rhs) {
+				static_cast<node_allocator_t&>(*this) = std::move(static_cast<node_allocator_t&>(rhs));
+				ring_buffer = rhs.ring_buffer;
+				push_count = rhs.push_count;
+				pop_count = rhs.pop_count;
 
-			rhs.ring_buffer = nullptr;
+				rhs.ring_buffer = nullptr;
+			}
+
 			return *this;
 		}
 
@@ -1798,11 +1801,13 @@ namespace iris {
 		}
 
 		iris_queue_list_t& operator = (iris_queue_list_t&& rhs) noexcept {
-			IRIS_ASSERT(static_cast<node_allocator_t&>(*this) == static_cast<node_allocator_t&>(rhs));
-			// just swap pointers.
-			std::swap(push_head, rhs.push_head);
-			std::swap(pop_head, rhs.pop_head);
-			std::swap(iterator_counter, rhs.iterator_counter);
+			if (this != &rhs) {
+				IRIS_ASSERT(static_cast<node_allocator_t&>(*this) == static_cast<node_allocator_t&>(rhs));
+				// just swap pointers.
+				std::swap(push_head, rhs.push_head);
+				std::swap(pop_head, rhs.pop_head);
+				std::swap(iterator_counter, rhs.iterator_counter);
+			}
 
 			return *this;
 		}

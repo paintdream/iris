@@ -48,7 +48,10 @@ namespace iris {
 			}
 
 			storage_t& operator = (storage_t&& rhs) noexcept {
-				queue_buffer = std::move(rhs.queue_buffer);
+				if (this != &rhs) {
+					queue_buffer = std::move(rhs.queue_buffer);
+				}
+
 				return *this;
 			}
 
@@ -876,7 +879,7 @@ namespace iris {
 			}
 		}
 
-		size_t get_pending_count() const {
+		size_t get_pending_count() const noexcept {
 			return pending_count.load(std::memory_order_acquire);
 		}
 
@@ -947,7 +950,7 @@ namespace iris {
 			complete(true);
 		}
 
-		void validate(routine_t* from, routine_t* to) {
+		void validate(routine_t* from, routine_t* to) const noexcept {
 			IRIS_ASSERT(from != to);
 
 			for (size_t i = 0; i < sizeof(to->next_tasks) / sizeof(to->next_tasks[0]); i++) {
@@ -981,9 +984,12 @@ namespace iris {
 			}
 
 			task_t& operator = (task_t&& rhs) noexcept {
-				task = std::move(rhs.task);
-				next = rhs.next;
-				rhs.next = nullptr;
+				if (this != &rhs) {
+					task = std::move(rhs.task);
+					next = rhs.next;
+					rhs.next = nullptr;
+				}
+
 				return *this;
 			}
 
