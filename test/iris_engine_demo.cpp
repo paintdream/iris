@@ -4,6 +4,7 @@
 #include "../src/iris_common.inl"
 #include <chrono>
 #include <cstdio>
+#include <condition_variable>
 using namespace iris;
 
 using worker_t = iris_async_worker_t<>;
@@ -145,19 +146,24 @@ int main(void) {
 	engine_t engine;
 	auto& frame = engine.get_frame();
 	frame.set_value(true);
+	std::condition_variable cv;
+	std::mutex mutex;
 	while (frame.get_value()) {
-		std::atomic<bool> signal = false;
-		frame.dispatch([&signal](auto& frame) {
+		bool state = false;
+		frame.dispatch([&cv, &mutex, &state](auto& frame) {
 			if (rand() % 11 == 0) {
 				frame.set_value(false);
 			}
 
-			signal.store(true, std::memory_order_release);
-			signal.notify_one();
+			std::lock_guard<std::mutex> guard(mutex);
+			state = true;
+			cv.notify_one();
 		});
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
-		signal.wait(false, std::memory_order_acquire);
+		std::unique_lock<std::mutex> guard(mutex);
+		if (!state) {
+			cv.wait(guard);
+		}
 	}
 
 	return 0;
