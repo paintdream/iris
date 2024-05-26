@@ -627,6 +627,8 @@ namespace iris {
 				// and it's ok to return immediately.
 				preempt_guard_t preempt_guard(*this, 0);
 				if (preempt_guard) {
+					execute_parallel();
+
 					if (suspend_count.load(std::memory_order_acquire) == 0) { // double check for suspend_count
 						execute_internal<s, force>();
 						
@@ -638,8 +640,6 @@ namespace iris {
 					} else {
 						queueing.store(queue_state_pending, std::memory_order_relaxed);
 					}
-
-					execute_parallel();
 				}
 			} else if (parallel_task_head.load(std::memory_order_acquire) != nullptr) {
 				preempt_guard_t preempt_guard(*this, ~size_t(0));
@@ -669,8 +669,10 @@ namespace iris {
 		void flush() noexcept(noexcept(std::declval<iris_warp_t>().async_worker.queue(std::declval<function_t>(), 0))) {
 			// if current state is executing, the executing routine will reinvoke flush() if it detected pending state while exiting
 			// so we just need to queue a flush routine as soon as current state is idle
-			if (queueing.exchange(queue_state_pending, std::memory_order_acq_rel) == queue_state_idle) {
-				async_worker.queue(execute_t(*this), priority);
+			if (queueing.load(std::memory_order_acquire) != queue_state_pending) {
+				if (queueing.exchange(queue_state_pending, std::memory_order_acq_rel) == queue_state_idle) {
+					async_worker.queue(execute_t(*this), priority);
+				}
 			}
 		}
 
