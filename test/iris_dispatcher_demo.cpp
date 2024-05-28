@@ -34,7 +34,7 @@ template <typename element_t>
 using worker_allocator_t = iris_object_allocator_t<element_t>;
 
 void external_poll() {
-	static constexpr size_t thread_count = 2;
+	static constexpr size_t thread_count = 4;
 	static constexpr size_t warp_count = 8;
 
 	using worker_t = iris_async_worker_t<std::thread, std::function<void()>, worker_allocator_t>;
