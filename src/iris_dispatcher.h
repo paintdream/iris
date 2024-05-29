@@ -514,7 +514,7 @@ namespace iris {
 				}
 			} else {
 				// wait for current warp finish
-				task_t* task = async_worker.make_task(suspend_t<typename std::remove_reference<callable_t>::type>(*this, std::forward<callable_t>(func)));
+				task_t* task = async_worker.new_task(suspend_t<typename std::remove_reference<callable_t>::type>(*this, std::forward<callable_t>(func)));
 				
 				// avoid legacy compiler bugs
 				// see https://en.cppreference.com/w/cpp/atomic/atomic/compare_exchange
@@ -697,7 +697,7 @@ namespace iris {
 		// queue task from specified thread.
 		template <bool s, typename callable_t>
 		typename std::enable_if<s>::type push(callable_t&& func) {
-			task_t* task = async_worker.make_task(std::forward<callable_t>(func));
+			task_t* task = async_worker.new_task(std::forward<callable_t>(func));
 
 			// avoid legacy compiler bugs
 			// see https://en.cppreference.com/w/cpp/atomic/atomic/compare_exchange
@@ -995,15 +995,15 @@ namespace iris {
 
 	// here we code a trivial worker demo
 	// could be replaced by your implementation
-	template <typename thread_t = std::thread, typename callback_t = std::function<void()>, template <typename...> class allocator_t = iris_default_object_allocator_t>
+	template <typename thread_t = std::thread, typename callback_t = std::function<void()>, template <typename...> class allocator_t = iris_default_object_allocator_t, size_t default_task_duplicate_count = 4, size_t default_sub_allocator_count = 4>
 	struct iris_async_worker_t {
 		// task wrapper
 		struct alignas(64) task_t {
 			template <typename func_t>
-			task_t(func_t&& func, task_t* n) noexcept(noexcept(callback_t(std::forward<func_t>(func))))
-				: task(std::forward<func_t>(func)), next(n) {}
+			task_t(func_t&& func, task_t* n, allocator_t<task_t>& alloc) noexcept(noexcept(callback_t(std::forward<func_t>(func))))
+				: task(std::forward<func_t>(func)), next(n), allocator(alloc) {}
 
-			task_t(task_t&& rhs) noexcept : task(std::move(rhs.task)), next(rhs.next) {
+			task_t(task_t&& rhs) noexcept : task(std::move(rhs.task)), next(rhs.next), allocator(rhs.allocator) {
 				rhs.next = nullptr;
 			}
 
@@ -1019,29 +1019,24 @@ namespace iris {
 
 			callback_t task;
 			task_t* next;
+			allocator_t<task_t>& allocator;
 		};
 
-		static constexpr size_t task_head_duplicate_count = 4;
+		static constexpr size_t task_head_duplicate_count = default_task_duplicate_count;
+		static constexpr size_t sub_allocator_count = default_sub_allocator_count;
+
 		template <typename element_t>
 		using general_allocator_t = allocator_t<element_t>;
 		using task_allocator_t = allocator_t<task_t>;
 
 		iris_async_worker_t() : waiting_thread_count(0), limit_count(0), internal_thread_count(0) {
+			task_allocator_index.store(0, std::memory_order_relaxed);
 			running_count.store(0, std::memory_order_relaxed);
 			task_count.store(0, std::memory_order_relaxed);
 			terminated.store(1, std::memory_order_release);
 		}
 
 		explicit iris_async_worker_t(size_t thread_count) : iris_async_worker_t() {
-			resize(thread_count);
-		}
-
-		explicit iris_async_worker_t(const task_allocator_t& alloc) : task_allocator(alloc), waiting_thread_count(0), limit_count(0), internal_thread_count(0) {
-			running_count.store(0, std::memory_order_relaxed);
-			terminated.store(1, std::memory_order_release);
-		}
-
-		iris_async_worker_t(size_t thread_count, const task_allocator_t& alloc) : iris_async_worker_t(alloc) {
 			resize(thread_count);
 		}
 
@@ -1122,14 +1117,14 @@ namespace iris {
 
 		// guard for exceptions on polling
 		struct poll_guard_t {
-			poll_guard_t(task_allocator_t& alloc, task_t* t) noexcept : allocator(alloc), task(t) {}
+			poll_guard_t(task_t* t) noexcept : task(t) {}
 			~poll_guard_t() noexcept {
 				// do cleanup work
+				task_allocator_t& allocator = task->allocator;
 				task->~task_t();
 				allocator.deallocate(task, 1);
 			}
 
-			task_allocator_t& allocator;
 			task_t* task;
 		};
 
@@ -1200,16 +1195,18 @@ namespace iris {
 
 		// queue a task to worker with given priority [0, thread_count - 1], which 0 is the highest priority
 		template <typename callable_t>
-		task_t* make_task(callable_t&& func) {
-			task_t* task = task_allocator.allocate(1);
-			new (task) task_t(std::forward<callable_t>(func), nullptr);
+		task_t* new_task(callable_t&& func) {
+			task_allocator_t& current_allocator = task_allocators[task_allocator_index.fetch_add(1, std::memory_order_relaxed) % sub_allocator_count];
+			task_t* task = current_allocator.allocate(1);
+			new (task) task_t(std::forward<callable_t>(func), nullptr, current_allocator);
 			task_count.fetch_add(1, std::memory_order_relaxed);
+
 			return task;
 		}
 
 		void execute_task(task_t* task) {
 			task_count.fetch_sub(1, std::memory_order_release);
-			poll_guard_t guard(task_allocator, task);
+			poll_guard_t guard(task);
 			task->task();
 		}
 
@@ -1273,7 +1270,7 @@ namespace iris {
 
 		template <typename callable_t>
 		void queue(callable_t&& callable, size_t priority = 0) {
-			queue_task(make_task(std::forward<callable_t>(callable)), priority);
+			queue_task(new_task(std::forward<callable_t>(callable)), priority);
 		}
 
 		// mark as terminated
@@ -1452,8 +1449,9 @@ namespace iris {
 		}
 
 	protected:
-		task_allocator_t task_allocator; // default task allocator
+		task_allocator_t task_allocators[sub_allocator_count]; // default task allocator
 		std::vector<thread_t> threads; // worker
+		std::atomic<size_t> task_allocator_index; // index for selecting task allocator
 		std::atomic<size_t> running_count; // running_count
 		std::atomic<size_t> task_count; // the count of total waiting tasks 
 		std::vector<std::atomic<task_t*>> task_heads; // task pointer list
