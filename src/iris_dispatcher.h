@@ -546,8 +546,7 @@ namespace iris {
 
 		// execute all tasks scheduled at once.
 		template <bool s, bool force>
-		typename std::enable_if<s>::type execute_internal() noexcept(
-			noexcept(std::declval<iris_warp_t>().flush()) && noexcept(std::declval<function_t>()())) {
+		typename std::enable_if<s>::type execute_internal() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			// mark for queueing, avoiding flush me more than once.
@@ -571,30 +570,25 @@ namespace iris {
 					}
 
 					p = q;
-				} else {
-					storage.executing_head = nullptr;
 				}
 
 				while (p != nullptr) {
-					task_t* q = p->next;
+					storage.executing_head = p->next;
 					p->next = nullptr;
 					async_worker.execute_task(p);
 					execute_counter++;
 
 					if ((!force && suspend_count.load(std::memory_order_relaxed) != 0) || *warp_ptr != this) {
-						IRIS_ASSERT(storage.executing_head == nullptr);
-						storage.executing_head = q;
 						return;
 					}
 
-					p = q;
+					p = storage.executing_head;
 				}
 			} while (execute_counter != 0);
 		}
 
 		template <bool s, bool force>
-		typename std::enable_if<!s>::type execute_internal() noexcept(
-			noexcept(std::declval<iris_warp_t>().flush()) && noexcept(std::declval<function_t>()())) {
+		typename std::enable_if<!s>::type execute_internal() noexcept(noexcept(std::declval<function_t>()())) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			// mark for queueing, avoiding flush me more than once.
