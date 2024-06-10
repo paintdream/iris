@@ -737,7 +737,7 @@ namespace iris {
 
 		constexpr void await_resume() const noexcept {}
 
-		void reset() {
+		void reset() noexcept {
 			signaled.store(0, std::memory_order_release);
 		}
 
@@ -773,7 +773,7 @@ namespace iris {
 			return !elements.empty();
 		}
 
-		void await_suspend(std::coroutine_handle<> handle) {
+		void await_suspend(std::coroutine_handle<> handle) noexcept {
 			auto guard = out_fence();
 
 			info_t info;
