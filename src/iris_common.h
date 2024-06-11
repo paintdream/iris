@@ -2486,8 +2486,10 @@ namespace iris {
 		using amount_t = std::array<quantity_t, n>;
 		iris_quota_t(const amount_t& amount) noexcept {
 			for (size_t i = 0; i < n; i++) {
-				quantities[i].store(amount[i]);
+				quantities[i].store(amount[i], std::memory_order_relaxed);
 			}
+
+			std::atomic_thread_fence(std::memory_order_release);
 		}
 
 		bool acquire(const amount_t& amount) noexcept {
