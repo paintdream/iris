@@ -33,7 +33,6 @@ SOFTWARE.
 #include <functional>
 #include <vector>
 #include <mutex>
-#include <chrono>
 #include <thread>
 #include <condition_variable>
 
@@ -290,9 +289,7 @@ namespace iris {
 			// a warp cannot be destructed in its context
 			IRIS_ASSERT(get_current_warp_internal() != this);
 
-			// execute remaining tasks on destruction
-			while (!join<true, true>()) {}
-
+			// must join manually before destruction!
 			IRIS_ASSERT(storage.empty());
 			IRIS_ASSERT(!has_parallel_task());
 		}
@@ -408,8 +405,8 @@ namespace iris {
 		}
 
 		// cleanup the dispatcher, pass true to 'execute_remaining' to make sure all tasks are executed finally.
-		template <bool execute_remaining = true, bool finalize = false, typename iterator_t = iris_warp_t*>
-		static bool join(iterator_t begin, iterator_t end) {
+		template <bool execute_remaining = true, bool finalize = false, typename iterator_t = iris_warp_t*, typename waiter_t>
+		static bool join(iterator_t begin, iterator_t end, waiter_t&& waiter) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			if /* constexpr */ (!finalize) {
@@ -427,7 +424,7 @@ namespace iris {
 				while (true) {
 					preempt_guard_t preempt_guard(*p, ~size_t(0));
 					if (!preempt_guard) {
-						std::this_thread::sleep_for(std::chrono::milliseconds(50));
+						waiter();
 					} else {
 						if /* constexpr */ (execute_remaining) {
 							(*p).execute_parallel();
@@ -455,9 +452,9 @@ namespace iris {
 			return empty;
 		}
 
-		template <bool execute_remaining = true, bool finalize = false>
-		bool join() {
-			return join<execute_remaining, finalize>(this, this + 1);
+		template <bool execute_remaining = true, bool finalize = false, typename waiter_t>
+		bool join(waiter_t&& waiter) {
+			return join<execute_remaining, finalize>(this, this + 1, std::forward<waiter_t>(waiter));
 		}
 
 		// get current thread's warp binding instance
@@ -1155,10 +1152,11 @@ namespace iris {
 
 		// poll any task from thread poll manually with given priority in specified duration
 		// usually used in your customized thread procedures
-		bool poll_delay(size_t priority, size_t millseconds) {
+		template <typename duration_t>
+		bool poll_delay(size_t priority, duration_t&& delay) {
 			if (!poll(priority)) {
 				std::unique_lock<std::mutex> lock(mutex);
-				condition.wait_for(lock, std::chrono::milliseconds(millseconds));
+				condition.wait_for(lock, std::forward<duration_t>(delay));
 				lock.unlock();
 
 				if (!poll(priority)) {

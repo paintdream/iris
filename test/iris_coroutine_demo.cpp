@@ -150,7 +150,7 @@ static coroutine_t example_quota(quota_queue_t& q) {
 		bool b = q.acquire(req);
 		IRIS_ASSERT(b);
 		q.get_async_worker().queue([&q, req]() mutable {
-			std::this_thread::sleep_for(std::chrono::milliseconds{ 10 });
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
 			printf("Release quota holder!\n");
 			q.release(req);
 		});
@@ -231,7 +231,7 @@ int main(void) {
 	worker.join();
 
 	// finished!
-	while (!warp_t::join(warps.begin(), warps.end())) {}
+	while (!warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
 	return 0;
 }
 

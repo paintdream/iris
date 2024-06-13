@@ -2,6 +2,7 @@
 #include "../src/iris_common.inl"
 #include <cstdio>
 #include <future>
+#include <chrono>
 using namespace iris;
 
 static void external_poll();
@@ -53,7 +54,7 @@ void external_poll() {
 			printf("[[ external thread running ... ]]\n");
 
 			while (!worker.is_terminated()) {
-				if (worker.poll_delay(0, 20)) {
+				if (worker.poll_delay(0, std::chrono::milliseconds(20))) {
 					// there is no 0 priority task, assert it
 					IRIS_ASSERT(false);
 				}
@@ -191,7 +192,7 @@ void simple_explosion(void) {
 			printf("[[ external thread running ... ]]\n");
 
 			while (!worker.is_terminated()) {
-				if (worker.poll_delay(0, 20)) {
+				if (worker.poll_delay(0, std::chrono::milliseconds(20))) {
 					printf("[[ external thread has polled a task ... ]]\n");
 				}
 			}
@@ -284,7 +285,7 @@ void simple_explosion(void) {
 	worker.join();
 
 	// finished!
-	while (!warp_t::join(warps.begin(), warps.end())) {}
+	while (!warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
 
 	printf("after: \n");
 	for (size_t k = 0; k < warp_count; k++) {
@@ -395,7 +396,7 @@ void garbage_collection() {
 		worker.join();
 
 		// finished!
-		while (!warp_t::join(warps.begin(), warps.end())) {}
+		while (!warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
 	}
 }
 
@@ -500,7 +501,7 @@ void graph_dispatch() {
 	printf("sum of factors: %d\n", (int)sum_factors);
 
 	// finished!
-	while (!warp_t::join(warps.begin(), warps.end())) {}
+	while (!warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
 }
 
 void graph_dispatch_exception() {
@@ -592,7 +593,7 @@ void acquire_release() {
 	}
 
 	worker.join();
-	main_warp.join();
+	main_warp.join([] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); });
 }
 
 void update_version() {
