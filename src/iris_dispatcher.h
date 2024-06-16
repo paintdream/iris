@@ -430,7 +430,10 @@ namespace iris {
 							(*p).execute_parallel();
 						}
 
-						if ((*p).suspend_count.load(std::memory_order_acquire) <= 1) {
+						IRIS_ASSERT((*p).is_suspended());
+
+						// nobody else suspend this warp
+						if ((*p).suspend_count.load(std::memory_order_acquire) == 1) {
 							// execute remaining
 							if /* constexpr */ (execute_remaining) {
 								(*p).template execute_internal<strand, true>();
@@ -580,7 +583,7 @@ namespace iris {
 					async_worker.execute_task(p);
 					execute_counter++;
 
-					if ((!force && suspend_count.load(std::memory_order_relaxed) != 0) || *warp_ptr != this) {
+					if ((!force && is_suspended()) || *warp_ptr != this) {
 						return;
 					}
 
@@ -622,7 +625,7 @@ namespace iris {
 						execute_counter++;
 						counter = next_version;
 
-						if ((!force && suspend_count.load(std::memory_order_relaxed) != 0) || *warp_ptr != this)
+						if ((!force && is_suspended()) || *warp_ptr != this)
 							return;
 					}
 
@@ -641,14 +644,14 @@ namespace iris {
 		void execute() noexcept(noexcept(std::declval<iris_warp_t>().template execute_internal<s, force>())) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
-			if (suspend_count.load(std::memory_order_acquire) == 0) {
+			if (!is_suspended()) {
 				// try to acquire execution, if it fails, there must be another thread doing the same thing
 				// and it's ok to return immediately.
 				preempt_guard_t preempt_guard(*this, 0);
 				if (preempt_guard) {
 					execute_parallel();
 
-					if (suspend_count.load(std::memory_order_acquire) == 0) { // double check for suspend_count
+					if (!is_suspended()) { // double check for suspend_count
 						execute_internal<s, force>();
 						
 						preempt_guard.cleanup();
@@ -982,7 +985,7 @@ namespace iris {
 			complete(true);
 		}
 
-		void validate(routine_t* from, routine_t* to) const noexcept {
+		static void validate(routine_t* from, routine_t* to) noexcept {
 			IRIS_ASSERT(from != to);
 
 			for (size_t i = 0; i < sizeof(to->next_tasks) / sizeof(to->next_tasks[0]); i++) {

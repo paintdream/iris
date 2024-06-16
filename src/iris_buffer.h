@@ -46,6 +46,7 @@ namespace iris {
 		using value_type = element_t;
 
 		iris_buffer_t() noexcept : size(0) {
+			buffer = nullptr;
 			static_assert(storage_size >= 3 * sizeof(size_t) / sizeof(element_t), "must has stock storage of at least 3 pointer size.");
 			static_assert(std::is_trivially_constructible<element_t>::value, "must be trivially constructible.");
 			static_assert(std::is_trivially_destructible<element_t>::value, "must be trivially destructible.");

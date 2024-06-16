@@ -89,7 +89,7 @@ namespace iris {
 
 		template <typename type_t>
 		static size_t get_hash() noexcept {
-			static size_t hash = std::hash<std::string_view>()(typeid(type_t).name()) & 0xFFFFFFFF;
+			static size_t hash = std::hash<std::string_view>()(typeid(type_t).name()) & 0xFFFFFFFF; // compatible with tagged pointer trick by LuaJIT
 			return hash;
 		}
 
@@ -145,7 +145,7 @@ namespace iris {
 				return value != LUA_REFNIL;
 			}
 
-			int get() const noexcept {
+			int get_ref_value() const noexcept {
 				return value;
 			}
 
@@ -255,6 +255,7 @@ namespace iris {
 			int value;
 		};
 
+		// ref_t for types
 		template <typename subtype_t>
 		struct reftype_t : ref_t {
 			using type_t = subtype_t;
@@ -270,7 +271,7 @@ namespace iris {
 				return *this;
 			}
 
-			const void* get_type_hash() noexcept {
+			const void* get_type_hash() const noexcept {
 				return reinterpret_cast<const void*>(get_hash<type_t>());
 			}
 
@@ -287,6 +288,7 @@ namespace iris {
 				return *this;
 			}
 
+			// for chain expressions
 			reftype_t&& make_registry(iris_lua_t lua, bool enable = true) && {
 				const void* hash = get_type_hash();
 				if (hash != nullptr) {
@@ -301,6 +303,7 @@ namespace iris {
 			}
 		};
 
+		// ref_t for custom types
 		template <typename type_t>
 		struct refptr_t : ref_t {
 			refptr_t(int v = LUA_REFNIL, type_t* p = nullptr) noexcept : ref_t(v), ptr(p) {}
@@ -514,6 +517,7 @@ namespace iris {
 			return refptr_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX), p);
 		}
 
+		// make object from registry meta
 		template <typename type_t>
 		refptr_t<type_t> make_registry_object_view(type_t* object) {
 			return make_object_view<type_t>(get_registry<ref_t>(reinterpret_cast<const void*>(get_hash<type_t>())), object);
@@ -563,6 +567,7 @@ namespace iris {
 			luaL_Buffer* buffer;
 		};
 
+		// build string from C-style formatted construction
 		template <typename... args_t>
 		ref_t make_string(const char* fmt, args_t&&... args) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
@@ -573,6 +578,7 @@ namespace iris {
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
+		// build string from customized function
 		template <typename func_t>
 		ref_t make_string(func_t&& func) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
@@ -586,6 +592,7 @@ namespace iris {
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
+		// make ref from a given value
 		template <typename value_t>
 		ref_t make_value(value_t&& value) {
 			lua_State* L = state;
@@ -607,6 +614,7 @@ namespace iris {
 			int level;
 		};
 
+		// get from context
 		template <typename value_t, typename key_t>
 		value_t get_context(key_t&& key) {
 			auto guard = write_fence();
@@ -661,6 +669,7 @@ namespace iris {
 			lua_rawset(L, LUA_REGISTRYINDEX);
 		}
 
+		// get lua registry table
 		template <auto value_t, typename key_t>
 		void set_registry(key_t&& key) {
 			auto guard = write_fence();
@@ -696,6 +705,7 @@ namespace iris {
 			lua_setglobal(L, key.data());
 		}
 
+		// set lua global table
 		template <auto value_t>
 		void set_global(std::string_view key) {
 			auto guard = write_fence();
@@ -705,7 +715,7 @@ namespace iris {
 			lua_setglobal(L, key.data());
 		}
 
-		// define a variable by value
+		// set 'current' lua table, usually used in lua_registar callbacks
 		template <typename value_t, typename key_t>
 		void set_current(key_t&& key, value_t&& value) {
 			auto guard = write_fence();
@@ -718,7 +728,8 @@ namespace iris {
 			lua_rawset(L, -3);
 		}
 
-		// define a bound member function/property
+		// set 'current' lua table, usually used in lua_registar callbacks
+		// spec for constexpr ptr (methods, properties)
 		template <auto ptr, typename key_t>
 		void set_current(key_t&& key) {
 			auto guard = write_fence();
@@ -1661,6 +1672,7 @@ namespace iris {
 			}
 		}
 
+		// spec for constexpr ptr
 		template <auto ptr>
 		static void push_variable(lua_State* L) {
 			if constexpr (std::is_convertible_v<decltype(ptr), int (*)(lua_State*)> || std::is_convertible_v<decltype(ptr), int (*)(lua_State*) noexcept>) {
@@ -1757,6 +1769,7 @@ namespace iris {
 			}
 		}
 
+		// transfer variable between different states
 		template <bool move, typename lua_t>
 		static int cross_transfer_variable(lua_State* L, lua_t& target, int index, int recursion_source, int recursion_target, int recursion_index) {
 			stack_guard_t guard(L);

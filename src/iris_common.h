@@ -2389,7 +2389,7 @@ namespace iris {
 			} else {
 				element_t value = std::move(queue.top());
 				queue.pop();
-				return std::move(value);
+				return value;
 			}
 		}
 
@@ -2537,6 +2537,7 @@ namespace iris {
 					amount = m;
 				} else {
 					host = nullptr;
+					amount = amount_t();
 				}
 			}
 

@@ -60,6 +60,7 @@ box build_box_randomly() noexcept {
 }
 
 struct queryer {
+	queryer() : count(0) {}
 	size_t count;
 	box bounding;
 	bool operator () (const sample_tree::base& tree) noexcept {
@@ -72,7 +73,6 @@ struct queryer {
 size_t fast_query(sample_tree*& root, const box& box) noexcept {
 	queryer q;
 	q.bounding = box;
-	q.count = 0;
 	IRIS_ASSERT(root->get_parent() == nullptr);
 	root->query<true>(box, q);
 

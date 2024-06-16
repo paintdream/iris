@@ -176,8 +176,11 @@ namespace iris {
 		// notice that we do not initialize `caller` here, let `await_suspend` do
 		// parallel_priority: ~size_t(0) means no parallization, other value indicates the dispatch priority of parallel routines
 		template <typename callable_t>
-		iris_awaitable_t(warp_t* target_warp, callable_t&& f, size_t p) noexcept : target(target_warp), parallel_priority(p), func(std::forward<callable_t>(f)) {
+		iris_awaitable_t(warp_t* target_warp, callable_t&& f, size_t p) noexcept : caller(nullptr), target(target_warp), parallel_priority(p), func(std::forward<callable_t>(f)) {
 			IRIS_ASSERT(target_warp != nullptr || parallel_priority == ~size_t(0));
+			if constexpr (!std::is_void_v<return_t>) {
+				ret = return_t();
+			}
 		}
 
 		// always suspended
@@ -667,7 +670,7 @@ namespace iris {
 
 		struct info_base_warp_t {
 			std::coroutine_handle<> handle;
-			warp_t* warp;
+			warp_t* warp = nullptr;
 		};
 
 		struct info_base_t {
@@ -807,7 +810,7 @@ namespace iris {
 			std::atomic_thread_fence(std::memory_order_acquire);
 			if (in_index != out_index) {
 				auto handle = std::move(handles[in_index]);
-				handles[in_index] = info_t { nullptr, nullptr };
+				handles[in_index] = info_t(nullptr, nullptr);
 				iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(handle));
 				std::atomic_thread_fence(std::memory_order_release);
 				in_index = out_index;
