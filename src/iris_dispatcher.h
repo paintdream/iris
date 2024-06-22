@@ -39,18 +39,18 @@ SOFTWARE.
 namespace iris {
 	namespace impl {	
 		// for exception safe, roll back atomic operations as needed
-		enum guard_operation {
+		enum class guard_operation_t : size_t {
 			add, sub, invalidate
 		};
 
-		template <guard_operation operation>
+		template <guard_operation_t operation>
 		struct atomic_guard_t {
 			atomic_guard_t(std::atomic<size_t>& var) : variable(&var) {}
 			~atomic_guard_t() noexcept {
 				if (variable != nullptr) {
-					if /* constexpr */ (operation == add) {
+					if /* constexpr */ (operation == guard_operation_t::add) {
 						variable->fetch_add(1, std::memory_order_release);
-					} else if /* constexpr */ (operation == sub) {
+					} else if /* constexpr */ (operation == guard_operation_t::sub) {
 						variable->fetch_sub(1, std::memory_order_release);
 					} else {
 						variable->store(~size_t(0), std::memory_order_release);
@@ -152,9 +152,9 @@ namespace iris {
 		using task_t = typename async_worker_t::task_t;
 
 		static constexpr size_t block_size = iris_extract_block_size<function_t, allocator_t>::value;
-		static constexpr size_t queue_state_idle = 0u;
-		static constexpr size_t queue_state_pending = 1u;
-		static constexpr size_t queue_state_executing = 2u;
+		enum class queue_state_t : size_t {
+			idle, pending, executing
+		};
 
 		// moving capture is not supported until C++ 14
 		// so we wrap some functors here
@@ -268,7 +268,7 @@ namespace iris {
 			thread_warp.store(nullptr, std::memory_order_relaxed);
 			parallel_task_head.store(nullptr, std::memory_order_relaxed);
 			suspend_count.store(0, std::memory_order_relaxed);
-			queueing.store(queue_state_idle, std::memory_order_release);
+			queueing.store(queue_state_t::idle, std::memory_order_release);
 		}
 
 		iris_warp_t(iris_warp_t&& rhs) noexcept : async_worker(rhs.async_worker), storage(std::move(rhs.storage)), priority(rhs.priority), stack_next_warp(rhs.stack_next_warp), parallel_task_resurrect_head(rhs.parallel_task_resurrect_head) {
@@ -282,7 +282,7 @@ namespace iris {
 			rhs.thread_warp.store(nullptr, std::memory_order_relaxed);
 			rhs.parallel_task_head.store(nullptr, std::memory_order_relaxed);
 			rhs.suspend_count.store(0, std::memory_order_relaxed);
-			rhs.queueing.store(queue_state_idle, std::memory_order_release);
+			rhs.queueing.store(queue_state_t::idle, std::memory_order_release);
 		}
 
 		~iris_warp_t() noexcept {
@@ -326,7 +326,7 @@ namespace iris {
 				stack_next_warp = nullptr;
 				thread_warp.store(nullptr, std::memory_order_release);
 
-				if (queueing.exchange(queue_state_idle, std::memory_order_relaxed) == queue_state_pending) {
+				if (queueing.exchange(queue_state_t::idle, std::memory_order_relaxed) == queue_state_t::pending) {
 					flush();
 				}
 
@@ -349,7 +349,7 @@ namespace iris {
 
 			if (ret) {
 				// all suspend requests removed, try to flush me
-				queueing.store(queue_state_idle, std::memory_order_relaxed);
+				queueing.store(queue_state_t::idle, std::memory_order_relaxed);
 				flush();
 			}
 
@@ -555,7 +555,7 @@ namespace iris {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			// mark for queueing, avoiding flush me more than once.
-			queueing.store(queue_state_executing, std::memory_order_release);
+			queueing.store(queue_state_t::executing, std::memory_order_release);
 			iris_warp_t** warp_ptr = &get_current_warp_internal();
 			IRIS_ASSERT(*warp_ptr == this);
 
@@ -598,7 +598,7 @@ namespace iris {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			// mark for queueing, avoiding flush me more than once.
-			queueing.store(queue_state_executing, std::memory_order_release);
+			queueing.store(queue_state_t::executing, std::memory_order_release);
 			iris_warp_t** warp_ptr = &get_current_warp_internal();
 			IRIS_ASSERT(*warp_ptr == this);
 
@@ -660,7 +660,7 @@ namespace iris {
 							flush();
 						}
 					} else {
-						queueing.store(queue_state_pending, std::memory_order_relaxed);
+						queueing.store(queue_state_t::pending, std::memory_order_relaxed);
 					}
 				}
 			}
@@ -697,8 +697,8 @@ namespace iris {
 		void flush() noexcept(noexcept(std::declval<iris_warp_t>().async_worker.queue(std::declval<function_t>(), 0))) {
 			// if current state is executing, the executing routine will reinvoke flush() if it detected pending state while exiting
 			// so we just need to queue a flush routine as soon as current state is idle
-			if (queueing.load(std::memory_order_acquire) != queue_state_pending) {
-				if (queueing.exchange(queue_state_pending, std::memory_order_acq_rel) == queue_state_idle) {
+			if (queueing.load(std::memory_order_acquire) != queue_state_t::pending) {
+				if (queueing.exchange(queue_state_t::pending, std::memory_order_acq_rel) == queue_state_t::idle) {
 					async_worker.queue(execute_t(*this), priority);
 				}
 			}
@@ -743,7 +743,7 @@ namespace iris {
 		async_worker_t& async_worker; // host async worker
 		std::atomic<iris_warp_t**> thread_warp; // save the running thread warp address.
 		std::atomic<size_t> suspend_count; // current suspend count
-		std::atomic<size_t> queueing; // is flush request sent to async_worker? 0 : not yet, 1 : yes, 2 : is to flush right away.
+		std::atomic<queue_state_t> queueing; // is flush request sent to async_worker? 0 : not yet, 1 : yes, 2 : is to flush right away.
 		std::atomic<task_t*> parallel_task_head; // linked-list for pending parallel tasks
 		task_t* parallel_task_resurrect_head;
 		typename std::conditional<strand, chain_storage_t, grid_storage_t>::type storage; // task storage
@@ -857,7 +857,7 @@ namespace iris {
 
 		// dispatch a task
 		void dispatch(routine_t* routine) {
-			impl::atomic_guard_t<impl::guard_operation::add> guard(routine->lock_count);
+			impl::atomic_guard_t<impl::guard_operation_t::add> guard(routine->lock_count);
 			if (routine->lock_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
 				if (routine->routine) {
 					// if not a warped routine, queue it to worker directly.

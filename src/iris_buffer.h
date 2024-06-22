@@ -36,10 +36,8 @@ SOFTWARE.
 namespace iris {
 	template <typename element_t, size_t storage_size = (sizeof(element_t*) * 4 - sizeof(size_t)) / sizeof(element_t)>
 	struct iris_buffer_t {
-		enum : size_t {
-			ext_store_mask = (size_t(1) << (sizeof(size_t) * 8 - 1)), // has external storage?
-			data_view_mask = (size_t(1) << (sizeof(size_t) * 8 - 2)) // is data view?
-		};
+		static constexpr size_t ext_store_mask = (size_t(1) << (sizeof(size_t) * 8 - 1)); // has external storage?
+		static constexpr size_t data_view_mask = (size_t(1) << (sizeof(size_t) * 8 - 2)); // is data view?
 
 		using iterator = element_t*;
 		using const_iterator = const element_t*;

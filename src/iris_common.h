@@ -511,19 +511,6 @@ namespace iris {
 		}
 	}
 
-	template <typename version_t, typename update_t>
-	bool iris_update_version(std::atomic<version_t>& version, version_t target, update_t&& update) {
-		static_assert(std::is_signed<version_t>::value, "Version type must be signed.");
-		version_t current = version.load(std::memory_order_acquire);
-		do {
-			if (target - current <= 0) {
-				return false; // already updated by a newer routine
-			}
-		} while (!version.compare_exchange_weak(current, target, std::memory_order_release));
-
-		return update([&version, target]() { return version.load(std::memory_order_acquire) == target; });
-	}
-
 	template <typename type_t, typename index_t>
 	void iris_union_set_init(type_t&& vec, index_t from, index_t to) {
 		while (from != to) {
@@ -663,13 +650,11 @@ namespace iris {
 	// k = element size, m = block size, r = max recycled block count, 0 for not limited, w = control block count
 	template <size_t k, size_t m = default_block_size, size_t r = 8, size_t s = default_page_size / m, size_t w = 8>
 	struct iris_allocator_t : protected enable_read_write_fence_t<> {
-		enum {
-			block_size = m,
-			item_count = m / k,
-			bits = 8 * sizeof(size_t),
-			bitmap_block_size = (item_count + bits - 1) / bits,
-			mask = bits - 1
-		};
+		static constexpr size_t block_size = m;
+		static constexpr size_t item_count = m / k;
+		static constexpr size_t bits = 8 * sizeof(size_t);
+		static constexpr size_t bitmap_block_size = (item_count + bits - 1) / bits;
+		static constexpr size_t mask = bits - 1;
 
 		struct control_block_t {
 			iris_allocator_t* allocator;
@@ -679,9 +664,7 @@ namespace iris {
 			std::atomic<size_t> bitmap[bitmap_block_size];
 		};
 
-		enum {
-			offset = (sizeof(control_block_t) + k - 1) / k
-		};
+		static constexpr size_t offset = (sizeof(control_block_t) + k - 1) / k;
 
 		iris_allocator_t() noexcept {
 			static_assert(item_count / 2 * k > sizeof(control_block_t), "item_count is too small");
