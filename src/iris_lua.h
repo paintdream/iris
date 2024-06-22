@@ -102,28 +102,40 @@ namespace iris {
 		}
 
 		template <typename... args_t>
-		void log_error(const char* format, args_t&&... args) const {
-			iris_lua_t::log_error(state, format, std::forward<args_t>(args)...);
+		void systrap(const char* category, const char* format, args_t&&... args) const {
+			iris_lua_t::systrap(state, category, format, std::forward<args_t>(args)...);
 		}
 
 		template <typename... args_t>
-		static void log_error(lua_State* L, const char* format, args_t&&... args) {
+		static void systrap(lua_State* L, const char* category, const char* format, args_t&&... args) {
 			stack_guard_t stack_guard(L);
-			lua_getglobal(L, "warn"); // try lua 5.4 warning system dynamically.
+			lua_getglobal(L, "systrap");
 			if (lua_type(L, -1) == LUA_TFUNCTION) {
+				lua_pushstring(L, category);
 				lua_pushfstring(L, format, std::forward<args_t>(args)...);
-				if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
-					fprintf(stderr, "iris_lua_t::log_error() -> Unresolved warn function!\n");
+				if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+					fprintf(stderr, "iris_lua_t::systrap() -> Unresolved systrap function!\n");
 					lua_pop(L, 1);
 				}
 			} else {
+				fprintf(stderr, format, std::forward<args_t>(args)...);
 				lua_pop(L, 1);
 			}
-			
-			fprintf(stderr, format, std::forward<args_t>(args)...);
 		}
 
-		// holding lua value
+		template <typename return_t>
+		struct optional_result_t : std::conditional_t<std::is_void_v<return_t>, std::optional<bool>, std::optional<return_t>> {
+			optional_result_t() {}
+			template <typename... args_t>
+			optional_result_t(args_t&&... args) : std::conditional_t<std::is_void_v<return_t>, std::optional<bool>, std::optional<return_t>>(std::forward<args_t>(args)...) {}
+
+			template <typename message_t>
+			optional_result_t(std::nullopt_t, message_t&& msg) : message(std::forward<message_t>(msg)) {}
+
+			std::string message;
+		};
+
+		// holding a lua value
 		struct ref_t {
 			explicit ref_t(int v = LUA_REFNIL) noexcept : value(v) { IRIS_ASSERT(LUA_REFNIL == 0 || v != 0); }
 			~ref_t() noexcept { IRIS_ASSERT(value == LUA_REFNIL); }
@@ -162,7 +174,7 @@ namespace iris {
 			}
 
 			template <typename value_t = ref_t, typename key_t>
-			std::optional<value_t> get(iris_lua_t lua, key_t&& key) const {
+			optional_result_t<value_t> get(iris_lua_t lua, key_t&& key) const {
 				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 
@@ -389,15 +401,16 @@ namespace iris {
 			return refguard_t<sizeof...(args_t)>(state, args...);
 		}
 
-		ref_t load(std::string_view code, std::string_view name = "") {
+		optional_result_t<ref_t> load(std::string_view code, std::string_view name = "") {
 			auto guard = write_fence();
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 
 			if (luaL_loadbuffer(L, code.data(), code.size(), name.data()) != LUA_OK) {
-				log_error(L, "iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
+				systrap(L, "error.load", "iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
+				optional_result_t<ref_t> ret(std::nullopt, lua_tostring(L, -1));
 				lua_pop(L, 1);
-				return ref_t();
+				return ret;
 			}
 
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
@@ -886,7 +899,7 @@ namespace iris {
 		}
 
 		template <typename callable_t>
-		int native_call(callable_t&& reference, int param_count) {
+		optional_result_t<int> native_call(callable_t&& reference, int param_count) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = write_fence();
 
@@ -900,15 +913,16 @@ namespace iris {
 			if (lua_pcall(L, param_count, LUA_MULTRET, 0) == LUA_OK) {
 				return lua_gettop(L) - top + param_count;
 			} else {
-				log_error(L, "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
+				systrap(L, "error.call", "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
+				optional_result_t<int> ret(std::nullopt, lua_tostring(L, -1));
 				lua_pop(L, 1);
-				return 0;
+				return ret;
 			}
 		}
 
 		// call function in protect mode
 		template <typename return_t, typename callable_t, typename... args_t>
-		std::conditional_t<std::is_void_v<return_t>, std::optional<bool>, std::optional<return_t>> call(callable_t&& reference, args_t&&... args) {
+		optional_result_t<return_t> call(callable_t&& reference, args_t&&... args) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			auto guard = write_fence();
@@ -926,9 +940,10 @@ namespace iris {
 					return true;
 				}
 			} else {
-				log_error(L, "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
+				systrap(L, "error.call", "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
+				optional_result_t<return_t> ret(std::nullopt, lua_tostring(L, -1));
 				lua_pop(L, 1);
-				return std::nullopt;
+				return ret;
 			}
 		}
 
@@ -1421,7 +1436,7 @@ namespace iris {
 					}
 
 					if (object_hash != type_hash) {
-						log_error(L, "iris_lua_t::get_variable() -> Object Hash %p is not matched with Type Hash %p\n", object_hash, type_hash);
+						systrap(L, "error.typecast", "iris_lua_t::get_variable() -> Object Hash %p is not matched with Type Hash %p\n", object_hash, type_hash);
 						lua_pop(L, 2);
 						return value_t();
 					}
@@ -1446,6 +1461,8 @@ namespace iris {
 		struct is_optional : std::false_type {};
 		template <typename type_t>
 		struct is_optional<std::optional<type_t>> : std::true_type {};
+		template <typename type_t>
+		struct is_optional<optional_result_t<type_t>> : std::true_type {};
 
 		// invoke C++ function from lua stack
 		template <typename function_t, int index, typename return_t, typename tuple_t, typename... params_t>
@@ -1590,7 +1607,7 @@ namespace iris {
 #endif
 				if (ret != LUA_OK && ret != LUA_YIELD) {
 					// error!
-					log_error(L, "iris_lua_t::function_coutine_proxy() -> resume error: %s\n", lua_tostring(L, -1));
+					iris_lua_t::systrap(L, "error.resume", "iris_lua_t::function_coutine_proxy()->resume error : % s\n", lua_tostring(L, -1));
 					lua_pop(L, 1);
 				}
 			}
@@ -1691,7 +1708,19 @@ namespace iris {
 			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
 			stack_guard_t guard(L, 1);
 
-			if constexpr (std::is_null_pointer_v<value_t>) {
+			if constexpr (iris_lua_convert_t<value_t>::value) {
+				guard.append(iris_lua_convert_t<value_t>::to_lua(L, std::forward<type_t>(variable)) - 1);
+			} else if constexpr (is_optional<value_t>::value) {
+				if (variable) {
+					if constexpr (std::is_rvalue_reference_v<type_t&&>) {
+						push_variable(L, std::move(variable.value()));
+					} else {
+						push_variable(L, variable.value());
+					}
+				} else {
+					lua_pushnil(L);
+				}
+			} else if constexpr (std::is_null_pointer_v<value_t>) {
 				lua_pushnil(L);
 			} else if constexpr (iris_is_reference_wrapper<value_t>::value) {
 				lua_pushlightuserdata(L, const_cast<void*>(reinterpret_cast<const void*>(&variable.get())));
@@ -1701,8 +1730,6 @@ namespace iris {
 				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
 					deref(L, std::move(variable));
 				}
-			} else if constexpr (iris_lua_convert_t<value_t>::value) {
-				guard.append(iris_lua_convert_t<value_t>::to_lua(L, std::forward<type_t>(variable)) - 1);
 			} else if constexpr (std::is_convertible_v<value_t, int (*)(lua_State*)> || std::is_convertible_v<value_t, int (*)(lua_State*) noexcept>) {
 				lua_pushcfunction(L, variable);
 			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {

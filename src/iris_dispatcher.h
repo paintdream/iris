@@ -430,10 +430,8 @@ namespace iris {
 							(*p).execute_parallel();
 						}
 
-						IRIS_ASSERT((*p).is_suspended());
-
 						// nobody else suspend this warp
-						if ((*p).suspend_count.load(std::memory_order_acquire) == 1) {
+						if ((*p).suspend_count.load(std::memory_order_acquire) == (finalize ? 0 : 1)) {
 							// execute remaining
 							if /* constexpr */ (execute_remaining) {
 								(*p).template execute_internal<strand, true>();

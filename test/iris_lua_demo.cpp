@@ -341,7 +341,7 @@ function test2() \n\
 	a.b.self = a\n\
 	return a \n\
 end\n\
-"));
+").value());
 	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test");
 	example_t existing_object;
 	existing_object.value = 2222;
@@ -365,14 +365,14 @@ end\n\
 	auto* g = target.native_get_variable<example_t*>(-1);
 	lua.native_pop_variable(3);
 
-	int result = target.native_call(std::move(test), 3);
+	int result = target.native_call(std::move(test), 3).value();
 	IRIS_ASSERT(existing_object.value == 3333);
 	int ret_val = target.native_get_variable<int>(-1);
 	IRIS_ASSERT(ret_val == 1234);
 	target.native_pop_variable(1);
 
 	auto test2 = target.get_global<lua_t::ref_t>("test2");
-	int result2 = target.native_call(std::move(test2), 0);
+	int result2 = target.native_call(std::move(test2), 0).value();
 	target.native_cross_transfer_variable<true>(lua, -1);
 	target.native_pop_variable(1);
 	lua_close(T);
@@ -381,7 +381,7 @@ end\n\
 	function print2(a) \n\
 		print(a.text) \n\
 		assert(a.b.self == a) \n\
-	end\n"));
+	end\n").value());
 
 	auto print2 = lua.get_global<lua_t::ref_t>("print2");
 	lua.native_call(std::move(print2), 1);
@@ -449,7 +449,7 @@ end\n\
 		local t = a:get_vector3({11, 22, 33 })\n\
 		for i = 1, #t do\n\
 			print(t[i])\n\
-		end\n"));
+		end\n").value());
 	IRIS_ASSERT(success);
 	auto tab = lua.make_table([](lua_t&& lua) {
 		lua.set_current("key", "value");
@@ -475,11 +475,8 @@ end\n\
 	lua.set_registry<&lua_error>("other_error");
 	// lua.native_push_variable<&lua_error>();
 	// lua.load("a").set<&lua_error>(lua, "test");
-	lua.deref(lua.load("err"));
-	lua.set_global("warn", error_handler);
-	lua.deref(lua.load("err"));
-	lua.set_global("warn", lua_error);
-	lua.deref(lua.load("err"));
+	IRIS_ASSERT(!lua.load("err"));
+	printf("Error message: %s\n", lua.load("err").message.c_str());
 
 #if USE_LUA_COROUTINE
 	lua.call<void>(lua.load("\n\
@@ -492,7 +489,7 @@ end\n\
 			a.coro_get_none()\n\
 			print('coro finished')\n\
 		end)\n\
-		coroutine.resume(coro)\n"));
+		coroutine.resume(coro)\n").value());
 
 	warp.yield();
 	worker.join();
