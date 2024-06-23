@@ -1464,6 +1464,11 @@ namespace iris {
 		template <typename type_t>
 		struct is_optional<optional_result_t<type_t>> : std::true_type {};
 
+		template <typename type_t>
+		struct is_optional_result : std::false_type {};
+		template <typename type_t>
+		struct is_optional_result<optional_result_t<type_t>> : std::true_type {};
+
 		// invoke C++ function from lua stack
 		template <typename function_t, int index, typename return_t, typename tuple_t, typename... params_t>
 		static int function_invoke(lua_State* L, const function_t& function, int stack_index, params_t&&... params) {
@@ -1482,12 +1487,14 @@ namespace iris {
 				} else {
 					auto ret = function(std::forward<params_t>(params)...);
 					int top = lua_gettop(L);
-					if constexpr (is_optional<return_t>::value) {
+
+					if constexpr (is_optional_result<return_t>::value) {
 						if (!ret) {
-							return -1; // error
+							push_variable(L, std::move(ret.message));
+							return -1;
+						} else {
+							push_variable(L, std::move(ret.value()));
 						}
-						
-						push_variable(L, std::move(ret.value()));
 					} else {
 						push_variable(L, std::move(ret));
 					}
@@ -1519,7 +1526,8 @@ namespace iris {
 				} while (false);
 
 				if (!check_result) {
-					luaL_error(L, "Required parameter %d of type %s is invalid or inaccessable.\n", index, typeid(first_t).name());
+					iris_lua_t::systrap(L, "error.parameter", "Required parameter %d of type %s is invalid or inaccessable.", index, typeid(first_t).name());
+					luaL_error(L, "Required parameter %d of type %s is invalid or inaccessable.", index, typeid(first_t).name());
 				}
 			}
 
@@ -1531,7 +1539,8 @@ namespace iris {
 			check_required_parameters<1, args_t...>(L);
 			int ret = function_invoke<function_t, 0, return_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, function, 1);
 			if (ret < 0) {
-				luaL_error(L, "C-function execution error.");
+				iris_lua_t::systrap(L, "error.call", "C-function execution error: %s", lua_tostring(L, -1));
+				luaL_error(L, "C-function execution error: %s", lua_tostring(L, -1));
 			}
 
 			return ret;
@@ -1567,7 +1576,20 @@ namespace iris {
 					coroutine.complete([L, address](return_t&& value) {
 						IRIS_PROFILE_SCOPE(__FUNCTION__);
 						int top = lua_gettop(L);
-						push_variable(L, std::move(value));
+
+						if constexpr (is_optional_result<return_t>::value) {
+							if (value) {
+								push_variable(L, std::move(value.value()));
+							} else {
+								// error!
+								iris_lua_t::systrap(L, "error.call", "C-function execution error: %s", value.message.c_str());
+								coroutine_cleanup(L, address);
+								return;
+							}
+						} else {
+							push_variable(L, std::move(value));
+						}
+
 						int count = lua_gettop(L) - top;
 						IRIS_ASSERT(count >= 0);
 						push_variable(L, address);
@@ -1594,6 +1616,13 @@ namespace iris {
 			}
 		}
 
+		static void coroutine_cleanup(lua_State* L, void* address) {
+			// clear thread reference to allow gc collecting
+			lua_pushlightuserdata(L, address);
+			lua_pushnil(L);
+			lua_rawset(L, LUA_REGISTRYINDEX);
+		}
+
 		static void coroutine_continuation(lua_State* L, void* address, int count) {
 			if (lua_status(L) == LUA_YIELD) {
 				lua_pop(L, 1);
@@ -1607,15 +1636,12 @@ namespace iris {
 #endif
 				if (ret != LUA_OK && ret != LUA_YIELD) {
 					// error!
-					iris_lua_t::systrap(L, "error.resume", "iris_lua_t::function_coutine_proxy()->resume error : % s\n", lua_tostring(L, -1));
+					iris_lua_t::systrap(L, "error.resume", "iris_lua_t::function_coutine_proxy() -> resume error: %s\n", lua_tostring(L, -1));
 					lua_pop(L, 1);
 				}
 			}
 
-			// clear thread reference to allow gc collecting
-			lua_pushlightuserdata(L, address);
-			lua_pushnil(L);
-			lua_rawset(L, LUA_REGISTRYINDEX);
+			coroutine_cleanup(L, address);
 		}
 
 		template <typename function_t, typename coroutine_t, typename... args_t>
@@ -1641,6 +1667,7 @@ namespace iris {
 		static int property_proxy_dispatch(lua_State* L, prop_t prop) {
 			type_t* object = get_variable<type_t*>(L, 1);
 			if (object == nullptr) {
+				iris_lua_t::systrap(L, "error.parameter", "The first parameter of a property must be a C++ instance of type %s", typeid(type_t).name());
 				luaL_error(L, "The first parameter of a property must be a C++ instance of type %s", typeid(type_t).name());
 				return 0;
 			}

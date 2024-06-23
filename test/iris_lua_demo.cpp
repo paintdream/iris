@@ -237,9 +237,10 @@ struct example_t : example_base_t {
 		co_return;
 	}
 
-	iris::iris_coroutine_t<int> mem_coro_get_int(std::string&& s) noexcept {
+	iris::iris_coroutine_t<iris::iris_lua_t::optional_result_t<int>> mem_coro_get_int(std::string&& s) noexcept {
 		co_await iris::iris_switch(warpptr2);
 		co_await iris::iris_switch(warpptr);
+		// co_return iris::iris_lua_t::optional_result_t<int>(std::nullopt, "test error");
 		co_return 2;
 	}
 
