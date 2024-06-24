@@ -407,7 +407,7 @@ namespace iris {
 			stack_guard_t stack_guard(L);
 
 			if (luaL_loadbuffer(L, code.data(), code.size(), name.data()) != LUA_OK) {
-				systrap(L, "error.load", "iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
+				iris_lua_t::systrap(L, "error.load", "iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
 				optional_result_t<ref_t> ret(std::nullopt, lua_tostring(L, -1));
 				lua_pop(L, 1);
 				return ret;
@@ -913,7 +913,7 @@ namespace iris {
 			if (lua_pcall(L, param_count, LUA_MULTRET, 0) == LUA_OK) {
 				return lua_gettop(L) - top + param_count;
 			} else {
-				systrap(L, "error.call", "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
+				iris_lua_t::systrap(L, "error.call", "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
 				optional_result_t<int> ret(std::nullopt, lua_tostring(L, -1));
 				lua_pop(L, 1);
 				return ret;
@@ -940,7 +940,7 @@ namespace iris {
 					return true;
 				}
 			} else {
-				systrap(L, "error.call", "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
+				iris_lua_t::systrap(L, "error.resume", "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
 				optional_result_t<return_t> ret(std::nullopt, lua_tostring(L, -1));
 				lua_pop(L, 1);
 				return ret;
@@ -1436,7 +1436,7 @@ namespace iris {
 					}
 
 					if (object_hash != type_hash) {
-						systrap(L, "error.typecast", "iris_lua_t::get_variable() -> Object Hash %p is not matched with Type Hash %p\n", object_hash, type_hash);
+						iris_lua_t::systrap(L, "error.typecast", "iris_lua_t::get_variable() -> Object Hash %p is not matched with Type Hash %p\n", object_hash, type_hash);
 						lua_pop(L, 2);
 						return value_t();
 					}
