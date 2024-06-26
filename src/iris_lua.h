@@ -109,7 +109,8 @@ namespace iris {
 		template <typename... args_t>
 		static void systrap(lua_State* L, const char* category, const char* format, args_t&&... args) {
 			stack_guard_t stack_guard(L);
-			lua_getglobal(L, "systrap");
+			lua_getglobal(L, "__iris_systrap__");
+
 			if (lua_type(L, -1) == LUA_TFUNCTION) {
 				lua_pushstring(L, category);
 				lua_pushfstring(L, format, std::forward<args_t>(args)...);
@@ -123,14 +124,19 @@ namespace iris {
 			}
 		}
 
+		struct result_error_t {
+			template <typename value_t>
+			result_error_t(value_t&& value) : message(std::forward<value_t>(value)) {}
+			std::string message;
+		};
+
 		template <typename return_t>
 		struct optional_result_t : std::conditional_t<std::is_void_v<return_t>, std::optional<bool>, std::optional<return_t>> {
 			optional_result_t() {}
+			optional_result_t(result_error_t&& err) : message(std::move(err.message)) {}
+
 			template <typename... args_t>
 			optional_result_t(args_t&&... args) : std::conditional_t<std::is_void_v<return_t>, std::optional<bool>, std::optional<return_t>>(std::forward<args_t>(args)...) {}
-
-			template <typename message_t>
-			optional_result_t(std::nullopt_t, message_t&& msg) : message(std::forward<message_t>(msg)) {}
 
 			std::string message;
 		};
@@ -192,11 +198,11 @@ namespace iris {
 						return ret;
 					} else {
 						lua_pop(L, 2);
-						return std::nullopt;
+						return result_error_t("Invalid key");
 					}
 				} else {
 					lua_pop(L, 1);
-					return std::nullopt;
+					return result_error_t("Not a table");
 				}
 			}
 
@@ -334,7 +340,7 @@ namespace iris {
 			using internal_type_t = type_t*;
 
 			operator bool() const noexcept {
-				return ref_t::value != 0 && ptr != nullptr;
+				return ptr != nullptr;
 			}
 
 			operator type_t* () const noexcept {
@@ -408,8 +414,9 @@ namespace iris {
 
 			if (luaL_loadbuffer(L, code.data(), code.size(), name.data()) != LUA_OK) {
 				iris_lua_t::systrap(L, "error.load", "iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
-				optional_result_t<ref_t> ret(std::nullopt, lua_tostring(L, -1));
+				result_error_t ret(lua_tostring(L, -1));
 				lua_pop(L, 1);
+
 				return ret;
 			}
 
@@ -914,8 +921,9 @@ namespace iris {
 				return lua_gettop(L) - top + param_count;
 			} else {
 				iris_lua_t::systrap(L, "error.call", "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
-				optional_result_t<int> ret(std::nullopt, lua_tostring(L, -1));
+				result_error_t ret(lua_tostring(L, -1));
 				lua_pop(L, 1);
+
 				return ret;
 			}
 		}
@@ -941,8 +949,9 @@ namespace iris {
 				}
 			} else {
 				iris_lua_t::systrap(L, "error.resume", "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
-				optional_result_t<return_t> ret(std::nullopt, lua_tostring(L, -1));
+				result_error_t ret(lua_tostring(L, -1));
 				lua_pop(L, 1);
+
 				return ret;
 			}
 		}
@@ -1409,11 +1418,12 @@ namespace iris {
 					void* type_hash = reinterpret_cast<void*>(get_hash<std::remove_volatile_t<std::remove_const_t<std::remove_pointer_t<value_t>>>>());
 
 					while (true) {
+						lua_pushliteral(L, "__hash");
 #if LUA_VERSION_NUM <= 502
-						lua_getfield(L, -1, "__hash");
+						lua_rawget(L, -2);
 						if (lua_type(L, -1) == LUA_TNIL) {
 #else
-						if (lua_getfield(L, -1, "__hash") == LUA_TNIL) {
+						if (lua_rawget(L, -2) == LUA_TNIL) {
 #endif
 							lua_pop(L, 2);
 							return value_t();
@@ -1939,11 +1949,12 @@ namespace iris {
 							if (lua_rawlen(L, absindex) > sizeof(void*)) {
 								// now metatable prepared
 								if constexpr (move) {
-									lua_getfield(T, -1, "__move");
+									lua_pushliteral(T, "__move");
 								} else {
-									lua_getfield(T, -1, "__copy");
+									lua_pushliteral(T, "__copy");
 								}
 
+								lua_rawget(T, -2);
 								void* ptr = lua_touserdata(T, -1);
 								if (ptr == nullptr) {
 									lua_pop(T, 2);
@@ -2001,11 +2012,12 @@ namespace iris {
 			lua_State* T = target.get_state();
 			stack_guard_t guard_target(T, 1);
 
+			lua_pushliteral(L, "__hash");
 #if LUA_VERSION_NUM <= 502
-			lua_getfield(L, -1, "__hash");
+			lua_rawget(L, -2);
 			if (lua_type(L, -1) != LUA_TNIL) {
 #else
-			if (lua_getfield(L, -1, "__hash") != LUA_TNIL) {
+			if (lua_rawget(L, -2) != LUA_TNIL) {
 #endif
 				void* hash = lua_touserdata(L, -1);
 
