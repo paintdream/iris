@@ -1681,7 +1681,7 @@ namespace iris {
 				lua_pop(L, 1);
 				return lua_error(L);
 			} else {
-				return lua_gettop(L) - 2;
+				return lua_gettop(L) - static_cast<int>(context);
 			}
 		}
 #endif
@@ -1698,7 +1698,7 @@ namespace iris {
 					return lua_error(L);
 				} else {
 #if LUA_ENABLE_YIELDK
-					return lua_yieldk(L, 0, 0, &iris_lua_t::function_coroutine_continuation);
+					return lua_yieldk(L, 0, lua_gettop(L), &iris_lua_t::function_coroutine_continuation);
 #else
 					// yielding with C-continuation not supported
 					return lua_yield(L, 0);
@@ -2103,4 +2103,3 @@ namespace iris {
 		lua_State* state = nullptr;
 	};
 }
-
