@@ -57,6 +57,9 @@ extern "C" {
 #endif
 
 #if LUA_VERSION_NUM <= 502
+#define LUA_ENABLE_YIELDK 0
+#else
+#define LUA_ENABLE_YIELDK 1
 #endif
 
 #if LUA_VERSION_NUM <= 503
@@ -1586,15 +1589,21 @@ namespace iris {
 					coroutine.complete([L, address](return_t&& value) {
 						IRIS_PROFILE_SCOPE(__FUNCTION__);
 						int top = lua_gettop(L);
+						bool ret_error = false;
 
 						if constexpr (is_optional_result<return_t>::value) {
 							if (value) {
 								push_variable(L, std::move(value.value()));
 							} else {
 								// error!
+#if LUA_ENABLE_YIELDK
+								push_variable(L, std::move(value.message));
+								ret_error = true;
+#else
 								iris_lua_t::systrap(L, "error.call", "C-function execution error: %s", value.message.c_str());
 								coroutine_cleanup(L, address);
 								return;
+#endif
 							}
 						} else {
 							push_variable(L, std::move(value));
@@ -1602,7 +1611,7 @@ namespace iris {
 
 						int count = lua_gettop(L) - top;
 						IRIS_ASSERT(count >= 0);
-						push_variable(L, address);
+						push_variable(L, ret_error ? static_cast<void*>(L) : address);
 						coroutine_continuation(L, address, count);
 					}).run();
 				} else {
@@ -1615,11 +1624,15 @@ namespace iris {
 				}
 
 				// already completed?
-				if (lua_touserdata(L, -1) == address) {
+				void* mark = lua_touserdata(L, -1);
+				if (mark == address) {
 					lua_pop(L, 1);
 					int count = lua_gettop(L) - top;
 					IRIS_ASSERT(count >= 0);
 					return count;
+				} else if (mark == L) {
+					lua_pop(L, 1);
+					return -2;
 				} else {
 					return -1;
 				}
@@ -1635,7 +1648,12 @@ namespace iris {
 
 		static void coroutine_continuation(lua_State* L, void* address, int count) {
 			if (lua_status(L) == LUA_YIELD) {
-				lua_pop(L, 1);
+				bool ret_error = lua_touserdata(L, -1) == L;
+				if (!ret_error) {
+					lua_pop(L, 1);
+				} else {
+					count++;
+				}
 #if LUA_VERSION_NUM <= 501
 				int ret = lua_resume(L, count);
 #elif LUA_VERSION_NUM <= 503
@@ -1654,6 +1672,20 @@ namespace iris {
 			coroutine_cleanup(L, address);
 		}
 
+#if LUA_ENABLE_YIELDK
+		static int function_coroutine_continuation(lua_State* L, int status, lua_KContext context) {
+			IRIS_ASSERT(status == LUA_YIELD);
+			// detect error
+			if (lua_touserdata(L, -1) == L) {
+				// error happened
+				lua_pop(L, 1);
+				return lua_error(L);
+			} else {
+				return lua_gettop(L) - 2;
+			}
+		}
+#endif
+
 		template <typename function_t, typename coroutine_t, typename... args_t>
 		static int function_coroutine_proxy_dispatch(lua_State* L, const function_t& function) {
 			check_required_parameters<1, args_t...>(L);
@@ -1661,7 +1693,17 @@ namespace iris {
 			if ((count = function_coroutine_invoke<function_t, 0, coroutine_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, function, 1)) >= 0) {
 				return count;
 			} else {
-				return lua_yield(L, 0);
+				if (count == -2) {
+					// error message already on stack
+					return lua_error(L);
+				} else {
+#if LUA_ENABLE_YIELDK
+					return lua_yieldk(L, 0, 0, &iris_lua_t::function_coroutine_continuation);
+#else
+					// yielding with C-continuation not supported
+					return lua_yield(L, 0);
+#endif
+				}
 			}
 		}
 
