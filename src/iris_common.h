@@ -86,6 +86,14 @@ SOFTWARE.
 #define IRIS_ASSERT assert
 #endif
 
+#ifndef IRIS_LOGERROR
+#define IRIS_LOGERROR(...) fprintf(stderr, __VA_ARGS__)
+#endif
+
+#ifndef IRIS_LOGINFO
+#define IRIS_LOGINFO(...) printf(__VA_ARGS__)
+#endif
+
 namespace iris {
 	static constexpr size_t default_block_size = IRIS_DEFAULT_BLOCK_SIZE;
 	static constexpr size_t default_page_size = IRIS_DEFAULT_PAGE_SIZE;

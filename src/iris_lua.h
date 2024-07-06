@@ -118,11 +118,11 @@ namespace iris {
 				lua_pushstring(L, category);
 				lua_pushfstring(L, format, std::forward<args_t>(args)...);
 				if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
-					fprintf(stderr, "iris_lua_t::systrap() -> Unresolved systrap function!\n");
+					IRIS_LOGERROR("iris_lua_t::systrap() -> Unresolved systrap function!\n");
 					lua_pop(L, 1);
 				}
 			} else {
-				fprintf(stderr, format, std::forward<args_t>(args)...);
+				IRIS_LOGERROR(format, std::forward<args_t>(args)...);
 				lua_pop(L, 1);
 			}
 		}
@@ -1552,7 +1552,7 @@ namespace iris {
 			check_required_parameters<1, args_t...>(L);
 			int ret = function_invoke<function_t, 0, return_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, function, 1);
 			if (ret < 0) {
-				iris_lua_t::systrap(L, "error.call", "C-function execution error: %s", lua_tostring(L, -1));
+				iris_lua_t::systrap(L, "error.exec", "C-function execution error: %s", lua_tostring(L, -1));
 				luaL_error(L, "C-function execution error: %s", lua_tostring(L, -1));
 			}
 
@@ -1563,6 +1563,9 @@ namespace iris {
 		static int function_proxy(lua_State* L) {
 			return function_proxy_dispatch<decltype(function), return_t, args_t...>(L, function);
 		}
+
+		static constexpr int coroutine_state_yield = -1;
+		static constexpr int coroutine_state_error = -2;
 
 		template <typename function_t, int index, typename coroutine_t, typename tuple_t, typename... params_t>
 		static int function_coroutine_invoke(lua_State* L, const function_t& function, int stack_index, params_t&&... params) {
@@ -1589,7 +1592,7 @@ namespace iris {
 					coroutine.complete([L, address](return_t&& value) {
 						IRIS_PROFILE_SCOPE(__FUNCTION__);
 						int top = lua_gettop(L);
-						bool ret_error = false;
+						void* context = address;
 
 						if constexpr (is_optional_result<return_t>::value) {
 							if (value) {
@@ -1598,9 +1601,9 @@ namespace iris {
 								// error!
 #if LUA_ENABLE_YIELDK
 								push_variable(L, std::move(value.message));
-								ret_error = true;
+								context = L;
 #else
-								iris_lua_t::systrap(L, "error.call", "C-function execution error: %s", value.message.c_str());
+								iris_lua_t::systrap(L, "error.resume.legacy", "C-function execution error: %s", value.message.c_str());
 								coroutine_cleanup(L, address);
 								return;
 #endif
@@ -1611,7 +1614,7 @@ namespace iris {
 
 						int count = lua_gettop(L) - top;
 						IRIS_ASSERT(count >= 0);
-						push_variable(L, ret_error ? static_cast<void*>(L) : address);
+						push_variable(L, context);
 						coroutine_continuation(L, address, count);
 					}).run();
 				} else {
@@ -1632,9 +1635,9 @@ namespace iris {
 					return count;
 				} else if (mark == L) {
 					lua_pop(L, 1);
-					return -2;
+					return coroutine_state_error;
 				} else {
-					return -1;
+					return coroutine_state_yield;
 				}
 			}
 		}
@@ -1693,14 +1696,19 @@ namespace iris {
 			if ((count = function_coroutine_invoke<function_t, 0, coroutine_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, function, 1)) >= 0) {
 				return count;
 			} else {
-				if (count == -2) {
+				if (count == coroutine_state_error) {
 					// error message already on stack
 					return lua_error(L);
 				} else {
+					// coroutine_state_yield
 #if LUA_ENABLE_YIELDK
+					// after Lua 5.3, we can throw errors on C-coroutine via lua_yieldk directly
+					// so it can be captured within current pcall() context
 					return lua_yieldk(L, 0, lua_gettop(L), &iris_lua_t::function_coroutine_continuation);
 #else
-					// yielding with C-continuation not supported
+					// however if you use a lower version (including LuaJIT),
+					// since C-continuation from yielding point is not possible, we cannot resume the coroutine anymore as C-error happends,
+					// try using __iris_systrap__ to capture it
 					return lua_yield(L, 0);
 #endif
 				}
@@ -2103,3 +2111,4 @@ namespace iris {
 		lua_State* state = nullptr;
 	};
 }
+

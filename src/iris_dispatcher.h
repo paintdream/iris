@@ -760,7 +760,7 @@ namespace iris {
 			template <typename func_t>
 			routine_t(warp_t* w, func_t&& func, size_t prior) noexcept : routine(std::forward<func_t>(func)), priority(prior), warp(w), next(nullptr) {
 				lock_count.store(1, std::memory_order_relaxed);
-				memset(next_tasks, 0, sizeof(next_tasks));
+				std::memset(next_tasks, 0, sizeof(next_tasks));
 			}
 
 			friend struct iris_dispatcher_t<warp_t>;
