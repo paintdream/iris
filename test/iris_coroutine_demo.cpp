@@ -54,9 +54,11 @@ coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, warp_t* 
 		printf("Paired!\n");
 		co_await iris_switch(current);
 	}
+	pending_count.fetch_sub(1, std::memory_order_release);
 
 	co_await cascade(warp);
 	int cascade_int_result = co_await cascade_ret(warp);
+	pending_count.fetch_sub(1, std::memory_order_release);
 
 	// Step 1: test single await
 	co_await iris_awaitable(warp, []() {});
@@ -68,26 +70,29 @@ coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, warp_t* 
 	std::function<void()> v1 = [value]() {};
 	std::function<void()> v2 = [value]() {};
 	std::function<void()> v3 = [value]() {};
+	pending_count.fetch_sub(1, std::memory_order_release);
 
+	// Step 3: test multiple await by join-like construction
 	if (warp == nullptr) {
-		iris_awaitable_multiple_t<warp_t, std::function<void()>> multiple(async_worker, iris_awaitable(warp, std::move(v1)));
-		multiple += iris_awaitable(warp, std::move(v2));
-		multiple += iris_awaitable(warp, std::move(v3));
-		co_await multiple;
+		auto w2 = iris_awaitable(warp, std::move(v2));
+		auto w3 = iris_awaitable(warp, std::move(v3));
+		w2.dispatch();
+
+		co_await w2;
+		co_await w3;
 	} else {
 		co_await iris_awaitable_parallel(warp, []() {});
 
-		iris_awaitable_multiple_t<warp_t, std::function<void()>> multiple(async_worker, iris_awaitable_parallel(warp, std::move(v1)));
-		multiple += iris_awaitable_parallel(warp, std::move(v2));
-		multiple += iris_awaitable_parallel(warp, std::move(v3), 1);
-		co_await multiple;
+		auto w2 = iris_awaitable_parallel(warp, std::move(v2));
+		auto w3 = iris_awaitable_parallel(warp, std::move(v3), 1);
+
+		w3.dispatch();
+
+		co_await w2;
+		co_await w3;
 	}
 
-	// Step 3: test multiple await by join-like construction
-	std::function<int()> v4 = [value]() { return value + 4; };
-	std::function<int()> v5 = [value]() { return value + 5; };
-	std::vector<int> rets = co_await iris_awaitable_union(async_worker, iris_awaitable(warp, std::move(v4)), iris_awaitable(warp, std::move(v5)));
-	printf("Value: (%d, %d) %p\n", rets[0], rets[1], warp_t::get_current_warp());
+	pending_count.fetch_sub(1, std::memory_order_release);
 
 	if (warp != nullptr) {
 		warp_t* current = co_await iris_switch(warp);
@@ -168,8 +173,9 @@ static coroutine_t example_quota(quota_queue_t& q) {
 int main(void) {
 	static constexpr size_t thread_count = 8;
 	static constexpr size_t warp_count = 16;
+
 	iris_async_worker_t<> worker(thread_count);
-	worker.append(std::thread());
+	size_t main_thread_index = worker.append(std::thread());
 	worker.start();
 
 	iris_dispatcher_t<warp_t> dispatcher(worker);
@@ -200,7 +206,7 @@ int main(void) {
 	});
 
 	// initialize pending count with `example` call count
-	pending_count.fetch_add(6, std::memory_order_acq_rel);
+	pending_count.fetch_add(30, std::memory_order_acq_rel);
 
 	// test for running example from an external thread
 	example(worker, &warps[0], &warps[3], 1).complete([]() {
@@ -227,11 +233,12 @@ int main(void) {
 		example(worker, nullptr, nullptr, 6).run();
 	});
 
-	worker.thread_loop(0);
+	worker.thread_loop(main_thread_index);
 	worker.join();
 
 	// finished!
 	while (!warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
+
 	return 0;
 }
 

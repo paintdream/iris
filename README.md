@@ -281,29 +281,17 @@ co_wait iris_switch returns previous warp. Notice that we can switch to a nullpt
 And we can create and wait a asynchronized task on target warp:
 
 ```C++
-// Step 1: test single await
 co_await iris_awaitable(warp, []() {});
 ```
 
-It is equivalent to switching to warp and switching back. But **iris_awaitable** allows multiple awaiting:
+It is equivalent to switching to warp and switching back. But **iris_awaitable** allows early dispatching before waiting:
 
 ```C++
-iris_awaitable_multiple_t<iris_warp_t, std::function<void()>> multiple(async_worker, iris_awaitable(warp, std::move(v1)));
-multiple += iris_awaitable(warp, std::move(v2));
-multiple += iris_awaitable(warp, std::move(v3));
-co_await multiple;
+auto awaitble = iris_awaitable(warp, []() {});
+awaitable.dispatch();
+// do something other
+co_await awaitable;
 ```
-
-or just union multiple tasks in one line:
-
-```C++
-// Step 3: test multiple await by join-like construction
-std::function<int()> v4 = [value]() { return value + 4; };
-std::function<int()> v5 = [value]() { return value + 5; };
-std::vector<int> rets = co_await iris_awaitable_union(async_worker, iris_awaitable(warp, std::move(v4)), iris_awaitable(warp, std::move(v5)));
-```
-
-It's much more clear than use callbacks.
 
 iris_coroutine_t<return_type> is not only a coroutine but also an awaitable object. You could also co_await it to chain your coroutine pipeline.
 

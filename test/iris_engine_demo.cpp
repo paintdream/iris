@@ -115,9 +115,8 @@ struct engine_t {
 			printf("coroutine main before event\n");
 			sync_event.notify();
 
-			co_await iris_awaitable_union(worker,
-				iris_awaitable(&warp_render, std::function<void()>([]() { printf("coroutine parallel render ticks\n"); })),
-				iris_awaitable(&warp_network, std::function<void()>([]() { printf("coroutine parallel network ticks\n"); })));
+			co_await iris_awaitable(&warp_render, std::function<void()>([]() { printf("coroutine parallel render ticks\n"); }));
+			co_await iris_awaitable(&warp_network, std::function<void()>([]() { printf("coroutine parallel network ticks\n"); }));
 			
 			for (auto&& callback : callbacks) {
 				callback();
