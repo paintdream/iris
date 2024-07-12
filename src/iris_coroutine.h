@@ -676,7 +676,7 @@ namespace iris {
 			std::atomic_thread_fence(std::memory_order_acquire);
 			if (in_index != out_index) {
 				auto handle = std::move(handles[in_index]);
-				handles[in_index] = info_t(nullptr, nullptr);
+				handles[in_index] = info_t();
 
 				iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(handle));
 				std::atomic_thread_fence(std::memory_order_release);
