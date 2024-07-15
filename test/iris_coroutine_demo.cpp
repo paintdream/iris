@@ -114,29 +114,20 @@ coroutine_int_t example_empty() {
 }
 
 template <typename barrier_type_t>
-coroutine_t example_barrier(barrier_type_t& barrier, int index) {
+coroutine_t example_barrier(warp_t::async_worker_t& async_worker, barrier_type_t& barrier, int index) {
 	printf("Example barrier %d begin running!\n", index);
 
-	if (co_await barrier == 0) {
-		printf("Unique barrier!\n");
-	}
-
 	co_await barrier;
+	std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 50));
 	printf("Example barrier %d mid running!\n", index);
 
 	co_await barrier;
+	std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 50));
 	printf("Example barrier %d end running!\n", index);
-}
 
-template <typename frame_type_t>
-coroutine_t example_frame(frame_type_t& frame, int index) {
-	printf("Example frame %d begin running!\n", index);
-
-	co_await frame;
-	printf("Example frame %d mid running!\n", index);
-
-	co_await frame;
-	printf("Example frame %d end running!\n", index);
+	if (pending_count.fetch_sub(1, std::memory_order_release) == 1) {
+		async_worker.terminate();
+	}
 }
 
 static coroutine_t example_listen(iris_dispatcher_t<warp_t>& dispatcher) {
@@ -146,6 +137,10 @@ static coroutine_t example_listen(iris_dispatcher_t<warp_t>& dispatcher) {
 
 	co_await iris_listen_dispatch(dispatcher, prev);
 	printf("next task!");
+
+	if (pending_count.fetch_sub(1, std::memory_order_release) == 1) {
+		dispatcher.get_async_worker().terminate();
+	}
 }
 
 static coroutine_t example_quota(quota_queue_t& q) {
@@ -168,6 +163,10 @@ static coroutine_t example_quota(quota_queue_t& q) {
 	printf("Acquire quota holder!\n");
 	auto guard3 = co_await q.guard({ 1, 1 });
 	guard3 = std::move(guard2);
+
+	if (pending_count.fetch_sub(1, std::memory_order_release) == 1) {
+		q.get_async_worker().terminate();
+	}
 }
 
 int main(void) {
@@ -178,9 +177,13 @@ int main(void) {
 	size_t main_thread_index = worker.append(std::thread());
 	worker.start();
 
+	pending_count.fetch_add(1, std::memory_order_release);
+
 	iris_dispatcher_t<warp_t> dispatcher(worker);
 	example_listen(dispatcher).run();
 	quota_t quota({ 4, 5 });
+
+	pending_count.fetch_add(1, std::memory_order_release);
 	quota_queue_t quota_queue(worker, quota);
 	example_quota(quota_queue).run();
 
@@ -191,18 +194,20 @@ int main(void) {
 	}
 
 	// test for barrier
+	pending_count.fetch_add(8, std::memory_order_release);
+
 	barrier_t barrier(worker, 4);
-	example_barrier(barrier, 0).run();
-	example_barrier(barrier, 1).run();
-	example_barrier(barrier, 2).run();
-	example_barrier(barrier, 3).run();
+	example_barrier(worker, barrier, 0).run();
+	example_barrier(worker, barrier, 1).run();
+	example_barrier(worker, barrier, 2).run();
+	example_barrier(worker, barrier, 3).run();
 
 	barrier_warp_t barrier_warp(worker, 4);
-	warps[0].queue_routine_external([&barrier_warp]() {
-		example_barrier(barrier_warp, 5).run();
-		example_barrier(barrier_warp, 6).run();
-		example_barrier(barrier_warp, 7).run();
-		example_barrier(barrier_warp, 8).run();
+	warps[0].queue_routine_external([&worker, &barrier_warp]() {
+		example_barrier(worker, barrier_warp, 5).run();
+		example_barrier(worker, barrier_warp, 6).run();
+		example_barrier(worker, barrier_warp, 7).run();
+		example_barrier(worker, barrier_warp, 8).run();
 	});
 
 	// initialize pending count with `example` call count
