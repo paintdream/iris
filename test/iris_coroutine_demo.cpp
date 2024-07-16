@@ -176,6 +176,7 @@ int main(void) {
 	iris_async_worker_t<> worker(thread_count);
 	size_t main_thread_index = worker.append(std::thread());
 	worker.start();
+	pending_count.fetch_add(1, std::memory_order_release);
 
 	pending_count.fetch_add(1, std::memory_order_release);
 
@@ -237,6 +238,10 @@ int main(void) {
 		example(worker, &warps[0], &warps[3], 5).run();
 		example(worker, nullptr, nullptr, 6).run();
 	});
+
+	if (pending_count.fetch_sub(1, std::memory_order_release) == 1) {
+		worker.terminate();
+	}
 
 	worker.thread_loop(main_thread_index);
 	worker.join();
