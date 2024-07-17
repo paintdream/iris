@@ -466,17 +466,6 @@ namespace iris {
 		}
 
 		void await_suspend(std::coroutine_handle<> handle) {
-			// try fast preempt
-			for (iterator_t p = begin; p != end; ++p) {
-				warp_t* target = &(*p);
-				typename warp_t::preempt_guard_t guard(*target, 0);
-				if (guard) {
-					selected = target;
-					handle.resume();
-					return;
-				}
-			}
-
 			// all warps are busy, so we need to post tasks to them
 			auto shared_handle = std::make_shared<std::pair<std::atomic<std::coroutine_handle<>>, iris_select_t*>>(std::move(handle), this);
 			for (iterator_t p = begin; p != end; ++p) {
