@@ -16,6 +16,7 @@ static void graph_dispatch();
 static void graph_dispatch_exception();
 
 int main(void) {
+	garbage_collection();
 	external_poll();
 	stack_op();
 	not_pow_two();
@@ -283,7 +284,7 @@ void simple_explosion(void) {
 	worker.join();
 
 	// finished!
-	while (!warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
+	while (!worker.finalize() || !warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
 
 	printf("after: \n");
 	for (size_t k = 0; k < warp_count; k++) {
@@ -394,7 +395,7 @@ void garbage_collection() {
 		worker.join();
 
 		// finished!
-		while (!warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
+		while (!worker.finalize() || !warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
 	}
 }
 
@@ -499,7 +500,7 @@ void graph_dispatch() {
 	printf("sum of factors: %d\n", (int)sum_factors);
 
 	// finished!
-	while (!warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
+	while (!worker.finalize() || !warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
 }
 
 void graph_dispatch_exception() {

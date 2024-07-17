@@ -247,7 +247,7 @@ int main(void) {
 	worker.join();
 
 	// finished!
-	while (!warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
+	while (!worker.finalize() || !warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
 
 	return 0;
 }

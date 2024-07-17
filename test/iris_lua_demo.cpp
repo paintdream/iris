@@ -498,8 +498,8 @@ end\n\
 
 	warp.yield();
 	worker.join();
-	warp.join([] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); });
-	warp2.join([] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); });
+
+	while (!worker.finalize() || !warp.join([] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); }) || !warp2.join([] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
 	preempt_guard.cleanup();
 #endif
 	lua_close(L);

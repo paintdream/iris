@@ -349,8 +349,9 @@ namespace iris {
 
 			if (ret) {
 				// all suspend requests removed, try to flush me
-				queueing.store(queue_state_t::idle, std::memory_order_relaxed);
-				flush();
+				if (queueing.exchange(queue_state_t::idle, std::memory_order_relaxed) == queue_state_t::pending) {
+					flush();
+				}
 			}
 
 			return ret;
@@ -1038,7 +1039,7 @@ namespace iris {
 		using general_allocator_t = allocator_t<element_t>;
 		using task_allocator_t = allocator_t<task_t>;
 
-		iris_async_worker_t() : waiting_thread_count(0), limit_count(0), internal_thread_count(0) {
+		iris_async_worker_t() : waiting_thread_count(0), limit_count(0), internal_thread_count(0), finalize_task_head(nullptr) {
 			task_allocator_index.store(0, std::memory_order_relaxed);
 			running_count.store(0, std::memory_order_relaxed);
 			task_count.store(0, std::memory_order_relaxed);
@@ -1058,6 +1059,7 @@ namespace iris {
 
 		// initialize and start thread poll
 		void start() {
+			IRIS_ASSERT(finalize_task_head == nullptr);
 			IRIS_ASSERT(task_heads.empty()); // must not started
 
 			std::vector<std::atomic<task_t*>> heads(threads.size() * task_head_duplicate_count);
@@ -1181,6 +1183,7 @@ namespace iris {
 		~iris_async_worker_t() noexcept {
 			terminate();
 			join();
+			while (!finalize()) {}
 
 			IRIS_ASSERT(task_count.load(std::memory_order_acquire) == 0);
 		}
@@ -1273,7 +1276,8 @@ namespace iris {
 				} else {
 					// terminate finished, just run at here
 					IRIS_ASSERT(get_current_thread_index_internal() == ~size_t(0));
-					execute_task(task);
+					task->next = finalize_task_head;
+					finalize_task_head = task;
 				}
 			}
 		}
@@ -1281,6 +1285,23 @@ namespace iris {
 		template <typename callable_t>
 		void queue(callable_t&& callable, size_t priority = 0) {
 			queue_task(new_task(std::forward<callable_t>(callable)), priority);
+		}
+
+		bool finalize() {
+			IRIS_ASSERT(is_terminated());
+
+			task_t* p = finalize_task_head;
+			if (p != nullptr) {
+				do {
+					finalize_task_head = p->next;
+					execute_task(p);
+					p = finalize_task_head;
+				} while (p != nullptr);
+
+				return false;
+			} else {
+				return true;
+			}
 		}
 
 		// mark as terminated
@@ -1313,6 +1334,8 @@ namespace iris {
 				task_heads.clear();
 				threads.resize(internal_thread_count);
 			}
+
+			while (!finalize()) {}
 		}
 
 		// notify threads in thread pool, usually used for customized threads
@@ -1465,6 +1488,7 @@ namespace iris {
 		std::atomic<size_t> running_count; // running_count
 		std::atomic<size_t> task_count; // the count of total waiting tasks 
 		std::vector<std::atomic<task_t*>> task_heads; // task pointer list
+		task_t* finalize_task_head;
 		std::mutex mutex; // mutex to protect condition
 		std::condition_variable condition; // condition variable for idle wait
 		std::atomic<size_t> terminated; // is to terminate
