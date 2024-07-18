@@ -321,7 +321,7 @@ namespace iris {
 		// yield execution atomically, returns true on success.
 		bool yield() noexcept(noexcept(std::declval<iris_warp_t>().flush())) {
 			iris_warp_t** exp = &get_current_warp_internal();
-			if (thread_warp.compare_exchange_strong(exp, reinterpret_cast<iris_warp_t**>(~size_t(0)), std::memory_order_release)) {
+			if (thread_warp.load(std::memory_order_acquire) == exp) {
 				get_current_warp_internal() = stack_next_warp;
 				stack_next_warp = nullptr;
 				thread_warp.store(nullptr, std::memory_order_release);
