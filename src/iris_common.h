@@ -1963,7 +1963,19 @@ namespace iris {
 		}
 
 		bool empty() const noexcept {
-			return push_head->empty();
+			if (pop_head->empty()) {
+				if (pop_head != push_head) {
+					if /* constexpr */ (enable_memory_fence) {
+						std::atomic_thread_fence(std::memory_order_acquire);
+					}
+
+					return push_head->empty();
+				} else {
+					return true;
+				}
+			} else {
+				return false;
+			}
 		}
 
 		bool probe(size_t request_size) const noexcept {
