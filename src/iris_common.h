@@ -1816,37 +1816,55 @@ namespace iris {
 			}
 		}
 	
-		// preserve space for just one element
-		void preserve() noexcept(noexcept(std::declval<node_allocator_t>().allocate(1))) {
+		template <typename input_element_t>
+		element_t* push(input_element_t&& t) noexcept(noexcept(std::declval<node_t>().push(std::forward<input_element_t>(t)))) {
+			auto guard = in_fence();
+
 			if (push_head->full()) {
 				node_t* p = node_allocator_t::allocate(1);
 				new (p) node_t(iterator_counter);
 				iterator_counter = node_t::step_counter(iterator_counter, element_count);
+				element_t* w = p->push(std::forward<input_element_t>(t));
 
 				// chain new node_t at head.
 				push_head->next = p;
+
+				if (enable_memory_fence) {
+					std::atomic_thread_fence(std::memory_order_release);
+				}
+
 				push_head = p;
+				return w;
+			} else {
+				return push_head->push(std::forward<input_element_t>(t));
 			}
 		}
 
-		template <typename input_element_t>
-		element_t* push(input_element_t&& t) noexcept(noexcept(std::declval<iris_queue_list_t>().preserve()) && noexcept(std::declval<iris_queue_list_t>().emplace(std::forward<input_element_t>(t)))) {
-			auto guard = in_fence();
-			preserve();
-			return emplace(std::forward<input_element_t>(t));
-		}
-
 		template <typename iterator_t>
-		iterator_t push(iterator_t from, iterator_t to) noexcept(noexcept(std::declval<iris_queue_list_t>().push(*from))) {
+		iterator_t push(iterator_t from, iterator_t to) noexcept(noexcept(std::declval<node_t>().push(from, to))) {
 			auto guard = in_fence();
 
 			while (true) {
 				iterator_t next = push_head->push(from, to);
-				if (from == next)
-					return next; // complete
+				if (next == to) {
+					return next;
+				}
 
+				// full
+				node_t* p = node_allocator_t::allocate(1);
+				new (p) node_t(iterator_counter);
+				iterator_counter = node_t::step_counter(iterator_counter, element_count);
+				next = p->push(from, to);
+
+				// chain new node_t at head.
+				push_head->next = p;
+
+				if (enable_memory_fence) {
+					std::atomic_thread_fence(std::memory_order_release);
+				}
+
+				push_head = p;
 				from = next;
-				preserve();
 			}
 		}
 
@@ -2342,11 +2360,6 @@ namespace iris {
 		const_iterator end() const noexcept {
 			const node_t* p = push_head;
 			return const_iterator(p, p->end_index());
-		}
-
-		template <typename input_element_t>
-		element_t* emplace(input_element_t&& t) noexcept(noexcept(std::declval<node_t>().push(std::forward<input_element_t>(t)))) {
-			return push_head->push(std::forward<input_element_t>(t));
 		}
 
 	protected:

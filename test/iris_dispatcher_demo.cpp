@@ -16,7 +16,6 @@ static void graph_dispatch();
 static void graph_dispatch_exception();
 
 int main(void) {
-	garbage_collection();
 	external_poll();
 	stack_op();
 	not_pow_two();

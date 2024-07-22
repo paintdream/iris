@@ -118,11 +118,14 @@ namespace iris {
 
 				return true;
 			} else {
-				preserve_entity(placeholder<components_t...>());
-				emplace_components<sizeof...(components_t)>(std::forward<elements_t>(t)...);
-				entities.emplace(entity);
-				iris_binary_insert(entity_components, iris_make_key_value(entity, iris_verify_cast<index_t>(entities.end_index())));
+				if (entity_components.capacity() <= entity_components.size() + 1) {
+					entity_components.reserve(entity_components.size() * 3 / 2);
+				}
 
+				emplace_components<sizeof...(components_t)>(std::forward<elements_t>(t)...);
+				entities.push(entity);
+
+				iris_binary_insert(entity_components, iris_make_key_value(entity, iris_verify_cast<index_t>(entities.end_index())));
 				return false;
 			}
 		}
@@ -267,7 +270,7 @@ namespace iris {
 
 		template <size_t i, typename first_t, typename... elements_t>
 		void emplace_components(first_t&& first, elements_t&&... remaining) {
-			std::get<sizeof...(components_t) - i>(components).emplace(std::forward<first_t>(first));
+			std::get<sizeof...(components_t) - i>(components).push(std::forward<first_t>(first));
 			emplace_components<i - 1>(std::forward<elements_t>(remaining)...);
 		}
 
@@ -290,20 +293,6 @@ namespace iris {
 		}
 
 		void move_components(index_t& index, placeholder<>) noexcept {}
-
-		template <typename first_t, typename... elements_t>
-		void preserve_entity(placeholder<first_t, elements_t...>) {
-			std::get<sizeof...(elements_t)>(components).preserve();
-			preserve_entity(placeholder<elements_t...>());
-		}
-
-		void preserve_entity(placeholder<>) {
-			entities.preserve();
-
-			if (entity_components.capacity() <= entity_components.size() + 1) {
-				entity_components.reserve(entity_components.size() * 3 / 2);
-			}
-		}
 
 		template <typename first_t, typename... elements_t>
 		void pop_components(placeholder<first_t, elements_t...>) noexcept {
