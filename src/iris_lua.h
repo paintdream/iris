@@ -416,8 +416,8 @@ namespace iris {
 			stack_guard_t stack_guard(L);
 
 			if (luaL_loadbuffer(L, code.data(), code.size(), name.data()) != LUA_OK) {
-				iris_lua_t::systrap(L, "error.load", "iris_lua_t::run() -> load code error: %s\n", lua_tostring(L, -1));
-				result_error_t ret(lua_tostring(L, -1));
+				iris_lua_t::systrap(L, "error.load", "iris_lua_t::run() -> load code error: %s\n", luaL_optstring(L, -1, ""));
+				result_error_t ret(luaL_optstring(L, -1, ""));
 				lua_pop(L, 1);
 
 				return ret;
@@ -923,8 +923,8 @@ namespace iris {
 			if (lua_pcall(L, param_count, LUA_MULTRET, 0) == LUA_OK) {
 				return lua_gettop(L) - top + param_count;
 			} else {
-				iris_lua_t::systrap(L, "error.call", "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
-				result_error_t ret(lua_tostring(L, -1));
+				iris_lua_t::systrap(L, "error.call", "iris_lua_t::call() -> call function failed! %s\n", luaL_optstring(L, -1, ""));
+				result_error_t ret(luaL_optstring(L, -1, ""));
 				lua_pop(L, 1);
 
 				return ret;
@@ -951,8 +951,8 @@ namespace iris {
 					return true;
 				}
 			} else {
-				iris_lua_t::systrap(L, "error.resume", "iris_lua_t::call() -> call function failed! %s\n", lua_tostring(L, -1));
-				result_error_t ret(lua_tostring(L, -1));
+				iris_lua_t::systrap(L, "error.resume", "iris_lua_t::call() -> call function failed! %s\n", luaL_optstring(L, -1, ""));
+				result_error_t ret(luaL_optstring(L, -1, ""));
 				lua_pop(L, 1);
 
 				return ret;
@@ -1552,8 +1552,8 @@ namespace iris {
 			check_required_parameters<1, args_t...>(L);
 			int ret = function_invoke<function_t, 0, return_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, function, 1);
 			if (ret < 0) {
-				iris_lua_t::systrap(L, "error.exec", "C-function execution error: %s", lua_tostring(L, -1));
-				luaL_error(L, "C-function execution error: %s", lua_tostring(L, -1));
+				iris_lua_t::systrap(L, "error.exec", "C-function execution error: %s", luaL_optstring(L, -1, ""));
+				luaL_error(L, "C-function execution error: %s", luaL_optstring(L, -1, ""));
 			}
 
 			return ret;
@@ -1667,7 +1667,7 @@ namespace iris {
 #endif
 				if (ret != LUA_OK && ret != LUA_YIELD) {
 					// error!
-					iris_lua_t::systrap(L, "error.resume", "iris_lua_t::function_coutine_proxy() -> resume error: %s\n", lua_tostring(L, -1));
+					iris_lua_t::systrap(L, "error.resume", "iris_lua_t::function_coutine_proxy() -> resume error: %s\n", luaL_optstring(L, -1, ""));
 					lua_pop(L, 1);
 				}
 			}

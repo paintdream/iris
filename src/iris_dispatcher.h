@@ -65,7 +65,6 @@ namespace iris {
 		private:
 			std::atomic<size_t>* variable;
 		};
-
 	}
 
 	// dispatch routines:
