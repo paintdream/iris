@@ -1999,7 +1999,7 @@ namespace iris {
 		bool probe(size_t request_size) const noexcept {
 			size_t counter = 0;
 			// sum up all sub queues
-			for (node_t* p = pop_head; p != nullptr; p = p->next) {
+			for (node_t* p = pop_head; p != push_head->next; p = p->next) {
 				counter += p->size();
 				if (counter >= request_size) {
 					return true;
@@ -2012,7 +2012,7 @@ namespace iris {
 		size_t size() const noexcept {
 			size_t counter = 0;
 			// sum up all sub queues
-			for (node_t* p = pop_head; p != nullptr; p = p->next) {
+			for (node_t* p = pop_head; p != push_head->next; p = p->next) {
 				counter += p->size();
 			}
 
@@ -2045,6 +2045,11 @@ namespace iris {
 					IRIS_ASSERT(address != nullptr);
 
 					push_head->next = p;
+
+					if (enable_memory_fence) {
+						std::atomic_thread_fence(std::memory_order_release);
+					}
+
 					push_head = p;
 					break;
 				}
@@ -2103,7 +2108,7 @@ namespace iris {
 		template <typename operation_t>
 		void for_each(operation_t&& op) noexcept(noexcept(std::declval<node_t>().for_each(op))) {
 			auto guard = out_fence();
-			for (node_t* p = pop_head; p != nullptr; p = p->next) {
+			for (node_t* p = pop_head; p != pop_head->next; p = p->next) {
 				p->for_each(op);
 			}
 		}
@@ -2111,7 +2116,7 @@ namespace iris {
 		template <typename operation_t>
 		void for_each(operation_t&& op) const noexcept(noexcept(std::declval<node_t>().for_each(op))) {
 			auto guard = out_fence();
-			for (node_t* p = pop_head; p != nullptr; p = p->next) {
+			for (node_t* p = pop_head; p != pop_head->next; p = p->next) {
 				p->for_each(op);
 			}
 		}
@@ -2119,7 +2124,7 @@ namespace iris {
 		template <typename operation_t>
 		void for_each_queue(operation_t&& op) noexcept(noexcept(op(std::declval<iris_queue_list_t>().pop_head))) {
 			auto guard = out_fence();
-			for (node_t* p = pop_head; p != nullptr; p = p->next) {
+			for (node_t* p = pop_head; p != pop_head->next; p = p->next) {
 				op(p);
 			}
 		}
@@ -2127,7 +2132,7 @@ namespace iris {
 		template <typename operation_t>
 		void for_each_queue(operation_t&& op) const noexcept(noexcept(op(std::declval<iris_queue_list_t>().pop_head))) {
 			auto guard = out_fence();
-			for (const node_t* p = pop_head; p != nullptr; p = p->next) {
+			for (const node_t* p = pop_head; p != pop_head->next; p = p->next) {
 				op(p);
 			}
 		}
