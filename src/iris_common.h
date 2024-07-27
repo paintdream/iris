@@ -1755,7 +1755,7 @@ namespace iris {
 	// chain kfifos to make variant capacity.
 	// debug_allocator_t is for bypassing vs 2015's compiler bug.
 	template <typename value_t, template <typename...> class allocator_t = iris_default_block_allocator_t, template <typename...> class top_allocator_t = allocator_t, bool enable_memory_fence = true, template <typename...> class debug_allocator_t = allocator_t>
-	struct iris_queue_list_t : private top_allocator_t<impl::node_t<value_t, allocator_t, enable_memory_fence>>, protected enable_in_out_fence_t<> {
+	struct iris_queue_list_t : protected top_allocator_t<impl::node_t<value_t, allocator_t, enable_memory_fence>>, protected enable_in_out_fence_t<> {
 		using element_t = value_t;
 		using node_t = impl::node_t<element_t, debug_allocator_t, enable_memory_fence>;
 		using node_allocator_t = top_allocator_t<node_t>;
@@ -1843,18 +1843,14 @@ namespace iris {
 		template <typename iterator_t>
 		iterator_t push(iterator_t from, iterator_t to) noexcept(noexcept(std::declval<node_t>().push(from, to))) {
 			auto guard = in_fence();
+			from = push_head->push(from, to);
 
-			while (true) {
-				iterator_t next = push_head->push(from, to);
-				if (next == to) {
-					return next;
-				}
-
+			while (from != to) {
 				// full
 				node_t* p = node_allocator_t::allocate(1);
 				new (p) node_t(iterator_counter);
 				iterator_counter = node_t::step_counter(iterator_counter, element_count);
-				next = p->push(from, to);
+				from = p->push(from, to);
 
 				// chain new node_t at head.
 				push_head->next = p;
@@ -1864,8 +1860,9 @@ namespace iris {
 				}
 
 				push_head = p;
-				from = next;
 			}
+
+			return from;
 		}
 
 		size_t end_index() const noexcept {
@@ -2027,48 +2024,6 @@ namespace iris {
 
 		static constexpr size_t full_pack_size() noexcept {
 			return element_count;
-		}
-
-		// allocate continuous array from queue_list
-		// may lead holes in low-level storage if current node is not enough
-		std::pair<element_t*, size_t> allocate(size_t count, size_t alignment) {
-			auto guard = in_fence();
-
-			element_t* address;
-			while ((address = push_head->allocate(count, alignment)) == nullptr) {
-				if (push_head->next == nullptr) {
-					node_t* p = node_allocator_t::allocate(1);
-					new (p) node_t(iterator_counter);
-					iterator_counter = node_t::step_counter(iterator_counter, element_count);
-
-					address = p->allocate(count, alignment); // must success
-					IRIS_ASSERT(address != nullptr);
-
-					push_head->next = p;
-
-					if (enable_memory_fence) {
-						std::atomic_thread_fence(std::memory_order_release);
-					}
-
-					push_head = p;
-					break;
-				}
-
-				push_head = push_head->next;
-			}
-
-			return std::make_pair(address, iterator_counter + push_head->size() - count);
-		}
-
-		// must call deallocate() exactly the same order and parameters as calling allocate()
-		void deallocate(size_t size, size_t alignment) noexcept {
-			auto guard = out_fence();
-			if /* constexpr */ (enable_memory_fence) {
-				cleanup_empty();
-			}
-
-			pop_head->deallocate(size, alignment);
-			cleanup_empty();
 		}
 
 		// reset all nodes

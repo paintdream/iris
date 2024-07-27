@@ -508,23 +508,25 @@ namespace iris {
 	using iris_bytes_t = iris_buffer_t<uint8_t>;
 
 	template <typename element_t, size_t block_size = default_block_size, template <typename...> class allocator_t = iris_default_block_allocator_t>
-	struct iris_cache_t {
+	struct iris_cache_t : protected iris_queue_list_t<element_t, allocator_t, allocator_t, false> {
+		using storage_t = iris_queue_list_t<element_t, allocator_t, allocator_t, false>;
+
 		iris_buffer_t<element_t> allocate(size_t size, size_t alignment = 16) {
-			size_t pack = allocator.pack_size(alignment);
+			size_t pack = storage_t::pack_size(alignment);
 			static_assert(alignof(iris_buffer_t<element_t>) % sizeof(element_t) == 0, "iris_buffer_t<element_t> must be aligned at least sizeof(element_t).");
 			const size_t head_count = sizeof(iris_buffer_t<element_t>) / sizeof(element_t);
 
 			if (size > pack) {
-				element_t* slice = allocator.allocate(pack, alignment).first;
+				element_t* slice = allocate_aligned(pack, alignment).first;
 				iris_buffer_t<element_t> head = iris_buffer_t<element_t>::make_view(slice, pack);
 				iris_buffer_t<element_t>* p = &head;
 				size -= pack;
-				pack = allocator.full_pack_size() - head_count;
+				pack = storage_t::full_pack_size() - head_count;
 				alignment = std::max(alignment, iris_verify_cast<size_t>(alignof(iris_buffer_t<element_t>) / sizeof(element_t)));
 
 				while (size != 0) {
 					size_t alloc_count = std::min(size, pack);
-					slice = allocator.allocate(alloc_count + head_count, alignment).first;
+					slice = allocate_aligned(alloc_count + head_count, alignment).first;
 					iris_buffer_t<element_t>* next = new (slice) iris_buffer_t<element_t>();
 					*next = iris_buffer_t<element_t>::make_view(slice + head_count, pack);
 					size -= alloc_count;
@@ -535,18 +537,13 @@ namespace iris {
 
 				return head;
 			} else {
-				return iris_buffer_t<element_t>::make_view(allocator.allocate(size, alignment).first, size);
+				return iris_buffer_t<element_t>::make_view(allocate_aligned(size, alignment).first, size);
 			}
 		}
 
 		static constexpr size_t full_pack_size() {
-			return iris_queue_list_t<element_t, allocator_t>::full_pack_size();
+			return storage_t::full_pack_size();
 		}
-
-		std::pair<element_t*, size_t> allocate_linear(size_t size, size_t alignment = 16) {
-			return allocator.allocate(size, alignment);
-		}
-
 		void link(iris_buffer_t<element_t>& from, const iris_buffer_t<element_t>& to) {
 			if (from.empty()) {
 				from = to;
@@ -558,15 +555,39 @@ namespace iris {
 		}
 
 		void reset() noexcept {
-			allocator.reset(~size_t(0));
+			storage_t::reset(~size_t(0));
 		}
 
 		void clear() noexcept {
-			allocator.reset(0);
+			storage_t::reset(0);
 		}
 
-	protected:
-		iris_queue_list_t<element_t, allocator_t> allocator;
+		// allocate continuous array from queue_list
+		// may lead holes in low-level storage if current node is not enough
+		std::pair<element_t*, size_t> allocate_aligned(size_t count, size_t alignment) {
+			auto guard = storage_t::in_fence();
+
+			element_t* address;
+			while ((address = storage_t::push_head->allocate(count, alignment)) == nullptr) {
+				if (storage_t::push_head->next == nullptr) {
+					auto* p = storage_t::node_allocator_t::allocate(1);
+					new (p) typename storage_t::node_t(storage_t::iterator_counter);
+					storage_t::iterator_counter = storage_t::node_t::step_counter(storage_t::iterator_counter, storage_t::element_count);
+
+					address = p->allocate(count, alignment); // must success
+					IRIS_ASSERT(address != nullptr);
+
+					storage_t::push_head->next = p;
+					// no memory fence
+					storage_t::push_head = p;
+					break;
+				}
+
+				storage_t::push_head = storage_t::push_head->next;
+			}
+
+			return std::make_pair(address, storage_t::iterator_counter + storage_t::push_head->size() - count);
+		}
 	};
 
 	using bytes_cache_t = iris_cache_t<uint8_t>;
@@ -642,7 +663,7 @@ namespace iris {
 			static_assert(sizeof(element_t) % sizeof(base_t) == 0, "must be aligned.");
 			size_t count = n * sizeof(element_t) / sizeof(base_t);
 			if (count <= allocator_t::full_pack_size()) {
-				return reinterpret_cast<pointer>(allocator->allocate_linear(count, alignof(element_t)).first);
+				return reinterpret_cast<pointer>(allocator->allocate_aligned(count, alignof(element_t)).first);
 			} else {
 				return reinterpret_cast<pointer>(large_allocator_t<element_t>::allocate(n));
 			}
