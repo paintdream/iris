@@ -157,7 +157,7 @@ namespace iris {
 		// detach `this` from its parent
 		// selector is to determine which children (left/right) is selected to replace `this` on tree
 		template <typename selector_t>
-		iris_tree_t* detach(selector_t& selector) noexcept {
+		iris_tree_t* detach(selector_t&& selector) noexcept {
 			iris_tree_t* new_root = nullptr;
 
 			// try light detach first
@@ -283,8 +283,12 @@ namespace iris {
 			return parent_node;
 		}
 
-		void set_parent(iris_tree_t* t) noexcept {
-			parent_node = t;
+		iris_tree_t* get_left() const noexcept {
+			return left_node;
+		}
+
+		iris_tree_t* get_right() const noexcept {
+			return right_node;
 		}
 
 		struct tree_code_t {
@@ -334,6 +338,10 @@ namespace iris {
 		}
 
 	protected:
+		void set_parent(iris_tree_t* t) noexcept {
+			parent_node = t;
+		}
+
 		void build(iris_tree_t* root, tree_code_t* begin, tree_code_t* end, index_t index) {
 			if (begin < end) {
 				tree_code_t* mid = begin + (end - begin) / 2;
