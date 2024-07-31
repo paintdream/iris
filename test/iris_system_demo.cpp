@@ -51,17 +51,17 @@ int main(void) {
 	q.push(1);
 	q.pop();
 
-	int_interface poll;
+	int_interface pool;
 	std::vector<int*> allocated;
 	for (size_t i = 0; i < 0x1234; i++) {
-		allocated.emplace_back(poll.acquire());
+		allocated.emplace_back(pool.acquire());
 	}
 
 	for (size_t i = 0; i < 0x1234; i++) {
-		poll.release(std::move(allocated[i]));
+		pool.release(std::move(allocated[i]));
 	}
 
-	poll.clear();
+	pool.clear();
 
 	iris_system_t<entity_t, block_allocator_t, iris_component_matrix_t, uint8_t> matrix_system;
 	std::vector<entity_t> entities;
@@ -91,7 +91,7 @@ int main(void) {
 	allocator.reset();
 	printf("Sum should be zero: %f\n", sum);
 	
-	matrix_system.for_each<iris_component_matrix_t, uint8_t>([](iris_component_matrix_t& matrix, uint8_t& v) {
+	matrix_system.iterate<iris_component_matrix_t, uint8_t>([](iris_component_matrix_t& matrix, uint8_t& v) {
 		// initialize with identity matrix
 		matrix.values[0][0] = 1; matrix.values[0][1] = 0; matrix.values[0][2] = 0; matrix.values[0][3] = 0;
 		matrix.values[1][0] = 0; matrix.values[1][1] = 1; matrix.values[1][2] = 0; matrix.values[1][3] = 0;
@@ -99,19 +99,24 @@ int main(void) {
 		matrix.values[3][0] = 0; matrix.values[3][1] = 0; matrix.values[3][2] = 0; matrix.values[3][3] = 1;
 	});
 
-	matrix_system.for_each_batch<iris_component_matrix_t>(4, [](size_t count, iris_queue_list_t<iris_component_matrix_t, block_allocator_t>::iterator it) {
+	matrix_system.iterate_batch<iris_component_matrix_t>(4, [](size_t count, iris_queue_list_t<iris_component_matrix_t, block_allocator_t>::iterator it) {
 		while (count-- != 0) {
 			it->values[3][3] = 2;
 			it++;
 		}
 	});
 
-	matrix_system.for_each<entity_t, iris_component_matrix_t>([](entity_t entity, iris_component_matrix_t& matrix) {
+	matrix_system.iterate<entity_t, iris_component_matrix_t>([](entity_t entity, iris_component_matrix_t& matrix) {
 		// initialize with identity matrix
 		IRIS_ASSERT(matrix.values[0][0] == 1);
 	});
 
-	matrix_system.for_entity<iris_component_matrix_t>(0, [](iris_component_matrix_t& matrix) {
+	matrix_system.filter<iris_component_matrix_t>(0, [](iris_component_matrix_t& matrix) {
+		matrix.values[1][1] = 2;
+	});
+
+	int arr[2] = { 4, 6 };
+	matrix_system.filter<iris_component_matrix_t>(&arr[0], &arr[0] + 2, [](iris_component_matrix_t& matrix) {
 		matrix.values[1][1] = 2;
 	});
 
@@ -124,11 +129,11 @@ int main(void) {
 	systems.attach(other_system);
 	systems.attach(matrix_system);
 	int counter = 0;
-	systems.for_each<uint8_t>([&counter](uint8_t& i) {
+	systems.iterate<uint8_t>([&counter](uint8_t& i) {
 		i = counter++;
 	});
 
-	systems.for_each_batch<iris_component_matrix_t>(4, [](size_t count, iris_queue_list_t<iris_component_matrix_t, block_allocator_t>::iterator it) {
+	systems.iterate_batch<iris_component_matrix_t>(4, [](size_t count, iris_queue_list_t<iris_component_matrix_t, block_allocator_t>::iterator it) {
 		while (count-- != 0) {
 			IRIS_ASSERT(it->values[3][3] == 2);
 			it++;
@@ -136,13 +141,13 @@ int main(void) {
 	});
 
 	systems.detach(other_system);
-	systems.for_each<entity_t, uint8_t>([&counter](entity_t e, uint8_t& i) {
+	systems.iterate<entity_t, uint8_t>([&counter](entity_t e, uint8_t& i) {
 		counter--;
 	});
 	IRIS_ASSERT(counter == 5);
 	systems.attach(other_system);
 
-	systems.for_each<float>([&counter](float& i) {
+	systems.iterate<float>([&counter](float& i) {
 		counter--;
 	});
 
@@ -152,13 +157,19 @@ int main(void) {
 	systems.attach(re_system);
 	re_system.insert(0, 1u);
 	systems.remove(0);
-	re_system.for_each<entity_t>([](entity_t entity) {
+	systems.compress();
+	re_system.iterate<entity_t>([](entity_t entity) {
 		IRIS_ASSERT(false); // already removed
 	});
 
 	re_system.clear();
 	systems.clear();
 	systems.detach(re_system);
+
+	matrix_system.remove(&arr[0], &arr[0] + 2);
+	matrix_system.filter<iris_component_matrix_t>(&arr[0], &arr[0] + 2, [](iris_component_matrix_t& matrix) {
+		assert(false);
+	});
 
 	return 0;
 }

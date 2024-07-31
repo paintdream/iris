@@ -158,17 +158,27 @@ namespace iris {
 		}
 
 		template <typename... for_components_t, typename operation_t>
-		bool for_entity(entity_t entity, operation_t&& op) {
+		bool filter(entity_t entity, operation_t&& op) {
+			entity_t arr[1] = { entity };
+			return filter<for_components_t...>(&arr[0], &arr[0] + 1, std::forward<operation_t>(op)) == (&arr[0] + 1);
+		}
+
+		template <typename... for_components_t, typename iterator_t, typename operation_t>
+		iterator_t filter(iterator_t begin, iterator_t end, operation_t&& op) {
 			auto guard = read_fence();
 
-			auto ip = iris_binary_find(entity_components.begin(), entity_components.end(), entity);
-			if (ip != entity_components.end()) {
-				index_t index = ip->second;
-				op(std::get<fetch_index<for_components_t>::value>(components).get(index)...);
-				return true;
-			} else {
-				return false;
+			auto ip = entity_components.begin();
+			while (begin < end) {
+				ip = iris_binary_find(ip, entity_components.end(), *begin);
+				if (ip == entity_components.end() || ip->second == ~(index_t)0) {
+					return begin;
+				}
+
+				op(std::get<fetch_index<for_components_t>::value>(components).get(ip->second)...);
+				++begin;
 			}
+
+			return begin;
 		}
 
 		template <typename component_t>
@@ -181,28 +191,44 @@ namespace iris {
 
 		// entity-based component removal
 		bool remove(entity_t entity) {
+			entity_t arr[1] = { entity };
+			return remove(&arr[0], &arr[0] + 1) == (&arr[0] + 1);
+		}
+
+		template <typename iterator_t>
+		iterator_t remove(iterator_t begin, iterator_t end) {
 			auto guard = write_fence();
-			IRIS_ASSERT(!entities.empty());
-			entity_t top_entity = entities.top();
-			if (entity != top_entity) {
-				// swap the top element (component_t, entity_t) with removed one
-				auto ip = iris_binary_find(entity_components.begin(), entity_components.end(), entity);
-				if (ip == entity_components.end())
-					return false; // not found
 
-				// move!!
-				auto it = iris_binary_find(entity_components.begin(), entity_components.end(), top_entity);
+			auto ip = entity_components.begin();
+			while (begin < end && !entities.empty()) {
+				entity_t top_entity = entities.top();
+				entity_t entity = *begin;
 
-				index_t index = ip->second;
-				it->second = index; // reuse space!
-				ip->second = ~(index_t)0;
+				if (entity != top_entity) {
+					// swap the top element (component_t, entity_t) with removed one
+					ip = iris_binary_find(ip, entity_components.end(), entity);
+					if (ip == entity_components.end() || ip->second == ~(index_t)0) {
+						return begin; // not found
+					}
 
-				move_components(index, placeholder<components_t...>());
+					// move!!
+					auto it = iris_binary_find(entity < top_entity ? ip : entity_components.begin(), entity > top_entity ? entity_components.end() : ip, top_entity);
+					IRIS_ASSERT(it != entity_components.end() && it->second != ~(index_t)0);
+
+					index_t index = ip->second;
+					it->second = index; // reuse space!
+					ip->second = ~(index_t)0;
+					move_components(index, placeholder<components_t...>());
+
+					*(entities.begin() + (it - entity_components.begin())) = top_entity; // update recorded entity list
+				}
+
+				pop_components(placeholder<components_t...>());
+				entities.pop();
+				++begin;
 			}
 
-			pop_components(placeholder<components_t...>());
-			entities.pop();
-			return true;
+			return begin;
 		}
 
 		void clear() {
@@ -214,7 +240,7 @@ namespace iris {
 
 		// iterate components
 		template <typename... for_components_t, typename operation_t>
-		void for_each(operation_t&& op) {
+		void iterate(operation_t&& op) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			auto guard = read_fence();
@@ -227,7 +253,7 @@ namespace iris {
 		}
 
 		template <typename... for_components_t, typename operation_t>
-		void for_each_batch(size_t batch_count, operation_t&& op) {
+		void iterate_batch(size_t batch_count, operation_t&& op) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			auto guard = read_fence();
@@ -367,6 +393,7 @@ namespace iris {
 		struct system_info_t {
 			void* address = nullptr;
 			bool (*remove)(void*, entity_t) = nullptr;
+			void (*compress)(void*) = nullptr;
 			void (*clear)(void*) = nullptr;
 			std::vector<iris_key_value_t<size_t, void*>> components;
 		};
@@ -378,6 +405,7 @@ namespace iris {
 			info.address = &sys;
 			info.remove = &remove_handler<system_t>;
 			info.clear = &clear_handler<system_t>;
+			info.compress = &compress_handler<system_t>;
 			info.components = generate_info(info, sys, iris_make_sequence<std::tuple_size<typename system_t::components_tuple_t>::value>());
 			std::sort(info.components.begin(), info.components.end());
 
@@ -392,6 +420,14 @@ namespace iris {
 					system_infos.erase(system_infos.begin() + i);
 					break;
 				}
+			}
+		}
+
+		void compress() {
+			auto guard = write_fence();
+			for (size_t i = 0; i < system_infos.size(); i++) {
+				auto& system_info = system_infos[i];
+				system_info.compress(system_info.address);
 			}
 		}
 
@@ -419,7 +455,7 @@ namespace iris {
 		}
 
 		template <typename... for_components_t, typename operation_t>
-		void for_each(operation_t&& op) {
+		void iterate(operation_t&& op) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = read_fence();
 
@@ -437,7 +473,7 @@ namespace iris {
 		}
 
 		template <typename... for_components_t, typename operation_t>
-		void for_each_batch(size_t batch_count, operation_t&& op) {
+		void iterate_batch(size_t batch_count, operation_t&& op) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = read_fence();
 			for (size_t i = 0; i < system_infos.size(); i++) {
@@ -463,6 +499,11 @@ namespace iris {
 		template <typename system_t>
 		static void clear_handler(void* address) {
 			reinterpret_cast<system_t*>(address)->clear();
+		}
+
+		template <typename system_t>
+		static void compress_handler(void* address) {
+			reinterpret_cast<system_t*>(address)->compress();
 		}
 
 		template <typename system_t, size_t... i>
