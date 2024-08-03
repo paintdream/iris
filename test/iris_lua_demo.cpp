@@ -184,12 +184,6 @@ struct example_t : example_base_t {
 		return value += init;
 	}
 
-	// will cause lua error "C-function execution error"
-	/*
-	std::optional<int> accum_value(int init) noexcept {
-		return std::nullopt;
-	}*/
-
 	static std::tuple<int, std::string> forward_tuple(std::tuple<int, std::string>&& v) {
 		std::get<0>(v) = std::get<0>(v) + 1;
 		return v;
