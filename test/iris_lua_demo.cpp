@@ -265,6 +265,14 @@ int main(void) {
 	lua.set_global("example_t", std::move(example_type));
 	int capture = 2;
 
+	lua.set_global("refstr", "shared_string_object");
+	auto p = lua.get_global<lua_t::refview_t<std::string_view>>("refstr");
+	std::map<int, lua_t::refview_t<std::string_view>> vv;
+	vv[1234] = std::move(p);
+	for (auto&& v : vv) {
+		lua.deref(std::move(v.second));
+	}
+
 	struct lambda {
 		lambda() {
 			printf("lambda constructor!\n");

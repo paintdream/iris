@@ -146,15 +146,15 @@ namespace iris {
 
 		// holding a lua value
 		struct ref_t {
-			explicit ref_t(int v = LUA_REFNIL) noexcept : value(v) { IRIS_ASSERT(LUA_REFNIL == 0 || v != 0); }
-			~ref_t() noexcept { IRIS_ASSERT(value == LUA_REFNIL); }
-			ref_t(ref_t&& rhs) noexcept : value(rhs.value) { rhs.value = LUA_REFNIL; }
+			explicit ref_t(int v = LUA_REFNIL) noexcept : ref_index(v) { IRIS_ASSERT(LUA_REFNIL == 0 || v != 0); }
+			~ref_t() noexcept { IRIS_ASSERT(ref_index == LUA_REFNIL); }
+			ref_t(ref_t&& rhs) noexcept : ref_index(rhs.ref_index) { rhs.ref_index = LUA_REFNIL; }
 			ref_t(const ref_t& rhs) = delete;
 			ref_t& operator = (const ref_t& rhs) = delete;
 			ref_t& operator = (ref_t&& rhs) noexcept {
 				if (this != &rhs) {
-					IRIS_ASSERT(value == LUA_REFNIL);
-					std::swap(rhs.value, value);
+					IRIS_ASSERT(ref_index == LUA_REFNIL);
+					std::swap(rhs.ref_index, ref_index);
 				}
 				
 				return *this;
@@ -163,27 +163,27 @@ namespace iris {
 			using internal_type_t = void;
 
 			operator bool() const noexcept {
-				return value != LUA_REFNIL;
+				return ref_index != LUA_REFNIL;
 			}
 
-			int get_ref_value() const noexcept {
-				return value;
+			int get_ref_index() const noexcept {
+				return ref_index;
 			}
 
-			template <typename value_t>
-			value_t as(iris_lua_t lua) const {
+			template <typename ref_index_t>
+			ref_index_t as(iris_lua_t lua) const {
 				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 
 				push_variable(L, *this);
-				value_t ret = iris_lua_t::get_variable<value_t>(L, -1);
+				ref_index_t ret = iris_lua_t::get_variable<ref_index_t>(L, -1);
 				lua_pop(L, 1);
 
-				return ret; // named return value optimization
+				return ret; // named return ref_index optimization
 			}
 
-			template <typename value_t = ref_t, typename key_t>
-			optional_result_t<value_t> get(iris_lua_t lua, key_t&& key) const {
+			template <typename ref_index_t = ref_t, typename key_t>
+			optional_result_t<ref_index_t> get(iris_lua_t lua, key_t&& key) const {
 				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 
@@ -196,7 +196,7 @@ namespace iris {
 #else
 					if (lua_rawget(L, -2) != LUA_TNIL) {
 #endif
-						value_t ret = get_variable<value_t>(L, -1);
+						ref_index_t ret = get_variable<ref_index_t>(L, -1);
 						lua_pop(L, 2);
 						return ret;
 					} else {
@@ -209,22 +209,22 @@ namespace iris {
 				}
 			}
 
-			template <typename value_t, typename key_t>
-			void set(iris_lua_t lua, key_t&& key, value_t&& value) const {
+			template <typename ref_index_t, typename key_t>
+			void set(iris_lua_t lua, key_t&& key, ref_index_t&& ref_index) const {
 				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 
 				push_variable(L, *this);
 				if (lua_istable(L, -1)) {
 					push_variable(L, std::forward<key_t>(key));
-					push_variable(L, std::forward<value_t>(value));
+					push_variable(L, std::forward<ref_index_t>(ref_index));
 					lua_rawset(L, -3);
 				}
 
 				lua_pop(L, 1);
 			}
 
-			template <auto value_t, typename key_t>
+			template <auto ref_index_t, typename key_t>
 			void set(iris_lua_t lua, key_t&& key) const {
 				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
@@ -232,14 +232,14 @@ namespace iris {
 				push_variable(L, *this);
 				if (lua_istable(L, -1)) {
 					push_variable(L, std::forward<key_t>(key));
-					push_variable<value_t>(L);
+					push_variable<ref_index_t>(L);
 					lua_rawset(L, -3);
 				}
 
 				lua_pop(L, 1);
 			}
 
-			template <typename value_t, typename key_t, typename func_t>
+			template <typename ref_index_t, typename key_t, typename func_t>
 			void for_each(iris_lua_t lua, func_t&& func) const {
 				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
@@ -248,7 +248,7 @@ namespace iris {
 				lua_pushnil(L);
 				while (lua_next(L, -2) != 0) {
 					// since we do not allow implicit lua_tostring conversion, so it's safe to extract key without duplicating it
-					if (func(get_variable<key_t>(L, -2), get_variable<value_t>(L, -1))) {
+					if (func(get_variable<key_t>(L, -2), get_variable<ref_index_t>(L, -1))) {
 						lua_pop(L, 1);
 						break;
 					}
@@ -273,7 +273,7 @@ namespace iris {
 			friend struct iris_lua_t;
 
 		private:
-			int value;
+			int ref_index;
 		};
 
 		// ref_t for types
@@ -325,44 +325,60 @@ namespace iris {
 		};
 
 		// ref_t for custom types
-		template <typename type_t>
-		struct refptr_t : ref_t {
-			refptr_t(int v = LUA_REFNIL, type_t* p = nullptr) noexcept : ref_t(v), ptr(p) {}
-			refptr_t(refptr_t&& rhs) noexcept : ref_t(std::move(static_cast<ref_t&>(rhs))), ptr(rhs.ptr) {}
-			refptr_t(const refptr_t& rhs) = delete;
-			refptr_t& operator = (const refptr_t& rhs) = delete;
-			refptr_t& operator = (refptr_t&& rhs) noexcept {
+		template <typename type_t, typename value_t>
+		struct refvalue_t : ref_t {
+			refvalue_t(int v = LUA_REFNIL) noexcept : ref_t(v) {}
+			template <typename input_t>
+			refvalue_t(int v = LUA_REFNIL, input_t&& i = input_t()) noexcept : ref_t(v), value(std::forward<input_t>(i)) {}
+			refvalue_t(refvalue_t&& rhs) noexcept : ref_t(std::move(static_cast<ref_t&>(rhs))), value(std::move(rhs.value)) {}
+			refvalue_t(const refvalue_t& rhs) = delete;
+			refvalue_t& operator = (const refvalue_t& rhs) = delete;
+			refvalue_t& operator = (refvalue_t&& rhs) noexcept {
 				if (this != &rhs) {
 					ref_t::operator = (std::move(static_cast<ref_t&>(rhs)));
-					std::swap(ptr, rhs.ptr);
+					std::swap(value, rhs.value);
 				}
 
 				return *this;
 			}
 
-			using internal_type_t = type_t*;
+			using internal_type_t = value_t;
 
-			operator bool() const noexcept {
-				return ptr != nullptr;
-			}
-
-			operator type_t* () const noexcept {
+			operator value_t& () noexcept {
 				return get();
 			}
 
-			type_t* operator -> () const noexcept {
+			operator const value_t& () const noexcept {
 				return get();
 			}
 
-			type_t* get() const noexcept {
-				return ptr;
+			const value_t& operator -> () const noexcept {
+				return get();
+			}
+
+			value_t& operator -> () noexcept {
+				return get();
+			}
+
+			const value_t& get() const noexcept {
+				return value;
+			}
+
+			value_t& get() noexcept {
+				return value;
 			}
 
 			friend struct iris_lua_t;
 
 		protected:
-			type_t* ptr;
+			value_t value;
 		};
+
+		template <typename type_t>
+		using refptr_t = refvalue_t<type_t, type_t*>;
+
+		template <typename type_t>
+		using refview_t = refvalue_t<type_t, type_t>;
 
 		// requried_t is for validating parameters before actually call the C++ stub
 		// will raise a lua error if it fails
@@ -984,9 +1000,9 @@ namespace iris {
 		}
 
 		static void deref(lua_State* L, ref_t&& r) noexcept {
-			if (r.value != LUA_REFNIL) {
-				luaL_unref(L, LUA_REGISTRYINDEX, r.value);
-				r.value = LUA_REFNIL;
+			if (r.ref_index != LUA_REFNIL) {
+				luaL_unref(L, LUA_REGISTRYINDEX, r.ref_index);
+				r.ref_index = LUA_REFNIL;
 			}
 		}
 
@@ -1346,12 +1362,8 @@ namespace iris {
 				if constexpr (!std::is_void_v<internal_type_t>) {
 					// is refptr?
 					auto internal_value = get_variable<internal_type_t, skip_checks>(L, index);
-					if (internal_value) {
-						lua_pushvalue(L, index);
-						return value_t(luaL_ref(L, LUA_REGISTRYINDEX), std::move(internal_value));
-					} else {
-						return value_t();
-					}
+					lua_pushvalue(L, index);
+					return value_t(luaL_ref(L, LUA_REGISTRYINDEX), std::move(internal_value));
 				} else {
 					lua_pushvalue(L, index);
 					return value_t(luaL_ref(L, LUA_REGISTRYINDEX));
@@ -1812,7 +1824,7 @@ namespace iris {
 			} else if constexpr (iris_is_reference_wrapper<value_t>::value) {
 				lua_pushlightuserdata(L, const_cast<void*>(reinterpret_cast<const void*>(&variable.get())));
 			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
-				lua_rawgeti(L, LUA_REGISTRYINDEX, variable.value);
+				lua_rawgeti(L, LUA_REGISTRYINDEX, variable.ref_index);
 				// deference if it's never used
 				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
 					deref(L, std::move(variable));

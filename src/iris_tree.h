@@ -445,6 +445,7 @@ namespace iris {
 		}
 
 		key_t key;
+		index_t key_index;
 
 		union {
 			struct {
@@ -456,8 +457,6 @@ namespace iris {
 				iris_tree_t* links[3];
 			} links;
 		};
-
-		index_t key_index;
 	};
 }
 
