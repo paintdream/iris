@@ -599,6 +599,7 @@ namespace iris {
 			}
 
 			friend struct iris_lua_t;
+
 		protected:
 			buffer_t(lua_State* s, luaL_Buffer* b) noexcept : L(s), buffer(b) { IRIS_ASSERT(L != nullptr && buffer != nullptr); }
 
@@ -1059,33 +1060,26 @@ namespace iris {
 		// four specs for [const][noexcept] method definition
 		template <auto method, typename object_t, typename return_t, typename type_t, typename... args_t>
 		static void push_method(lua_State* L, object_t&& object, return_t(type_t::*)(args_t...)) {
-			if constexpr (std::is_null_pointer_v<object_t>) {
-				push_function_internal<method_function_adapter<method, return_t, type_t, args_t...>, return_t, required_t<type_t*>&&, args_t...>(L);
-			} else {
-				push_functor_internal<method_functor_adapter<method, return_t, type_t, args_t...>, object_t&&, return_t, type_t, args_t...>(L, std::forward<object_t>(object));
-			}
+			push_method_internal<method, object_t, return_t, type_t, args_t...>(L, std::forward<object_t>(object));
 		}
 
 		template <auto method, typename object_t, typename return_t, typename type_t, typename... args_t>
 		static void push_method(lua_State* L, object_t&& object, return_t(type_t::*)(args_t...) noexcept) {
-			if constexpr (std::is_null_pointer_v<object_t>) {
-				push_function_internal<method_function_adapter<method, return_t, type_t, args_t...>, return_t, required_t<type_t*>&&, args_t...>(L);
-			} else {
-				push_functor_internal<method_functor_adapter<method, return_t, type_t, args_t...>, object_t&&, return_t, type_t, args_t...>(L, std::forward<object_t>(object));
-			}
+			push_method_internal<method, object_t, return_t, type_t, args_t...>(L, std::forward<object_t>(object));
 		}
 
 		template <auto method, typename object_t, typename return_t, typename type_t, typename... args_t>
 		static void push_method(lua_State* L, object_t&& object, return_t(type_t::*)(args_t...) const) {
-			if constexpr (std::is_null_pointer_v<object_t>) {
-				push_function_internal<method_function_adapter<method, return_t, type_t, args_t...>, return_t, required_t<type_t*>&&, args_t...>(L);
-			} else {
-				push_functor_internal<method_functor_adapter<method, return_t, type_t, args_t...>, object_t&&, return_t, type_t, args_t...>(L, std::forward<object_t>(object));
-			}
+			push_method_internal<method, object_t, return_t, type_t, args_t...>(L, std::forward<object_t>(object));
 		}
 
 		template <auto method, typename object_t, typename return_t, typename type_t, typename... args_t>
 		static void push_method(lua_State* L, object_t&& object, return_t(type_t::*)(args_t...) const noexcept) {
+			push_method_internal<method, object_t, return_t, type_t, args_t...>(L, std::forward<object_t>(object));
+		}
+
+		template <auto method, typename object_t, typename return_t, typename type_t, typename... args_t>
+		static void push_method_internal(lua_State* L, object_t&& object) {
 			if constexpr (std::is_null_pointer_v<object_t>) {
 				push_function_internal<method_function_adapter<method, return_t, type_t, args_t...>, return_t, required_t<type_t*>&&, args_t...>(L);
 			} else {
@@ -1105,6 +1099,7 @@ namespace iris {
 
 		template <auto function, typename return_t, typename... args_t>
 		static void push_function_internal(lua_State* L) {
+			stack_guard_t guard(L, 1);
 			if constexpr (iris_is_coroutine<return_t>::value) {
 				lua_pushcclosure(L, &iris_lua_t::function_coroutine_proxy<function, return_t, args_t...>, 0);
 			} else {
@@ -1114,12 +1109,17 @@ namespace iris {
 
 		template <auto function, typename object_t, typename return_t, typename type_t, typename... args_t>
 		static void push_functor_internal(lua_State* L, object_t&& object) {
+			stack_guard_t guard(L, 1);
+
 			type_t* ptr = reinterpret_cast<type_t*>(lua_newuserdatauv(L, std::max(sizeof(void*) + 1, sizeof(type_t)), 0));
 			new (ptr) type_t(std::forward<object_t>(object));
+			static_assert(std::is_reference_v<object_t>, "Must not be a reference!");
 
-			lua_newtable(L);
-			make_uniform_meta_internal<type_t, 0>(L);
-			lua_setmetatable(L, -2);
+			if constexpr (!std::is_trivially_destructible_v<object_t>) {
+				lua_newtable(L);
+				make_uniform_meta_internal<type_t, 0>(L);
+				lua_setmetatable(L, -2);
+			}
 
 			if constexpr (iris_is_coroutine<return_t>::value) {
 				lua_pushcclosure(L, &iris_lua_t::function_coroutine_proxy<function, return_t, iris_lua_t, args_t...>, 1);
@@ -2003,8 +2003,17 @@ namespace iris {
 					// get metatable
 					void* src = lua_touserdata(L, index);
 					int absindex = lua_absindex(L, index);
-					if (src == nullptr || !lua_getmetatable(L, index)) {
+					if (src == nullptr) {
 						target.native_push_variable(nullptr);
+					} else if (!lua_getmetatable(L, index)) {
+						if (lua_islightuserdata(L, absindex)) {
+							lua_pushlightuserdata(T, src);
+						} else {
+							// copy raw data if no metatable provided
+							size_t len = static_cast<size_t>(lua_rawlen(L, absindex));
+							void* dst = lua_newuserdatauv(T, len, 0);
+							std::memcpy(dst, src, len);
+						}
 					} else {
 						stack_guard_t guard(T, 1);
 						if (cross_transfer_metatable(L, target, recursion_source, recursion_target, recursion_index) != -1) {

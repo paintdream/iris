@@ -327,6 +327,17 @@ int main(void) {
 	lua_State* T = luaL_newstate();
 	luaL_openlibs(T);
 	lua_t target(T);
+
+	lua.native_push_variable([T](const char* text) mutable noexcept {
+		printf("No metatable %s\n", text);
+		return "no metatable";
+	});
+
+	lua.native_cross_transfer_variable<true>(target, -1);
+	auto f = target.native_get_variable<lua_t::ref_t>(-1);
+	target.native_pop_variable(1);
+	target.call<void>(std::move(f), "transferred!");
+
 	target.call<void>(target.load("\n\
 function test(a, b, c) \n\
 	b:base_func() \n\
