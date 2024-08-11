@@ -461,27 +461,26 @@ namespace iris {
 			return stack_guard_t(state, offset);
 		}
 
-		template <typename type_t>
-		struct has_lua_registar {
-			template <typename> static std::false_type test(...);
-			template <typename impl_t> static auto test(int) -> decltype(std::declval<impl_t>().lua_registar(std::declval<iris_lua_t>()), std::true_type());
-			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
+		template <typename type_t, typename = void>
+		struct has_lua_registar : std::false_type {
 			static void default_registar(iris_lua_t) {}
-			static constexpr auto get_registar() {
-				if constexpr (value) {
-					return &type_t::lua_registar;
-				} else {
-					return &default_registar;
-				}
+			static constexpr auto get_registar() noexcept {
+				return &default_registar;
 			}
 		};
 
 		template <typename type_t>
-		struct is_functor {
-			template <typename> static std::false_type test(...);
-			template <typename impl_t> static auto test(int) -> decltype(&impl_t::operator (), std::true_type());
-			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
+		struct has_lua_registar<type_t, iris_void_t<decltype(std::declval<type_t>().lua_registar(std::declval<iris_lua_t>()))>> : std::true_type {
+			static constexpr auto get_registar() noexcept {
+				return &type_t::lua_registar;
+			}
 		};
+
+		template <typename type_t, typename = void>
+		struct is_functor : std::false_type {};
+
+		template <typename type_t>
+		struct is_functor<type_t, iris_void_t<decltype(&type_t::operator ())>> : std::true_type {};
 
 		// register a new type, taking registar from &type_t::lua_registar by default, and you could also specify your own registar.
 		template <typename type_t, int user_value_count = 0, auto registar = has_lua_registar<type_t>::get_registar(), typename... args_t>
@@ -494,6 +493,15 @@ namespace iris {
 			lua_newtable(L);
 
 			make_uniform_meta_internal<type_t, user_value_count>(L);
+
+			// hash code is to check types when passing as a argument to C++
+			push_variable(L, "__hash");
+			push_variable(L, reinterpret_cast<void*>(get_hash<type_t>()));
+			lua_rawset(L, -3);
+
+			push_variable(L, "__eq");
+			push_variable(L, &equal_stub);
+			lua_rawset(L, -3);
 
 			// readable name
 			push_variable(L, "__name");
@@ -1232,15 +1240,6 @@ namespace iris {
 
 		template <typename type_t, int user_value_count>
 		static void make_uniform_meta_internal(lua_State* L) {
-			// hash code is to check types when passing as a argument to C++
-			push_variable(L, "__hash");
-			push_variable(L, reinterpret_cast<void*>(get_hash<type_t>()));
-			lua_rawset(L, -3);
-
-			push_variable(L, "__eq");
-			push_variable(L, &equal_stub);
-			lua_rawset(L, -3);
-
 			// copy constructor
 			if constexpr (std::is_copy_constructible_v<type_t>) {
 				push_variable(L, "__copy");
@@ -1261,12 +1260,11 @@ namespace iris {
 			lua_rawset(L, -3);
 		}
 
+		template <typename type_t, typename = void>
+		struct has_lua_finalize : std::false_type {};
+
 		template <typename type_t>
-		struct has_lua_finalize {
-			template <typename> static std::false_type test(...);
-			template <typename impl_t> static auto test(int) -> decltype(std::declval<impl_t>().lua_finalize(std::declval<iris_lua_t>(), 1), std::true_type());
-			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
-		};
+		struct has_lua_finalize<type_t, iris_void_t<decltype(std::declval<type_t>().lua_finalize(std::declval<iris_lua_t>(), 1))>> : std::true_type {};
 
 		// will be called when __gc triggerred
 		template <typename type_t>
@@ -1293,12 +1291,11 @@ namespace iris {
 			new (p) type_t(get_variable<std::tuple_element_t<k, args_tuple_t>>(L, lua_upvalueindex(2 + int(k)))...);
 		}
 
+		template <typename type_t, typename = void>
+		struct has_lua_initialize : std::false_type {};
+
 		template <typename type_t>
-		struct has_lua_initialize {
-			template <typename> static std::false_type test(...);
-			template <typename impl_t> static auto test(int) -> decltype(std::declval<impl_t>().lua_initialize(std::declval<iris_lua_t>(), 1), std::true_type());
-			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
-		};
+		struct has_lua_initialize<type_t, iris_void_t<decltype(std::declval<type_t>().lua_initialize(std::declval<iris_lua_t>(), 1))>> : std::true_type {};
 
 		template <typename type_t>
 		static void initialize_object(lua_State* L, type_t* p, int index) {
@@ -1339,12 +1336,11 @@ namespace iris {
 			}
 		}
 
+		template <typename type_t, typename = void>
+		struct has_reserve : std::false_type {};
+
 		template <typename type_t>
-		struct has_reserve {
-			template <typename> static std::false_type test(...);
-			template <typename impl_t> static auto test(int) -> decltype(std::declval<impl_t>().reserve(1), std::true_type());
-			static constexpr bool value = std::is_same<decltype(test<type_t>(0)), std::true_type>::value;
-		};
+		struct has_reserve<type_t, iris_void_t<decltype(std::declval<type_t>().reserve(1))>> : std::true_type {};
 
 		// get C++ variable from lua stack with given index
 		template <typename type_t, bool skip_checks = false>
@@ -1352,7 +1348,9 @@ namespace iris {
 			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
 			stack_guard_t guard(L);
 
-			if constexpr (std::is_null_pointer_v<value_t>) {
+			if constexpr (iris_lua_convert_t<value_t>::value) {
+				return iris_lua_convert_t<value_t>::from_lua(L, index);
+			} else if constexpr (std::is_null_pointer_v<value_t>) {
 				return nullptr;
 			} else if constexpr (iris_is_reference_wrapper<type_t>::value) {
 				// pass reference wrapper as plain pointer without lifetime management, usually used by new_object() internally
@@ -1368,8 +1366,6 @@ namespace iris {
 					lua_pushvalue(L, index);
 					return value_t(luaL_ref(L, LUA_REGISTRYINDEX));
 				}
-			} else if constexpr (iris_lua_convert_t<value_t>::value) {
-				return iris_lua_convert_t<value_t>::from_lua(L, index);
 			} else if constexpr (std::is_same_v<value_t, bool>) {
 				return static_cast<value_t>(lua_toboolean(L, index));
 			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {
