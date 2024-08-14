@@ -1502,13 +1502,12 @@ namespace iris {
 					return function_invoke<function_t, index + 1, return_t, tuple_t>(L, function, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>>(L, stack_index));
 				}
 			} else {
+				int top = lua_gettop(L);
+
 				if constexpr (std::is_void_v<return_t>) {
 					function(std::forward<params_t>(params)...);
-					return 0;
 				} else {
 					auto ret = function(std::forward<params_t>(params)...);
-					int top = lua_gettop(L);
-
 					if constexpr (is_optional_result<return_t>::value) {
 						if (!ret) {
 							push_variable(L, std::move(ret.message));
@@ -1519,11 +1518,11 @@ namespace iris {
 					} else {
 						push_variable(L, std::move(ret));
 					}
-
-					int count = lua_gettop(L) - top;
-					IRIS_ASSERT(count >= 0);
-					return count;
 				}
+
+				int count = lua_gettop(L) - top;
+				IRIS_ASSERT(count >= 0);
+				return count;
 			}
 		}
 
@@ -2128,4 +2127,3 @@ namespace iris {
 		lua_State* state = nullptr;
 	};
 }
-
