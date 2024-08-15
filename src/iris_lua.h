@@ -58,8 +58,10 @@ extern "C" {
 
 #if LUA_VERSION_NUM <= 502
 #define LUA_ENABLE_YIELDK 0
+#define LUA_CLEAR_STACK_ON_YIELD 1
 #else
 #define LUA_ENABLE_YIELDK 1
+#define LUA_CLEAR_STACK_ON_YIELD 0
 #endif
 
 #if LUA_VERSION_NUM <= 503
@@ -1587,19 +1589,21 @@ namespace iris {
 				// mark state
 				using return_t = typename coroutine_t::return_type_t;
 				auto coroutine = function(std::forward<params_t>(params)...);
-				void* address = coroutine.get_handle().address();
 
 				// save current thread to registry in case of gc
-				lua_pushlightuserdata(L, address);
+				lua_pushlightuserdata(L, L);
 				lua_pushthread(L);
 				lua_rawset(L, LUA_REGISTRYINDEX);
 
 				int top = lua_gettop(L);
 				if constexpr (!std::is_void_v<return_t>) {
-					coroutine.complete([L, address](return_t&& value) {
+#if LUA_CLEAR_STACK_ON_YIELD
+					coroutine.complete([L](return_t&& value) {
+#else
+					coroutine.complete([L, top](return_t&& value) {
+#endif
 						IRIS_PROFILE_SCOPE(__FUNCTION__);
-						int top = lua_gettop(L);
-						void* context = address;
+						void* context = L;
 
 						if constexpr (is_optional_result<return_t>::value) {
 							if (value) {
@@ -1608,10 +1612,10 @@ namespace iris {
 								// error!
 #if LUA_ENABLE_YIELDK
 								push_variable(L, std::move(value.message));
-								context = L;
+								context = reinterpret_cast<char*>(L) + 1;
 #else
 								iris_lua_t::systrap(L, "error.resume.legacy", "C-function execution error: %s", value.message.c_str());
-								coroutine_cleanup(L, address);
+								coroutine_cleanup(L);
 								return;
 #endif
 							}
@@ -1619,28 +1623,32 @@ namespace iris {
 							push_variable(L, std::move(value));
 						}
 
+#if LUA_CLEAR_STACK_ON_YIELD
+						int count = lua_gettop(L); // old lua will clear input parameters as coroutine yield
+#else
 						int count = lua_gettop(L) - top;
+#endif
 						IRIS_ASSERT(count >= 0);
 						push_variable(L, context);
-						coroutine_continuation(L, address, count);
+						coroutine_continuation(L, count);
 					}).run();
 				} else {
-					coroutine.complete([L, address]() {
+					coroutine.complete([L]() {
 						IRIS_PROFILE_SCOPE(__FUNCTION__);
 						lua_pushnil(L);
-						push_variable(L, address);
-						coroutine_continuation(L, address, 1);
+						push_variable(L, static_cast<void*>(L));
+						coroutine_continuation(L, 1);
 					}).run();
 				}
 
 				// already completed?
 				void* mark = lua_touserdata(L, -1);
-				if (mark == address) {
+				if (mark == L) {
 					lua_pop(L, 1);
 					int count = lua_gettop(L) - top;
 					IRIS_ASSERT(count >= 0);
 					return count;
-				} else if (mark == L) {
+				} else if (mark == reinterpret_cast<char*>(L) + 1) {
 					lua_pop(L, 1);
 					return coroutine_state_error;
 				} else {
@@ -1649,16 +1657,16 @@ namespace iris {
 			}
 		}
 
-		static void coroutine_cleanup(lua_State* L, void* address) {
+		static void coroutine_cleanup(lua_State* L) {
 			// clear thread reference to allow gc collecting
-			lua_pushlightuserdata(L, address);
+			lua_pushlightuserdata(L, L);
 			lua_pushnil(L);
 			lua_rawset(L, LUA_REGISTRYINDEX);
 		}
 
-		static void coroutine_continuation(lua_State* L, void* address, int count) {
+		static void coroutine_continuation(lua_State* L, int count) {
 			if (lua_status(L) == LUA_YIELD) {
-				bool ret_error = lua_touserdata(L, -1) == L;
+				bool ret_error = lua_touserdata(L, -1) == reinterpret_cast<char*>(L) + 1;
 				if (!ret_error) {
 					lua_pop(L, 1);
 				} else {
@@ -1679,14 +1687,14 @@ namespace iris {
 				}
 			}
 
-			coroutine_cleanup(L, address);
+			coroutine_cleanup(L);
 		}
 
 #if LUA_ENABLE_YIELDK
 		static int function_coroutine_continuation(lua_State* L, int status, lua_KContext context) {
 			IRIS_ASSERT(status == LUA_YIELD);
 			// detect error
-			if (lua_touserdata(L, -1) == L) {
+			if (lua_touserdata(L, -1) == reinterpret_cast<char*>(L) + 1) {
 				// error happened
 				lua_pop(L, 1);
 				return lua_error(L);

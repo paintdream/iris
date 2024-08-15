@@ -231,10 +231,12 @@ struct example_t : example_base_t {
 		co_return;
 	}
 
-	iris::iris_coroutine_t<iris::iris_lua_t::optional_result_t<int>> mem_coro_get_int(std::string&& s) noexcept {
+	iris::iris_coroutine_t<iris::iris_lua_t::optional_result_t<int>> mem_coro_get_int(iris_lua_t&& t, std::string&& s) noexcept {
 		// co_return iris::iris_lua_t::result_error_t("test error 1");
+		iris_lua_t tt = t;
 		co_await iris::iris_switch(warpptr2);
 		co_await iris::iris_switch(warpptr);
+		tt.native_push_variable(1);
 		// co_return iris::iris_lua_t::result_error_t("test error 2");
 		co_return 2;
 	}
@@ -494,12 +496,29 @@ end\n\
 	printf("Error message: %s\n", lua.load("err").message.c_str());
 
 #if USE_LUA_COROUTINE
+
+#if LUA_VERSION_NUM <= 501
+	// lua 5.1 do not accept yield from pcall
+	lua.call<void>(lua.load("\n\
+		local a = example_t.new()\n\
+		local coro = coroutine.create(function() \n\
+			print('coro get ' .. a.coro_get_int('hello')) \n\
+			local x1, x2 = a:mem_coro_get_int('world') \n\
+			print('memcoro get ' .. x1 .. ', ' .. x2) \n\
+			print('memcoro get second ' .. a:mem_coro_get_int('world')) \n\
+			print('memcoro get second ' .. a:mem_coro_get_int_raw('world')) \n\
+			a.coro_get_none()\n\
+			print('coro finished')\n\
+		end)\n\
+		coroutine.resume(coro)\n").value());
+#else
 	lua.call<void>(lua.load("\n\
 		local a = example_t.new()\n\
 		local coro = coroutine.create(function() \n\
 			local status, message = pcall(function() \n\
 			print('coro get ' .. a.coro_get_int('hello')) \n\
-			print('memcoro get ' .. a:mem_coro_get_int('world')) \n\
+			local x1, x2 = a:mem_coro_get_int('world') \n\
+			print('memcoro get ' .. x1 .. ', ' .. x2) \n\
 			print('memcoro get second ' .. a:mem_coro_get_int('world')) \n\
 			print('memcoro get second ' .. a:mem_coro_get_int_raw('world')) \n\
 			end) \n\
@@ -508,6 +527,7 @@ end\n\
 			print('coro finished')\n\
 		end)\n\
 		coroutine.resume(coro)\n").value());
+#endif
 
 	warp.yield();
 	worker.join();
