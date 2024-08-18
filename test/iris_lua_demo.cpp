@@ -65,6 +65,7 @@ struct example_base_t {
 	int base_value = 2222;
 };
 
+static std::atomic<int> ref_count = 0;
 struct example_t : example_base_t {
 	static void lua_registar(lua_t lua) {
 		lua.set_current("lambda", [lua](int v) mutable {
@@ -128,7 +129,23 @@ struct example_t : example_base_t {
 	}
 
 	void lua_initialize(lua_t lua, int index) {
+		ref_count.fetch_add(1, std::memory_order_acquire);
 		printf("initialize!\n");
+	}
+
+	void lua_finalize(lua_State* L, int index) noexcept {
+		printf("finalize!\n");
+		ref_count.fetch_sub(1, std::memory_order_release);
+	}
+
+	static void lua_view_initialize(lua_t lua, int index, example_t* p) {
+		ref_count.fetch_add(1, std::memory_order_acquire);
+		printf("view initialize\n");
+	}
+
+	static void lua_view_finalize(lua_t lua, int index, example_t*& p) {
+		printf("view finalize\n");
+		ref_count.fetch_sub(1, std::memory_order_release);
 	}
 
 	int get_value() noexcept {
@@ -215,10 +232,6 @@ struct example_t : example_base_t {
 			lua.set_current(2, 3);
 			lua.set_current(3, 5);
 		});
-	}
-
-	void lua_finalize(lua_State* L, int index) noexcept {
-		printf("finalize!\n");
 	}
 
 #if USE_LUA_COROUTINE
@@ -536,5 +549,7 @@ end\n\
 	preempt_guard.cleanup();
 #endif
 	lua_close(L);
+
+	IRIS_ASSERT(ref_count.load(std::memory_order_acquire) == 0);
 	return 0;
 }
