@@ -372,6 +372,11 @@ namespace iris {
 		return a & (~a + 1); // the same as a & -a, but no compiler warnings.
 	}
 
+	template <typename value_t>
+	constexpr value_t iris_to_alignment(value_t a, value_t t) noexcept {
+		return (a + (t - 1)) & ~(t - 1);
+	}
+
 	// binary find / insert / remove extension of std::vector<> like containers.
 	template <typename key_t, typename value_t>
 	struct iris_key_value_t : std::pair<key_t, value_t> {

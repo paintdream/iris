@@ -74,6 +74,9 @@ namespace iris {
 
 	// A simple lua binding with C++17
 	struct iris_lua_t : enable_read_write_fence_t<> {
+		static constexpr size_t size_mask_view = 1u;
+		static constexpr size_t size_mask_alignment = 2u;
+
 		// borrow from an existing state
 		explicit iris_lua_t(lua_State* L) noexcept : state(L) {}
 		iris_lua_t(iris_lua_t&& rhs) noexcept : state(rhs.state) { rhs.state = nullptr; }
@@ -537,8 +540,11 @@ namespace iris {
 
 			push_variable(L, std::forward<meta_target_t>(target_meta));
 			IRIS_ASSERT(lua_type(L, -1) == LUA_TTABLE);
+			lua_newtable(L);
+			lua_pushliteral(L, "__index");
 			push_variable(L, std::forward<meta_base_t>(base_meta));
 			IRIS_ASSERT(lua_type(L, -1) == LUA_TTABLE);
+			lua_rawset(L, -3);
 			lua_setmetatable(L, -2);
 			lua_pop(L, 1);
 		}
@@ -557,7 +563,7 @@ namespace iris {
 			IRIS_ASSERT(*meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<type_t>()));
 
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
-			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, std::max(sizeof(void*) + 1, sizeof(type_t)), user_value_count));
+			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), user_value_count));
 			new (p) type_t(std::forward<args_t>(args)...);
 			push_variable(L, std::forward<meta_t>(meta));
 			lua_setmetatable(L, -2);
@@ -568,12 +574,12 @@ namespace iris {
 		
 		// make object view from registry meta
 		template <typename type_t>
-		refptr_t<type_t> make_registry_object_view(type_t* object) {
-			return make_object_view<type_t>(get_registry<ref_t>(reinterpret_cast<const void*>(get_hash<type_t>())), object);
+		refptr_t<type_t> make_registry_object_view(type_t* object, size_t extra_size = 0) {
+			return make_object_view<type_t>(get_registry<ref_t>(reinterpret_cast<const void*>(get_hash<type_t>())), object, extra_size);
 		}
 
 		template <typename type_t, typename meta_t, typename... args_t>
-		refptr_t<type_t> make_object_view(meta_t&& meta, type_t* object) {
+		refptr_t<type_t> make_object_view(meta_t&& meta, type_t* object, size_t extra_size = 0) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			IRIS_ASSERT(object != nullptr);
 
@@ -582,7 +588,7 @@ namespace iris {
 			IRIS_ASSERT(*meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<type_t>()));
 
 			static_assert(sizeof(type_t*) == sizeof(void*), "Unrecognized architecture.");
-			type_t*& p = *reinterpret_cast<type_t**>(lua_newuserdatauv(L, sizeof(type_t*), 0));
+			type_t*& p = *reinterpret_cast<type_t**>(lua_newuserdatauv(L, (sizeof(type_t*) + extra_size) | size_mask_view, 0));
 			p = object;
 
 			push_variable(L, std::forward<meta_t>(meta));
@@ -1031,16 +1037,16 @@ namespace iris {
 				const void* lhs = nullptr;
 				const void* rhs = nullptr;
 
-				if (lua_rawlen(L, 1) > sizeof(void*)) {
-					lhs = reinterpret_cast<const void*>(lua_touserdata(L, 1));
-				} else {
+				if (lua_rawlen(L, 1) & size_mask_view) {
 					lhs = *reinterpret_cast<const void**>(lua_touserdata(L, 1));
+				} else {
+					lhs = reinterpret_cast<const void*>(lua_touserdata(L, 1));
 				}
 
-				if (lua_rawlen(L, 2) > sizeof(void*)) {
-					rhs = reinterpret_cast<const void*>(lua_touserdata(L, 2));
-				} else {
+				if (lua_rawlen(L, 2) & size_mask_view) {
 					rhs = *reinterpret_cast<const void**>(lua_touserdata(L, 2));
+				} else {
+					rhs = reinterpret_cast<const void*>(lua_touserdata(L, 2));
 				}
 
 				lua_pushboolean(L, lhs == rhs ? 1 : 0);
@@ -1059,14 +1065,14 @@ namespace iris {
 
 		template <typename type_t, int user_value_count>
 		static void copy_construct_stub(lua_State* L, const void* prototype) {
-			type_t* p = new (reinterpret_cast<type_t*>(lua_newuserdatauv(L, std::max(sizeof(void*) + 1, sizeof(type_t)), user_value_count))) type_t(*reinterpret_cast<const type_t*>(prototype));
+			type_t* p = new (reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), user_value_count))) type_t(*reinterpret_cast<const type_t*>(prototype));
 			construct_meta_internal(L, p);
 		}
 
 		// copy constructor stub
 		template <typename type_t, int user_value_count>
 		static void move_construct_stub(lua_State* L, void* prototype) {
-			type_t* p = new (reinterpret_cast<type_t*>(lua_newuserdatauv(L, std::max(sizeof(void*) + 1, sizeof(type_t)), user_value_count))) type_t(std::move(*reinterpret_cast<type_t*>(prototype)));
+			type_t* p = new (reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), user_value_count))) type_t(std::move(*reinterpret_cast<type_t*>(prototype)));
 			construct_meta_internal(L, p);
 		}
 
@@ -1136,7 +1142,7 @@ namespace iris {
 		static void push_functor_internal(lua_State* L, object_t&& object) {
 			stack_guard_t guard(L, 1);
 
-			type_t* ptr = reinterpret_cast<type_t*>(lua_newuserdatauv(L, std::max(sizeof(void*) + 1, sizeof(type_t)), 0));
+			type_t* ptr = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), 0));
 			new (ptr) type_t(std::forward<object_t>(object));
 			static_assert(std::is_reference_v<object_t>, "Must not be a reference!");
 
@@ -1299,7 +1305,12 @@ namespace iris {
 		// will be called when __gc triggerred
 		template <typename type_t>
 		static int delete_object(lua_State* L) {
-			if (lua_rawlen(L, 1) > sizeof(void*)) {
+			if (lua_rawlen(L, 1) & size_mask_view) {
+				// call lua_view_finalize if needed
+				if constexpr (has_lua_view_finalize<type_t>::value) {
+					type_t::lua_view_finalize(iris_lua_t(L), 1, *reinterpret_cast<type_t**>(lua_touserdata(L, 1)));
+				}
+			} else {
 				type_t* p = reinterpret_cast<type_t*>(lua_touserdata(L, 1));
 
 				// call lua_finalize if needed
@@ -1310,11 +1321,6 @@ namespace iris {
 				IRIS_ASSERT(p != nullptr);
 				// do not free the memory (let lua gc it), just call the destructor
 				p->~type_t();
-			} else {
-				// call lua_view_finalize if needed
-				if constexpr (has_lua_view_finalize<type_t>::value) {
-					type_t::lua_view_finalize(iris_lua_t(L), 1, *reinterpret_cast<type_t**>(lua_touserdata(L, 1)));
-				}
 			}
 
 			return 0;
@@ -1362,7 +1368,7 @@ namespace iris {
 
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
 			stack_guard_t guard(L, 1);
-			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, std::max(sizeof(void*) + 1, sizeof(type_t)), user_value_count));
+			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), user_value_count));
 			invoke_create<type_t, std::tuple<args_t...>>(p, L, std::make_index_sequence<sizeof...(args_t)>());
 			lua_pushvalue(L, lua_upvalueindex(1));
 			lua_setmetatable(L, -2);
@@ -1495,7 +1501,10 @@ namespace iris {
 						if (object_hash != type_hash) {
 							lua_pop(L, 1);
 							if (lua_getmetatable(L, -1)) {
-								lua_replace(L, -2);
+								lua_pushliteral(L, "__index");
+								lua_rawget(L, -2);
+								lua_replace(L, -3);
+								lua_pop(L, 1);
 							} else {
 								lua_pop(L, 1);
 								return value_t();
@@ -1514,10 +1523,10 @@ namespace iris {
 					lua_pop(L, 2);
 				}
 
-				if (lua_rawlen(L, index) > sizeof(void*)) {
-					return reinterpret_cast<type_t>(lua_touserdata(L, index));
-				} else {
+				if (lua_rawlen(L, index) & size_mask_view) {
 					return *reinterpret_cast<type_t*>(lua_touserdata(L, index));
+				} else {
+					return reinterpret_cast<type_t>(lua_touserdata(L, index));
 				}
 			} else if constexpr (std::is_base_of_v<required_base_t, value_t>) {
 				return get_variable<typename value_t::required_type_t, true>(L, index);
@@ -2067,7 +2076,25 @@ namespace iris {
 					} else {
 						stack_guard_t guard(T, 1);
 						if (cross_transfer_metatable(L, target, recursion_source, recursion_target, recursion_index) != -1) {
-							if (lua_rawlen(L, absindex) > sizeof(void*)) {
+							size_t rawlen = static_cast<size_t>(lua_rawlen(L, absindex));
+							if (rawlen & size_mask_view) {
+								lua_pushliteral(T, "__view");
+								lua_rawget(T, -2);
+								void* ptr = lua_touserdata(T, -1);
+								lua_pop(T, 1);
+
+								void** p = reinterpret_cast<void**>(lua_newuserdatauv(T, rawlen, 0));
+								*p = *reinterpret_cast<void**>(src);
+
+								lua_pushvalue(T, -2);
+								lua_setmetatable(T, -2);
+
+								if (ptr != nullptr) {
+									reinterpret_cast<decltype(&view_stub<void*>)>(ptr)(T, p);
+								}
+
+								lua_replace(T, -2);
+							} else {
 								// now metatable prepared
 								if constexpr (move) {
 									lua_pushliteral(T, "__move");
@@ -2091,23 +2118,6 @@ namespace iris {
 									lua_replace(T, -3);
 									lua_pop(T, 1);
 								}
-							} else {
-								lua_pushliteral(T, "__view");
-								lua_rawget(T, -2);
-								void* ptr = lua_touserdata(T, -1);
-								lua_pop(T, 1);
-
-								void** p = reinterpret_cast<void**>(lua_newuserdatauv(T, sizeof(void*), 0));
-								*p = *reinterpret_cast<void**>(src);
-
-								lua_pushvalue(T, -2);
-								lua_setmetatable(T, -2);
-
-								if (ptr != nullptr) {
-									reinterpret_cast<decltype(&view_stub<void*>)>(ptr)(T, p);
-								}
-
-								lua_replace(T, -2);
 							}
 						} else {
 							target.native_push_variable(nullptr);
