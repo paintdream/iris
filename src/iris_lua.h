@@ -563,7 +563,7 @@ namespace iris {
 			IRIS_ASSERT(*meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<type_t>()));
 
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
-			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), meta.get<int>(*this, "__uservalue").value_or(0)));
+			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), meta.template get<int>(*this, "__uservalue").value_or(0)));
 			new (p) type_t(std::forward<args_t>(args)...);
 			push_variable(L, std::forward<meta_t>(meta));
 			lua_setmetatable(L, -2);
@@ -588,7 +588,7 @@ namespace iris {
 			IRIS_ASSERT(*meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<type_t>()));
 
 			static_assert(sizeof(type_t*) == sizeof(void*), "Unrecognized architecture.");
-			type_t*& p = *reinterpret_cast<type_t**>(lua_newuserdatauv(L, (sizeof(type_t*) + extra_size) | size_mask_view, meta.get<int>(*this, "__uservalue").value_or(0)));
+			type_t*& p = *reinterpret_cast<type_t**>(lua_newuserdatauv(L, (sizeof(type_t*) + extra_size) | size_mask_view, meta.template get<int>(*this, "__uservalue").value_or(0)));
 			p = object;
 
 			push_variable(L, std::forward<meta_t>(meta));
@@ -654,6 +654,14 @@ namespace iris {
 			lua_State* L = state;
 			stack_guard_t guard(L);
 			push_variable(L, std::forward<value_t>(value));
+			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
+		}
+
+		template <auto value_t>
+		ref_t make_value() {
+			lua_State* L = state;
+			stack_guard_t guard(L);
+			push_variable<value_t>(L);
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
