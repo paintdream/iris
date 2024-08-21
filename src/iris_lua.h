@@ -1347,7 +1347,7 @@ namespace iris {
 		// pass argument by upvalues
 		template <typename type_t, typename args_tuple_t, size_t... k>
 		static void invoke_create(type_t* p, lua_State* L, std::index_sequence<k...>) {
-			new (p) type_t(get_variable<std::tuple_element_t<k, args_tuple_t>>(L, lua_upvalueindex(2 + int(k)))...);
+			new (p) type_t(get_variable<std::tuple_element_t<k, args_tuple_t>, true>(L, lua_upvalueindex(2 + int(k)))...);
 		}
 
 		template <typename type_t, typename = void>
@@ -1575,7 +1575,7 @@ namespace iris {
 				if constexpr (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::tuple_element_t<index, tuple_t>>>>>) {
 					return function_invoke<function_t, index + 1, return_t, tuple_t>(L, function, stack_index, std::forward<params_t>(params)..., iris_lua_t(L));
 				} else {
-					return function_invoke<function_t, index + 1, return_t, tuple_t>(L, function, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>>(L, stack_index));
+					return function_invoke<function_t, index + 1, return_t, tuple_t>(L, function, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>, true>(L, stack_index));
 				}
 			} else {
 				int top = lua_gettop(L);
@@ -1656,7 +1656,7 @@ namespace iris {
 				if constexpr (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::tuple_element_t<index, tuple_t>>>>>) {
 					return function_coroutine_invoke<function_t, index + 1, coroutine_t, tuple_t>(L, function, stack_index, std::forward<params_t>(params)..., iris_lua_t(L));
 				} else {
-					return function_coroutine_invoke<function_t, index + 1, coroutine_t, tuple_t>(L, function, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>>(L, stack_index));
+					return function_coroutine_invoke<function_t, index + 1, coroutine_t, tuple_t>(L, function, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>, true>(L, stack_index));
 				}
 			} else {
 				IRIS_PROFILE_SCOPE(__FUNCTION__);
