@@ -62,6 +62,28 @@ struct example_base_t {
 		printf("base func\n");
 	}
 
+	static void lua_view_initialize(lua_t lua, int index, void* t) {
+		example_base_t** p = (example_base_t**)t;
+		p[1] = p[0];
+		p[0] = (example_base_t*)(size_t)0x1234;
+		printf("view initialize\n");
+	}
+
+	static void lua_view_finalize(lua_t lua, int index, void* p) {
+		printf("view finalize\n");
+	}
+
+	static size_t lua_view_payload(lua_t lua, void* p) {
+		printf("view payload\n");
+		return sizeof(size_t);
+	}
+
+	static example_base_t* lua_view_extract(lua_t lua, int index, void* t) {
+		example_base_t** p = (example_base_t**)t;
+		printf("view extractor\n");
+		return ((example_base_t**)p)[1];
+	}
+
 	int base_value = 2222;
 };
 
@@ -135,16 +157,6 @@ struct example_t : example_base_t {
 
 	void lua_finalize(lua_State* L, int index) noexcept {
 		printf("finalize!\n");
-		ref_count.fetch_sub(1, std::memory_order_release);
-	}
-
-	static void lua_view_initialize(lua_t lua, int index, example_t* p) {
-		ref_count.fetch_add(1, std::memory_order_acquire);
-		printf("view initialize\n");
-	}
-
-	static void lua_view_finalize(lua_t lua, int index, example_t*& p) {
-		printf("view finalize\n");
 		ref_count.fetch_sub(1, std::memory_order_release);
 	}
 
