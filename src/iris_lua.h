@@ -1049,7 +1049,7 @@ namespace iris {
 
 		template <typename type_t = void>
 		static type_t* extract_object_ptr(lua_State* L, int index) {
-			size_t len = lua_rawlen(L, index);
+			size_t len = static_cast<size_t>(lua_rawlen(L, index));
 			if (len & size_mask_view) {
 				if constexpr (has_lua_view_extract<type_t>::value) {
 					static_assert(has_lua_view_initialize<type_t>::value, "Must implement lua_view_initialize()");
