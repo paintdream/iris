@@ -148,7 +148,7 @@ namespace iris {
 		using function_t = func_t;
 		using queue_buffer_t = iris_queue_list_t<function_t, allocator_t>;
 		using async_worker_t = worker_t;
-		using task_t = typename async_worker_t::task_t;
+		using task_t = typename async_worker_t::task_base_t;
 
 		static constexpr size_t block_size = iris_extract_block_size<function_t, allocator_t>::value;
 		enum class queue_state_t : size_t {
@@ -1004,31 +1004,33 @@ namespace iris {
 
 	// here we code a trivial worker demo
 	// could be replaced by your implementation
-	template <typename thread_t = std::thread, typename callback_t = std::function<void()>, template <typename...> class allocator_t = iris_default_object_allocator_t, size_t default_task_duplicate_count = 4, size_t default_sub_allocator_count = 4>
+	template <typename thread_t = std::thread, typename large_callable_t = std::function<void()>, template <typename...> class allocator_t = iris_default_object_allocator_t, size_t default_task_duplicate_count = 4, size_t default_sub_allocator_count = 4>
 	struct iris_async_worker_t {
 		// task wrapper
-		struct alignas(64) task_t {
+		struct task_base_t {
+			task_base_t(task_base_t* n, void (*e)(task_base_t*), size_t index) : next(n), executor(e), alloc_index(index) {}
+
+			task_base_t* next;
+			void (*executor)(task_base_t* instance);
+			size_t alloc_index;
+
+			task_base_t(task_base_t&& rhs) noexcept = delete;
+			task_base_t& operator = (task_base_t&& rhs) noexcept = delete;
+		};
+
+		template <typename callback_t>
+		struct alignas(64) task_t : task_base_t {
 			template <typename func_t>
-			task_t(func_t&& func, task_t* n, allocator_t<task_t>& alloc) noexcept(noexcept(callback_t(std::forward<func_t>(func))))
-				: task(std::forward<func_t>(func)), next(n), allocator(alloc) {}
+			task_t(func_t&& func, task_t* n, size_t index) noexcept(noexcept(callback_t(std::forward<func_t>(func))))
+				: task(std::forward<func_t>(func)), task_base_t(n, &task_t::execute, index) {}
 
-			task_t(task_t&& rhs) noexcept : task(std::move(rhs.task)), next(rhs.next), allocator(rhs.allocator) {
-				rhs.next = nullptr;
-			}
-
-			task_t& operator = (task_t&& rhs) noexcept {
-				if (this != &rhs) {
-					task = std::move(rhs.task);
-					next = rhs.next;
-					rhs.next = nullptr;
-				}
-
-				return *this;
+			static void execute(task_base_t* instance) {
+				task_t* task = static_cast<task_t*>(instance);
+				task->task();
+				task->~task_t();
 			}
 
 			callback_t task;
-			task_t* next;
-			allocator_t<task_t>& allocator;
 		};
 
 		static constexpr size_t task_head_duplicate_count = default_task_duplicate_count;
@@ -1036,7 +1038,8 @@ namespace iris {
 
 		template <typename element_t>
 		using general_allocator_t = allocator_t<element_t>;
-		using task_allocator_t = allocator_t<task_t>;
+		using task_allocator_t = allocator_t<task_t<void (*)()>>;
+		using large_task_allocator_t = allocator_t<task_t<large_callable_t>>;
 
 		iris_async_worker_t() : waiting_thread_count(0), limit_count(0), internal_thread_count(0), finalize_task_head(nullptr) {
 			task_allocator_index.store(0, std::memory_order_relaxed);
@@ -1061,7 +1064,7 @@ namespace iris {
 			IRIS_ASSERT(finalize_task_head == nullptr);
 			IRIS_ASSERT(task_heads.empty()); // must not started
 
-			std::vector<std::atomic<task_t*>> heads(threads.size() * task_head_duplicate_count);
+			std::vector<std::atomic<task_base_t*>> heads(threads.size() * task_head_duplicate_count);
 			for (size_t i = 0; i < heads.size(); i++) {
 				heads[i].store(nullptr, std::memory_order_relaxed);
 			}
@@ -1124,19 +1127,6 @@ namespace iris {
 		thread_t& get(size_t i) noexcept {
 			return threads[i];
 		}
-
-		// guard for exceptions on polling
-		struct poll_guard_t {
-			poll_guard_t(task_t* t) noexcept : task(t) {}
-			~poll_guard_t() noexcept {
-				// do cleanup work
-				task_allocator_t& allocator = task->allocator;
-				task->~task_t();
-				allocator.deallocate(task, 1);
-			}
-
-			task_t* task;
-		};
 
 		// poll any task from thread poll manually
 		bool poll() {
@@ -1207,22 +1197,57 @@ namespace iris {
 
 		// queue a task to worker with given priority [0, thread_count - 1], which 0 is the highest priority
 		template <typename callable_t>
-		task_t* new_task(callable_t&& func) {
-			task_allocator_t& current_allocator = task_allocators[task_allocator_index.fetch_add(1, std::memory_order_relaxed) % sub_allocator_count];
-			task_t* task = current_allocator.allocate(1);
-			new (task) task_t(std::forward<callable_t>(func), nullptr, current_allocator);
+		struct is_large_task {
+			static constexpr bool value = sizeof(task_t<callable_t>) > sizeof(task_t<void (*)()>);
+		};
+
+		template <typename callable_t>
+		typename std::enable_if<is_large_task<callable_t>::value, task_base_t*>::type new_task(callable_t&& func) {
+			task_t<large_callable_t>* task = large_task_allocator.allocate(1);
+			new (task) task_t<large_callable_t>(std::forward<callable_t>(func), nullptr, ~(size_t)0);
 			task_count.fetch_add(1, std::memory_order_relaxed);
 
 			return task;
 		}
 
-		void execute_task(task_t* task) {
-			task_count.fetch_sub(1, std::memory_order_release);
-			poll_guard_t guard(task);
-			task->task();
+		template <typename callable_t>
+		typename std::enable_if_t<!is_large_task<callable_t>::value, task_base_t*> new_task(callable_t&& func) {
+			size_t index = task_allocator_index.fetch_add(1, std::memory_order_relaxed) % sub_allocator_count;
+			task_allocator_t& current_allocator = task_allocators[index];
+			task_t<callable_t>* task = reinterpret_cast<task_t<callable_t>*>(current_allocator.allocate(1));
+			static_assert(sizeof(task_t<callable_t>) == sizeof(task_t<void (*)()>), "Task size mismatch!");
+			new (task) task_t<callable_t>(std::forward<callable_t>(func), nullptr, index);
+			task_count.fetch_add(1, std::memory_order_relaxed);
+
+			return task;
 		}
 
-		void queue_task(task_t* task, size_t priority = 0) {
+		// guard for exceptions on polling
+		struct poll_guard_t {
+			poll_guard_t(iris_async_worker_t& w, task_base_t* t) noexcept : worker(w), task(t) {}
+			~poll_guard_t() noexcept {
+				// do cleanup work
+				size_t index = task->alloc_index;
+
+				if (index == ~(size_t)0) {
+					worker.large_task_allocator.deallocate(static_cast<task_t<large_callable_t>*>(task), 1);
+				} else {
+					worker.task_allocators[index].deallocate(static_cast<task_t<void (*)()>*>(task), 1);
+				}
+
+				worker.task_count.fetch_sub(1, std::memory_order_release);
+			}
+
+			iris_async_worker_t& worker;
+			task_base_t* task;
+		};
+
+		void execute_task(task_base_t* task) {
+			poll_guard_t guard(*this, task);
+			task->executor(task);
+		}
+
+		void queue_task(task_base_t* task, size_t priority = 0) {
 			IRIS_ASSERT(task != nullptr && task->next == nullptr);
 			if (!is_terminated()) {
 				IRIS_ASSERT(!threads.empty());
@@ -1237,8 +1262,8 @@ namespace iris {
 
 				for (size_t n = 0; n < task_head_duplicate_count; n++) {
 					size_t k = (n + current_thread_index) % task_head_duplicate_count;
-					std::atomic<task_t*>& task_head = task_heads[priority + k * thread_count];
-					task_t* expected = nullptr;
+					std::atomic<task_base_t*>& task_head = task_heads[priority + k * thread_count];
+					task_base_t* expected = nullptr;
 					if (task_head.compare_exchange_strong(expected, task, std::memory_order_release)) {
 						// dispatch immediately
 						wakeup_one_with_priority(priority);
@@ -1253,11 +1278,11 @@ namespace iris {
 				}
 
 				// full, chain to farest one
-				std::atomic<task_t*>& task_head = task_heads[priority + index * thread_count];
+				std::atomic<task_base_t*>& task_head = task_heads[priority + index * thread_count];
 
 				// avoid legacy compiler bugs
 				// see https://en.cppreference.com/w/cpp/atomic/atomic/compare_exchange
-				task_t* node = task_head.load(std::memory_order_relaxed);
+				task_base_t* node = task_head.load(std::memory_order_relaxed);
 				do {
 					task->next = node;
 				} while (!task_head.compare_exchange_weak(node, task, std::memory_order_acq_rel, std::memory_order_relaxed));
@@ -1267,8 +1292,8 @@ namespace iris {
 			} else {
 				// terminate requested, chain to default task_head at 0
 				if (!task_heads.empty()) {
-					std::atomic<task_t*>& task_head = task_heads[0];
-					task_t* node = task_head.load(std::memory_order_relaxed);
+					std::atomic<task_base_t*>& task_head = task_heads[0];
+					task_base_t* node = task_head.load(std::memory_order_relaxed);
 					do {
 						task->next = node;
 					} while (!task_head.compare_exchange_weak(node, task, std::memory_order_acq_rel, std::memory_order_relaxed));
@@ -1289,7 +1314,7 @@ namespace iris {
 		bool finalize() {
 			IRIS_ASSERT(is_terminated());
 
-			task_t* p = finalize_task_head;
+			task_base_t* p = finalize_task_head;
 			if (p != nullptr) {
 				do {
 					finalize_task_head = p->next;
@@ -1384,22 +1409,22 @@ namespace iris {
 
 			bool empty = true;
 			for (size_t i = 0; i < task_heads.size(); i++) {
-				std::atomic<task_t*>& task_head = task_heads[i];
-				task_t* task = task_head.exchange(nullptr, std::memory_order_acquire);
+				std::atomic<task_base_t*>& task_head = task_heads[i];
+				task_base_t* task = task_head.exchange(nullptr, std::memory_order_acquire);
 				empty = empty && (task == nullptr);
 
 				while (task != nullptr) {
-					task_t* p = task;
-					task_t* org = task_head.exchange(task->next, std::memory_order_release);
+					task_base_t* p = task;
+					task_base_t* org = task_head.exchange(task->next, std::memory_order_release);
 
 					// return the remaining
 					if (org != nullptr) {
 						do {
-							task_t* next = org->next;
+							task_base_t* next = org->next;
 
 							// avoid legacy compiler bugs
 							// see https://en.cppreference.com/w/cpp/atomic/atomic/compare_exchange
-							task_t* node = task_head.load(std::memory_order_relaxed);
+							task_base_t* node = task_head.load(std::memory_order_relaxed);
 							do {
 								org->next = node;
 							} while (!task_head.compare_exchange_weak(node, org, std::memory_order_relaxed, std::memory_order_relaxed));
@@ -1443,21 +1468,21 @@ namespace iris {
 
 			if (index != ~size_t(0)) {
 				size_t priority = slot.second;
-				std::atomic<task_t*>& task_head = task_heads[index];
+				std::atomic<task_base_t*>& task_head = task_heads[index];
 				if (task_head.load(std::memory_order_acquire) != nullptr) {
 					// fetch a task atomically
-					task_t* task = task_head.exchange(nullptr, std::memory_order_acquire);
+					task_base_t* task = task_head.exchange(nullptr, std::memory_order_acquire);
 					if (task != nullptr) {
-						task_t* org = task_head.exchange(task->next, std::memory_order_release);
+						task_base_t* org = task_head.exchange(task->next, std::memory_order_release);
 
 						// return the remaining
 						if (org != nullptr) {
 							do {
-								task_t* next = org->next;
+								task_base_t* next = org->next;
 
 								// avoid legacy compiler bugs
 								// see https://en.cppreference.com/w/cpp/atomic/atomic/compare_exchange
-								task_t* node = task_head.load(std::memory_order_relaxed);
+								task_base_t* node = task_head.load(std::memory_order_relaxed);
 								do {
 									org->next = node;
 								} while (!task_head.compare_exchange_weak(node, org, std::memory_order_relaxed, std::memory_order_relaxed));
@@ -1481,13 +1506,14 @@ namespace iris {
 		}
 
 	protected:
+		large_task_allocator_t large_task_allocator;
 		task_allocator_t task_allocators[sub_allocator_count]; // default task allocator
 		std::vector<thread_t> threads; // worker
 		std::atomic<size_t> task_allocator_index; // index for selecting task allocator
 		std::atomic<size_t> running_count; // running_count
 		std::atomic<size_t> task_count; // the count of total waiting tasks 
-		std::vector<std::atomic<task_t*>> task_heads; // task pointer list
-		task_t* finalize_task_head;
+		std::vector<std::atomic<task_base_t*>> task_heads; // task pointer list
+		task_base_t* finalize_task_head;
 		std::mutex mutex; // mutex to protect condition
 		std::condition_variable condition; // condition variable for idle wait
 		std::atomic<size_t> terminated; // is to terminate
