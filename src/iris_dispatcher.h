@@ -1202,7 +1202,7 @@ namespace iris {
 		};
 
 		template <typename callable_t>
-		typename std::enable_if<is_large_task<callable_t>::value, task_base_t*>::type new_task(callable_t&& func) {
+		typename std::enable_if<is_large_task<typename std::remove_reference<callable_t>::type>::value, task_base_t*>::type new_task(callable_t&& func) {
 			task_t<large_callable_t>* task = large_task_allocator.allocate(1);
 			new (task) task_t<large_callable_t>(std::forward<callable_t>(func), nullptr, ~(size_t)0);
 			task_count.fetch_add(1, std::memory_order_relaxed);
@@ -1211,7 +1211,7 @@ namespace iris {
 		}
 
 		template <typename callable_t>
-		typename std::enable_if<!is_large_task<callable_t>::value, task_base_t*>::type new_task(callable_t&& func) {
+		typename std::enable_if<!is_large_task<typename std::remove_reference<callable_t>::type>::value, task_base_t*>::type new_task(callable_t&& func) {
 			size_t index = task_allocator_index.fetch_add(1, std::memory_order_relaxed) % sub_allocator_count;
 			task_allocator_t& current_allocator = task_allocators[index];
 			task_t<callable_t>* task = reinterpret_cast<task_t<callable_t>*>(current_allocator.allocate(1));
