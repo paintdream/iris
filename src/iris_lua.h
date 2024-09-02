@@ -1669,21 +1669,22 @@ namespace iris {
 				// mark state
 				using return_t = typename coroutine_t::return_type_t;
 				auto coroutine = function(std::forward<params_t>(params)...);
+				void* address = coroutine.get_handle().address();
 
 				// save current thread to registry in case of gc
-				lua_pushlightuserdata(L, L);
+				lua_pushlightuserdata(L, address);
 				lua_pushthread(L);
 				lua_rawset(L, LUA_REGISTRYINDEX);
 
 				int top = lua_gettop(L);
 				if constexpr (!std::is_void_v<return_t>) {
 #if LUA_CLEAR_STACK_ON_YIELD
-					coroutine.complete([L](return_t&& value) {
+					coroutine.complete([L, address](return_t&& value) {
 #else
-					coroutine.complete([L, top](return_t&& value) {
+					coroutine.complete([L, address, top](return_t&& value) {
 #endif
 						IRIS_PROFILE_SCOPE(__FUNCTION__);
-						void* context = L;
+						void* context = address;
 
 						if constexpr (is_optional_result<return_t>::value) {
 							if (value) {
@@ -1695,7 +1696,7 @@ namespace iris {
 								context = reinterpret_cast<char*>(L) + 1;
 #else
 								iris_lua_t::systrap(L, "error.resume.legacy", "C-function execution error: %s", value.message.c_str());
-								coroutine_cleanup(L);
+								coroutine_cleanup(L, address);
 								return;
 #endif
 							}
@@ -1710,20 +1711,20 @@ namespace iris {
 #endif
 						IRIS_ASSERT(count >= 0);
 						push_variable(L, context);
-						coroutine_continuation(L, count);
+						coroutine_continuation(L, count, address);
 					}).run();
 				} else {
-					coroutine.complete([L]() {
+					coroutine.complete([L, address]() {
 						IRIS_PROFILE_SCOPE(__FUNCTION__);
 						lua_pushnil(L);
-						push_variable(L, static_cast<void*>(L));
-						coroutine_continuation(L, 1);
+						push_variable(L, address);
+						coroutine_continuation(L, 1, address);
 					}).run();
 				}
 
 				// already completed?
 				void* mark = lua_touserdata(L, -1);
-				if (mark == L) {
+				if (mark == address) {
 					lua_pop(L, 1);
 					int count = lua_gettop(L) - top;
 					IRIS_ASSERT(count >= 0);
@@ -1737,14 +1738,14 @@ namespace iris {
 			}
 		}
 
-		static void coroutine_cleanup(lua_State* L) {
+		static void coroutine_cleanup(lua_State* L, void* address) {
 			// clear thread reference to allow gc collecting
-			lua_pushlightuserdata(L, L);
+			lua_pushlightuserdata(L, address);
 			lua_pushnil(L);
 			lua_rawset(L, LUA_REGISTRYINDEX);
 		}
 
-		static void coroutine_continuation(lua_State* L, int count) {
+		static void coroutine_continuation(lua_State* L, int count, void* address) {
 			if (lua_status(L) == LUA_YIELD) {
 				bool ret_error = lua_touserdata(L, -1) == reinterpret_cast<char*>(L) + 1;
 				if (!ret_error) {
@@ -1767,7 +1768,7 @@ namespace iris {
 				}
 			}
 
-			coroutine_cleanup(L);
+			coroutine_cleanup(L, address);
 		}
 
 #if LUA_ENABLE_YIELDK
