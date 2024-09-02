@@ -1211,7 +1211,7 @@ namespace iris {
 		}
 
 		template <typename callable_t>
-		typename std::enable_if_t<!is_large_task<callable_t>::value, task_base_t*> new_task(callable_t&& func) {
+		typename std::enable_if<!is_large_task<callable_t>::value, task_base_t*>::type new_task(callable_t&& func) {
 			size_t index = task_allocator_index.fetch_add(1, std::memory_order_relaxed) % sub_allocator_count;
 			task_allocator_t& current_allocator = task_allocators[index];
 			task_t<callable_t>* task = reinterpret_cast<task_t<callable_t>*>(current_allocator.allocate(1));
@@ -1560,4 +1560,3 @@ namespace iris {
 		std::atomic<ptrdiff_t> balance;
 	};
 }
-
