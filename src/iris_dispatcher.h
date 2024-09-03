@@ -1024,10 +1024,19 @@ namespace iris {
 			task_t(func_t&& func, task_t* n, size_t index) noexcept(noexcept(callback_t(std::forward<func_t>(func))))
 				: task(std::forward<func_t>(func)), task_base_t(n, &task_t::execute, index) {}
 
+			struct task_guard_t {
+				task_guard_t(task_t* t) : task(t) {}
+				~task_guard_t() noexcept {
+					task->~task_t();
+				}
+
+				task_t* task;
+			};
+
 			static void execute(task_base_t* instance) {
 				task_t* task = static_cast<task_t*>(instance);
+				task_guard_t guard(task);
 				task->task();
-				task->~task_t();
 			}
 
 			callback_t task;
