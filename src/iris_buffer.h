@@ -30,7 +30,6 @@ SOFTWARE.
 #pragma once
 
 #include "iris_common.h"
-#include <string>
 #include <cstring>
 
 namespace iris {
@@ -544,6 +543,7 @@ namespace iris {
 		static constexpr size_t full_pack_size() {
 			return storage_t::full_pack_size();
 		}
+
 		void link(iris_buffer_t<element_t>& from, const iris_buffer_t<element_t>& to) {
 			if (from.empty()) {
 				from = to;

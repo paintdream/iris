@@ -1487,13 +1487,13 @@ namespace iris {
 						}
 					} else {
 						// otherwise convert to lua array table
-						int size = static_cast<int>(lua_rawlen(L, index));
+						size_t size = static_cast<size_t>(lua_rawlen(L, index));
 						if constexpr (has_reserve<value_t>::value) {
 							result.reserve(size);
 						}
 
-						for (int i = 0; i < size; i++) {
-							lua_rawgeti(L, index, i + 1);
+						for (size_t i = 0; i < size; i++) {
+							lua_rawgeti(L, index, static_cast<lua_Integer>(i) + 1);
 							result.emplace_back(get_variable<typename type_t::value_type>(L, -1));
 							lua_pop(L, 1);
 						}

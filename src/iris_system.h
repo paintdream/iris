@@ -443,6 +443,7 @@ namespace iris {
 		}
 
 		void reset() {
+			auto guard = write_fence();
 			system_infos.clear();
 		}
 
