@@ -1019,7 +1019,7 @@ namespace iris {
 		};
 
 		template <typename callback_t>
-		struct alignas(64) task_t : task_base_t {
+		struct alignas(sizeof(size_t) * 8) task_t : task_base_t {
 			template <typename func_t>
 			task_t(func_t&& func, task_t* n, size_t index) noexcept(noexcept(callback_t(std::forward<func_t>(func))))
 				: task(std::forward<func_t>(func)), task_base_t(n, &task_t::execute, index) {}
