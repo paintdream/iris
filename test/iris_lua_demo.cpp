@@ -27,7 +27,7 @@ struct vector3 {
 };
 
 template <>
-struct iris::iris_lua_convert_t<vector3> : std::true_type {
+struct iris::iris_lua_traits_t<vector3> : std::true_type {
 	static int to_lua(lua_State* L, vector3&& v) noexcept {
 		lua_newtable(L);
 		lua_pushnumber(L, v.z);
@@ -150,12 +150,12 @@ struct example_t : example_base_t {
 		return 0;
 	}
 
-	void lua_initialize(lua_t lua, int index) {
+	static void lua_initialize(lua_t lua, int index, example_t* p) {
 		ref_count.fetch_add(1, std::memory_order_acquire);
 		printf("initialize!\n");
 	}
 
-	void lua_finalize(lua_State* L, int index) noexcept {
+	static void lua_finalize(lua_State* L, int index, example_t* p) noexcept {
 		printf("finalize!\n");
 		ref_count.fetch_sub(1, std::memory_order_release);
 	}

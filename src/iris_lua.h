@@ -70,7 +70,9 @@ extern "C" {
 
 namespace iris {
 	template <typename type_t>
-	struct iris_lua_convert_t : std::false_type {};
+	struct iris_lua_traits_t : std::false_type {
+		using type = type_t;
+	};
 
 	// A simple lua binding with C++17
 	struct iris_lua_t : enable_read_write_fence_t<> {
@@ -475,7 +477,7 @@ namespace iris {
 		};
 
 		template <typename type_t>
-		struct has_lua_registar<type_t, iris_void_t<decltype(std::declval<type_t>().lua_registar(std::declval<iris_lua_t>()))>> : std::true_type {
+		struct has_lua_registar<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_registar(std::declval<iris_lua_t>()))>> : std::true_type {
 			static constexpr auto get_registar() noexcept {
 				return &type_t::lua_registar;
 			}
@@ -590,7 +592,7 @@ namespace iris {
 			static_assert(sizeof(type_t*) == sizeof(void*), "Unrecognized architecture.");
 			size_t payload_size = 0;
 			if constexpr (has_lua_view_payload<type_t>::value) {
-				payload_size += type_t::lua_view_payload(iris_lua_t(L), object);
+				payload_size += iris_lua_traits_t<type_t>::type::lua_view_payload(iris_lua_t(L), object);
 			}
 
 			void* p = lua_newuserdatauv(L, (sizeof(type_t*) + payload_size) | size_mask_view, meta.template get<int>(*this, "__uservalue").value_or(0));
@@ -601,7 +603,7 @@ namespace iris {
 
 			// call lua_view_initialize if needed
 			if constexpr (has_lua_view_initialize<type_t>::value) {
-				type_t::lua_view_initialize(iris_lua_t(L), lua_absindex(L, -1), p);
+				iris_lua_traits_t<type_t>::type::lua_view_initialize(iris_lua_t(L), lua_absindex(L, -1), p);
 			}
 
 			return refptr_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX), object);
@@ -1053,7 +1055,7 @@ namespace iris {
 			if (len & size_mask_view) {
 				if constexpr (has_lua_view_extract<type_t>::value) {
 					static_assert(has_lua_view_initialize<type_t>::value, "Must implement lua_view_initialize()");
-					return static_cast<type_t*>(type_t::lua_view_extract(iris_lua_t(L), index, reinterpret_cast<type_t**>(lua_touserdata(L, index))));
+					return static_cast<type_t*>(iris_lua_traits_t<type_t>::type::lua_view_extract(iris_lua_t(L), index, reinterpret_cast<type_t**>(lua_touserdata(L, index))));
 				} else {
 					return *reinterpret_cast<type_t**>(lua_touserdata(L, index));
 				}
@@ -1100,7 +1102,7 @@ namespace iris {
 			lua_setmetatable(T, -2);
 
 			if constexpr (has_lua_view_initialize<type_t>::value) {
-				type_t::lua_view_initialize(iris_lua_t(T), lua_absindex(T, -1), p);
+				iris_lua_traits_t<type_t>::type::lua_view_initialize(iris_lua_t(T), lua_absindex(T, -1), p);
 			}
 		}
 
@@ -1318,13 +1320,13 @@ namespace iris {
 		struct has_lua_finalize : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_finalize<type_t, iris_void_t<decltype(std::declval<type_t>().lua_finalize(std::declval<iris_lua_t>(), 1))>> : std::true_type {};
+		struct has_lua_finalize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_finalize(std::declval<iris_lua_t>(), 1, std::declval<type_t*>()))>> : std::true_type {};
 
 		template <typename type_t, typename = void>
 		struct has_lua_view_finalize : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_view_finalize<type_t, iris_void_t<decltype(type_t::lua_view_finalize(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
+		struct has_lua_view_finalize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_finalize(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
 
 		// will be called when __gc triggerred
 		template <typename type_t>
@@ -1332,14 +1334,14 @@ namespace iris {
 			if (lua_rawlen(L, 1) & size_mask_view) {
 				// call lua_view_finalize if needed
 				if constexpr (has_lua_view_finalize<type_t>::value) {
-					type_t::lua_view_finalize(iris_lua_t(L), 1, lua_touserdata(L, 1));
+					iris_lua_traits_t<type_t>::type::lua_view_finalize(iris_lua_t(L), 1, lua_touserdata(L, 1));
 				}
 			} else {
 				type_t* p = reinterpret_cast<type_t*>(lua_touserdata(L, 1));
 
 				// call lua_finalize if needed
 				if constexpr (has_lua_finalize<type_t>::value) {
-					p->lua_finalize(iris_lua_t(L), 1);
+					iris_lua_traits_t<type_t>::type::lua_finalize(iris_lua_t(L), 1, p);
 				}
 
 				IRIS_ASSERT(p != nullptr);
@@ -1360,13 +1362,13 @@ namespace iris {
 		struct has_lua_initialize : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_initialize<type_t, iris_void_t<decltype(std::declval<type_t>().lua_initialize(std::declval<iris_lua_t>(), 1))>> : std::true_type {};
+		struct has_lua_initialize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_initialize(std::declval<iris_lua_t>(), 1, std::declval<type_t*>()))>> : std::true_type {};
 
 		template <typename type_t>
 		static void initialize_object(lua_State* L, int index, type_t* p) {
 			// call lua_initialize if needed
 			if constexpr (has_lua_initialize<type_t>::value) {
-				p->lua_initialize(iris_lua_t(L), index);
+				iris_lua_traits_t<type_t>::type::lua_initialize(iris_lua_t(L), index, p);
 			}
 		}
 
@@ -1374,19 +1376,19 @@ namespace iris {
 		struct has_lua_view_payload : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_view_payload<type_t, iris_void_t<decltype(type_t::lua_view_payload(std::declval<iris_lua_t>(), nullptr))>> : std::true_type {};
+		struct has_lua_view_payload<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_payload(std::declval<iris_lua_t>(), nullptr))>> : std::true_type {};
 
 		template <typename type_t, typename = void>
 		struct has_lua_view_extract : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_view_extract<type_t, iris_void_t<decltype(type_t::lua_view_extract(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
+		struct has_lua_view_extract<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_extract(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
 
 		template <typename type_t, typename = void>
 		struct has_lua_view_initialize : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_view_initialize<type_t, iris_void_t<decltype(type_t::lua_view_initialize(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
+		struct has_lua_view_initialize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_initialize(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
 
 		// create a lua managed object
 		template <typename type_t, int user_value_count, typename... args_t>
@@ -1431,8 +1433,8 @@ namespace iris {
 			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
 			stack_guard_t guard(L);
 
-			if constexpr (iris_lua_convert_t<value_t>::value) {
-				return iris_lua_convert_t<value_t>::from_lua(L, index);
+			if constexpr (iris_lua_traits_t<value_t>::value) {
+				return iris_lua_traits_t<value_t>::from_lua(L, index);
 			} else if constexpr (std::is_null_pointer_v<value_t>) {
 				return nullptr;
 			} else if constexpr (iris_is_reference_wrapper<type_t>::value) {
@@ -1555,8 +1557,8 @@ namespace iris {
 			} else if constexpr (std::is_base_of_v<required_base_t, value_t>) {
 				return get_variable<typename value_t::required_type_t, true>(L, index);
 			} else {
-				// by default, force iris_lua_convert_t
-				return iris_lua_convert_t<value_t>::from_lua(L, index);
+				// by default, force iris_lua_traits_t
+				return iris_lua_traits_t<value_t>::from_lua(L, index);
 			}
 		}
 
@@ -1891,8 +1893,8 @@ namespace iris {
 			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
 			stack_guard_t guard(L, 1);
 
-			if constexpr (iris_lua_convert_t<value_t>::value) {
-				guard.append(iris_lua_convert_t<value_t>::to_lua(L, std::forward<type_t>(variable)) - 1);
+			if constexpr (iris_lua_traits_t<value_t>::value) {
+				guard.append(iris_lua_traits_t<value_t>::to_lua(L, std::forward<type_t>(variable)) - 1);
 			} else if constexpr (is_optional<value_t>::value) {
 				if (variable) {
 					if constexpr (std::is_rvalue_reference_v<type_t&&>) {
@@ -1974,8 +1976,8 @@ namespace iris {
 			} else if constexpr (is_functor<value_t>::value) {
 				push_method<&type_t::operator ()>(L, std::forward<type_t>(variable), &type_t::operator ());
 			} else {
-				// by default, force iris_lua_convert_t
-				guard.append(iris_lua_convert_t<value_t>::to_lua(L, std::forward<type_t>(variable)) - 1);
+				// by default, force iris_lua_traits_t
+				guard.append(iris_lua_traits_t<value_t>::to_lua(L, std::forward<type_t>(variable)) - 1);
 			}
 		}
 
