@@ -479,7 +479,7 @@ namespace iris {
 		template <typename type_t>
 		struct has_lua_registar<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_registar(std::declval<iris_lua_t>()))>> : std::true_type {
 			static constexpr auto get_registar() noexcept {
-				return &type_t::lua_registar;
+				return &iris_lua_traits_t<type_t>::type::lua_registar;
 			}
 		};
 
