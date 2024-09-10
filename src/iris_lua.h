@@ -581,7 +581,7 @@ namespace iris {
 		}
 
 		template <typename type_t, typename meta_t, typename... args_t>
-		refptr_t<type_t> make_object_view(meta_t&& meta, type_t* object, size_t count = 1) {
+		refptr_t<type_t> make_object_view(meta_t&& meta, type_t* object) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			IRIS_ASSERT(object != nullptr);
 
