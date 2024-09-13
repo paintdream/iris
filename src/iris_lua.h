@@ -141,12 +141,15 @@ namespace iris {
 		};
 
 		template <typename return_t>
-		struct optional_result_t : std::conditional_t<std::is_void_v<return_t>, std::optional<bool>, std::optional<return_t>> {
-			optional_result_t() {}
+		struct optional_result_t : std::conditional_t<std::is_void_v<return_t>, std::optional<std::nullptr_t>, std::optional<return_t>> {
+			using base_t = std::conditional_t<std::is_void_v<return_t>, std::optional<std::nullptr_t>, std::optional<return_t>>;
+			using value_t = std::conditional_t<std::is_void_v<return_t>, std::nullptr_t, return_t>;
+
+			optional_result_t() : base_t(value_t()) {}
 			optional_result_t(result_error_t&& err) : message(std::move(err.message)) {}
 
 			template <typename... args_t>
-			optional_result_t(args_t&&... args) : std::conditional_t<std::is_void_v<return_t>, std::optional<bool>, std::optional<return_t>>(std::forward<args_t>(args)...) {}
+			optional_result_t(args_t&&... args) : base_t(std::forward<args_t>(args)...) {}
 
 			std::string message;
 		};
@@ -1000,7 +1003,7 @@ namespace iris {
 					lua_pop(L, 1);
 					return result;
 				} else {
-					return true;
+					return {};
 				}
 			} else {
 				iris_lua_t::systrap(L, "error.resume", "iris_lua_t::call() -> call function failed! %s\n", luaL_optstring(L, -1, ""));
