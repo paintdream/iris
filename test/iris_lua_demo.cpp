@@ -200,7 +200,7 @@ struct example_t : example_base_t {
 
 	void join_value_refptr(lua_t&& lua, lua_t::refptr_t<example_t>&& rhs) noexcept {
 		auto guard = lua.ref_guard(rhs);
-		if (rhs != nullptr) {
+		if (rhs) {
 			value += rhs->value;
 		}
 	}

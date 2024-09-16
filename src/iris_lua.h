@@ -354,14 +354,6 @@ namespace iris {
 
 			using internal_type_t = value_t;
 
-			operator value_t& () noexcept {
-				return get();
-			}
-
-			operator const value_t& () const noexcept {
-				return get();
-			}
-
 			const value_t& operator -> () const noexcept {
 				return get();
 			}
@@ -1464,6 +1456,14 @@ namespace iris {
 				return static_cast<value_t>(lua_tonumber(L, index));
 			} else if constexpr (std::is_same_v<value_t, lua_State*> || std::is_same_v<value_t, iris_lua_t>) {
 				return value_t(lua_tothread(L, index));
+			} else if constexpr (std::is_same_v<value_t, char*> || std::is_same_v<value_t, const char*>) {
+				size_t len = 0;
+				// do not accept implicit __tostring casts
+				if (lua_type(L, index) == LUA_TSTRING) {
+					return lua_tostring(L, index);
+				} else {
+					return "";
+				}
 			} else if constexpr (std::is_same_v<value_t, std::string_view> || std::is_same_v<value_t, std::string>) {
 				size_t len = 0;
 				// do not accept implicit __tostring casts
