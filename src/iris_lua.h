@@ -69,7 +69,7 @@ extern "C" {
 #endif
 
 namespace iris {
-	template <typename type_t>
+	template <typename type_t, typename = void>
 	struct iris_lua_traits_t : std::false_type {
 		using type = type_t;
 	};

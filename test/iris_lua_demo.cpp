@@ -275,10 +275,46 @@ struct example_t : example_base_t {
 	const int const_value = 0;
 };
 
+
+struct shared_data_t : std::enable_shared_from_this<shared_data_t> {
+	std::string data = "shared data";
+};
+
+
+template <typename type_t>
+struct iris::iris_lua_traits_t<type_t, std::enable_if_t<std::is_base_of_v<std::enable_shared_from_this<type_t>, type_t>>> {
+	using type = iris::iris_lua_traits_t<shared_data_t>;
+	static_assert(alignof(std::weak_ptr<type_t>) <= alignof(type_t*), "Unexpected alignment.");
+
+	static void lua_view_initialize(lua_t lua, int index, void* t) {
+		type_t** p = reinterpret_cast<type_t**>(t);
+		new (p + 1) std::weak_ptr<type_t>((*p)->weak_from_this());
+	}
+
+	static void lua_view_finalize(lua_t lua, int index, void* t) {
+		type_t** p = reinterpret_cast<type_t**>(t);
+		reinterpret_cast<std::weak_ptr<type_t>*>(p + 1)->~weak_ptr();
+	}
+
+	static size_t lua_view_payload(lua_t lua, void* p) {
+		return sizeof(std::weak_ptr<type_t>);
+	}
+
+	static type_t* lua_view_extract(lua_t lua, int index, void* t) {
+		type_t** p = reinterpret_cast<type_t**>(t);
+		auto* ptr = reinterpret_cast<std::weak_ptr<type_t>*>(p + 1);
+		return ptr->expired() ? nullptr : *p;
+	}
+};
+
 static int error_handler(lua_State* L) {
 	return lua_t::forward(L, [](std::string_view message) {
 		printf("ERROR_HANDLER %s\n", message.data());
 	});
+}
+
+static void use_expired(shared_data_t* t, shared_data_t* s) {
+	printf("expired object: %p\nhold object: %p\n", t, s);
 }
 
 int main(void) {
@@ -286,6 +322,16 @@ int main(void) {
 	luaL_openlibs(L);
 
 	lua_t lua(L);
+	lua.set_global<&use_expired>("use_expired");
+	std::shared_ptr<shared_data_t> expired_object = std::make_shared<shared_data_t>();
+	std::shared_ptr<shared_data_t> hold_object = std::make_shared<shared_data_t>();
+	auto shared_data_type = lua.make_type<shared_data_t>("shared_data_t");
+	lua.set_global("expired_instance", lua.make_object_view(shared_data_type, expired_object.get()));
+	lua.set_global("hold_instance", lua.make_object_view(shared_data_type, hold_object.get()));
+	lua.deref(std::move(shared_data_type));
+	expired_object = nullptr;
+	lua.call<void>(lua.load("use_expired(expired_instance, hold_instance)"));
+
 	auto example_type = lua.make_type<example_t>("example_t").make_registry(lua);
 	auto example_base_type = lua.make_type<example_base_t>("example_base_t");
 	lua.cast_type(std::move(example_base_type), example_type);
