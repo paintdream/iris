@@ -1530,17 +1530,20 @@ namespace iris {
 
 						// returns empty if hashes are not equal!
 						object_hash = lua_touserdata(L, -1);
-
-						if (object_hash != type_hash) {
-							lua_pop(L, 1);
-							if (lua_getmetatable(L, -1)) {
-								lua_pushliteral(L, "__index");
-								lua_rawget(L, -2);
-								lua_replace(L, -3);
+						if constexpr (!std::is_final_v<value_t>) {
+							if (object_hash != type_hash) {
 								lua_pop(L, 1);
+								if (lua_getmetatable(L, -1)) {
+									lua_pushliteral(L, "__index");
+									lua_rawget(L, -2);
+									lua_replace(L, -3);
+									lua_pop(L, 1);
+								} else {
+									lua_pop(L, 1);
+									return value_t();
+								}
 							} else {
-								lua_pop(L, 1);
-								return value_t();
+								break;
 							}
 						} else {
 							break;
