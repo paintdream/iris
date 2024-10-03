@@ -114,17 +114,23 @@ namespace iris {
 
 	lua_ref_t lua_co_await_t::tutorial_warp(lua_t&& lua) {
 		assert(async_worker != nullptr);
-		return lua.make_type<tutorial_warp_t>("tutorial_warp", std::ref(*async_worker));
+		return lua.make_type<tutorial_warp_t>("tutorial_warp", +[](iris_lua_t lua, tutorial_warp_t* object, std::reference_wrapper<lua_async_worker_t> async_worker) -> iris_lua_t::optional_result_t<tutorial_warp_t*> {
+			return new (object) tutorial_warp_t(async_worker);
+		}, std::ref(*async_worker));
 	}
 
 	lua_ref_t lua_co_await_t::tutorial_quota(lua_t&& lua, size_t capacity) {
 		assert(async_worker != nullptr);
-		return lua.make_type<tutorial_quota_t>("tutorial_quota", std::ref(*async_worker), capacity);
+		return lua.make_type<tutorial_quota_t>("tutorial_quota", +[](iris_lua_t lua, tutorial_quota_t* object, std::reference_wrapper<lua_async_worker_t> async_worker, size_t capacity) -> iris_lua_t::optional_result_t<tutorial_quota_t*> {
+			return new (object) tutorial_quota_t(async_worker, capacity);
+		}, std::ref(*async_worker), capacity);
 	}
 
 	lua_ref_t lua_co_await_t::tutorial_readwrite(lua_t&& lua) {
 		assert(async_worker != nullptr);
-		return lua.make_type<tutorial_readwrite_t>("tutorial_quota", std::ref(*async_worker));
+		return lua.make_type<tutorial_readwrite_t>("tutorial_quota", +[](iris_lua_t lua, tutorial_readwrite_t* object, std::reference_wrapper<lua_async_worker_t> async_worker) -> iris_lua_t::optional_result_t<tutorial_readwrite_t*> {
+			return new (object) tutorial_readwrite_t(async_worker);
+		}, std::ref(*async_worker));
 	}
 
 	void lua_co_await_t::run_tutorials(lua_refptr_t<lua_co_await_t>&& self, lua_t&& lua) {
