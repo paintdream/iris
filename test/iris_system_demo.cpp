@@ -45,12 +45,6 @@ int main(void) {
 
 	quota.release({ 1,2 });
 
-	using queue = iris_queue_list_t<int, iris_default_block_allocator_t, iris_default_relaxed_shared_object_allocator_t>;
-	queue::node_allocator_t::allocator_t alloc;
-	queue q(alloc);
-	q.push(1);
-	q.pop();
-
 	int_interface pool;
 	std::vector<int*> allocated;
 	for (size_t i = 0; i < 0x1234; i++) {
@@ -63,7 +57,7 @@ int main(void) {
 
 	pool.clear();
 
-	iris_system_t<entity_t, block_allocator_t, iris_component_matrix_t, uint8_t> matrix_system;
+	iris_system_t<entity_t, block_allocator_t, std::allocator, iris_component_matrix_t, uint8_t> matrix_system;
 	std::vector<entity_t> entities;
 	iris_entity_allocator_t<entity_t> allocator;
 
@@ -120,7 +114,7 @@ int main(void) {
 		matrix.values[1][1] = 2;
 	});
 
-	iris_system_t<entity_t, block_allocator_t, float, uint8_t> other_system;
+	iris_system_t<entity_t, block_allocator_t, std::allocator, float, uint8_t> other_system;
 	for (size_t k = 0; k < 5; k++) {
 		other_system.insert(iris::iris_verify_cast<entity_t>(k), 0.1f, (uint8_t)k);
 	}
@@ -153,7 +147,7 @@ int main(void) {
 
 	IRIS_ASSERT(counter == 0);
 	
-	iris_system_t<entity_t, block_allocator_t, uint8_t> re_system;
+	iris_system_t<entity_t, block_allocator_t, std::allocator, uint8_t> re_system;
 	systems.attach(re_system);
 	re_system.insert(0, 1u);
 	systems.remove(0);

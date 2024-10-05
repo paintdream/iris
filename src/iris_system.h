@@ -81,7 +81,7 @@ namespace iris {
 	}
 
 	// components_t is not allowed to contain repeated types
-	template <typename entity_t, template <typename...> class allocator_t, typename... components_t>
+	template <typename entity_t, template <typename...> class allocator_t, template <typename...> class vector_allocator_t = std::allocator, typename... components_t>
 	struct iris_system_t : protected enable_read_write_fence_t<> {
 		template <typename target_t>
 		struct fetch_index : fetch_index_impl<target_t, components_t...> {};
@@ -345,7 +345,7 @@ namespace iris {
 
 	protected:
 		std::tuple<iris_queue_list_t<components_t, allocator_t>...> components;
-		std::vector<iris_key_value_t<entity_t, index_t>> entity_components;
+		std::vector<iris_key_value_t<entity_t, index_t>, vector_allocator_t<iris_key_value_t<entity_t, index_t>>> entity_components;
 		iris_queue_list_t<entity_t, allocator_t> entities;
 	};
 
@@ -380,7 +380,7 @@ namespace iris {
 		entity_t max_allocated_entity = 0;
 	};
 
-	template <typename entity_t, template <typename...> class allocator_t>
+	template <typename entity_t, template <typename...> class allocator_t, template <typename...> class vector_allocator_t = std::allocator>
 	struct iris_systems_t : protected enable_read_write_fence_t<> {
 		template <typename type_t>
 		struct component_info_t {};
@@ -533,6 +533,6 @@ namespace iris {
 		}
 
 	protected:
-		std::vector<system_info_t> system_infos;
+		std::vector<system_info_t, vector_allocator_t<system_info_t>> system_infos;
 	};
 }

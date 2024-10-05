@@ -88,8 +88,8 @@ struct engine_t {
 
 	coroutine_t coroutine_tick() {
 		iris_cache_t<uint8_t> frame_cache;
-		iris_system_t<uint32_t, block_allocator_t, parent_t, position_t, velocity_t> geo_system;
-		iris_system_t<uint32_t, block_allocator_t, parent_t, hitpoint_t, manapoint_t> attribute_system;
+		iris_system_t<uint32_t, block_allocator_t, std::allocator, parent_t, position_t, velocity_t> geo_system;
+		iris_system_t<uint32_t, block_allocator_t, std::allocator, parent_t, hitpoint_t, manapoint_t> attribute_system;
 
 		for (uint32_t i = 0; i < 32; i++) {
 			geo_system.insert(i, parent_t{ i - 1 }, position_t{ 0.0f, 0.0f, float(i) }, velocity_t{ 0.0f, float(i), 0.0f });

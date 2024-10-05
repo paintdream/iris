@@ -507,8 +507,8 @@ namespace iris {
 	using iris_bytes_t = iris_buffer_t<uint8_t>;
 
 	template <typename element_t, size_t block_size = default_block_size, template <typename...> class base_allocator_t = iris_default_block_allocator_t>
-	struct iris_cache_t : protected iris_queue_list_t<element_t, base_allocator_t, base_allocator_t, false> {
-		using storage_t = iris_queue_list_t<element_t, base_allocator_t, base_allocator_t, false>;
+	struct iris_cache_t : protected iris_queue_list_t<element_t, base_allocator_t, false> {
+		using storage_t = iris_queue_list_t<element_t, base_allocator_t, false>;
 
 		iris_buffer_t<element_t> allocate(size_t size, size_t alignment = 16) {
 			size_t pack = storage_t::pack_size(alignment);
@@ -571,7 +571,7 @@ namespace iris {
 			while ((address = storage_t::push_head->allocate(count, alignment)) == nullptr) {
 				if (storage_t::push_head->next == nullptr) {
 					auto* p = storage_t::node_allocator_t::allocate(1);
-					new (p) typename storage_t::node_t(storage_t::iterator_counter);
+					new (p) typename storage_t::node_t(static_cast<storage_t::node_allocator_t&>(*this), storage_t::iterator_counter);
 					storage_t::iterator_counter = storage_t::node_t::step_counter(storage_t::iterator_counter, storage_t::element_count);
 
 					address = p->allocate(count, alignment); // must success

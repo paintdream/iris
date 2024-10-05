@@ -1124,6 +1124,11 @@ namespace iris {
 		struct rebind { using other = iris_block_allocator_t<morph_t, block_size, page_size>; };
 		using allocator_t = iris_root_allocator_t<block_size, page_size>;
 
+		iris_block_allocator_t() noexcept {}
+
+		template <typename value_t>
+		iris_block_allocator_t(const iris_block_allocator_t<value_t>&) noexcept {}
+
 		element_t* allocate(size_t n) {
 			if (n == block_size / sizeof(element_t)) {
 				return reinterpret_cast<element_t*>(allocator_t::get().allocate());
@@ -1139,7 +1144,7 @@ namespace iris {
 		}
 
 		void destroy(element_t* p) {
-			p->~type();
+			p->~element_t();
 		}
 
 		void deallocate(element_t* p, size_t n) {
@@ -1752,20 +1757,20 @@ namespace iris {
 
 		template <typename element_t, template <typename...> class allocator_t, bool enable_memory_fence, template <typename...> class debug_allocator_t = allocator_t>
 		struct node_t : sub_queue_t<element_t, debug_allocator_t, enable_memory_fence> {
-			explicit node_t(size_t init_count) : sub_queue_t<element_t, debug_allocator_t, enable_memory_fence>(init_count), next(nullptr) {}
+			template <typename alloc_rebind_t>
+			explicit node_t(const alloc_rebind_t& allocator, size_t init_count) : sub_queue_t<element_t, debug_allocator_t, enable_memory_fence>(allocator, init_count), next(nullptr) {}
 			node_t* next; // chain next queue
 		};
 	}
 
 	// chain kfifos to make variant capacity.
-	// debug_allocator_t is for bypassing vs 2015's compiler bug.
-	template <typename value_t, template <typename...> class allocator_t = iris_default_block_allocator_t, template <typename...> class top_allocator_t = allocator_t, bool enable_memory_fence = true, template <typename...> class debug_allocator_t = allocator_t>
-	struct iris_queue_list_t : protected top_allocator_t<impl::node_t<value_t, allocator_t, enable_memory_fence>>, protected enable_in_out_fence_t<> {
+	template <typename value_t, template <typename...> class allocator_t = iris_default_block_allocator_t, bool enable_memory_fence = true>
+	struct iris_queue_list_t : protected allocator_t<impl::node_t<value_t, allocator_t, enable_memory_fence>>, protected enable_in_out_fence_t<> {
 		using element_t = value_t;
-		using node_t = impl::node_t<element_t, debug_allocator_t, enable_memory_fence>;
-		using node_allocator_t = top_allocator_t<node_t>;
+		using node_t = impl::node_t<element_t, allocator_t, enable_memory_fence>;
+		using node_allocator_t = allocator_t<node_t>;
 
-		static constexpr size_t block_size = iris_extract_block_size<element_t, debug_allocator_t>::value;
+		static constexpr size_t block_size = iris_extract_block_size<element_t, allocator_t>::value;
 		static constexpr size_t element_count = block_size / sizeof(element_t);
 
 		// do not copy this structure, only to move
@@ -1774,14 +1779,14 @@ namespace iris {
 
 		explicit iris_queue_list_t(const node_allocator_t& allocator) noexcept(noexcept(std::declval<node_allocator_t>().allocate(1))) : node_allocator_t(allocator), push_head(nullptr), pop_head(nullptr) {
 			node_t* p = node_allocator_t::allocate(1);
-			new (p) node_t(0);
+			new (p) node_t(node_allocator_t(*this), 0);
 			push_head = pop_head = p;
 			iterator_counter = element_count;
 		}
 
 		iris_queue_list_t() noexcept(noexcept(std::declval<node_allocator_t>().allocate(1))) : push_head(nullptr), pop_head(nullptr) {
 			node_t* p = node_allocator_t::allocate(1);
-			new (p) node_t(0);
+			new (p) node_t(node_allocator_t(*this), 0);
 			push_head = pop_head = p;
 			iterator_counter = element_count;
 		}
@@ -1827,7 +1832,7 @@ namespace iris {
 
 			if (push_head->full()) {
 				node_t* p = node_allocator_t::allocate(1);
-				new (p) node_t(iterator_counter);
+				new (p) node_t(node_allocator_t(*this), iterator_counter);
 				iterator_counter = node_t::step_counter(iterator_counter, element_count);
 				element_t* w = p->push(std::forward<input_element_t>(t));
 
@@ -1853,7 +1858,7 @@ namespace iris {
 			while (from != to) {
 				// full
 				node_t* p = node_allocator_t::allocate(1);
-				new (p) node_t(iterator_counter);
+				new (p) node_t(node_allocator_t(*this), iterator_counter);
 				iterator_counter = node_t::step_counter(iterator_counter, element_count);
 				from = p->push(from, to);
 
