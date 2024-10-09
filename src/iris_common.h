@@ -1764,13 +1764,13 @@ namespace iris {
 	}
 
 	// chain kfifos to make variant capacity.
-	template <typename value_t, template <typename...> class allocator_t = iris_default_block_allocator_t, bool enable_memory_fence = true>
+	template <typename value_t, template <typename...> class allocator_t = iris_default_block_allocator_t, bool enable_memory_fence = true, template <typename...> class debug_allocator_t = allocator_t>
 	struct iris_queue_list_t : protected allocator_t<impl::node_t<value_t, allocator_t, enable_memory_fence>>, protected enable_in_out_fence_t<> {
 		using element_t = value_t;
-		using node_t = impl::node_t<element_t, allocator_t, enable_memory_fence>;
-		using node_allocator_t = allocator_t<node_t>;
+		using node_t = impl::node_t<element_t, debug_allocator_t, enable_memory_fence>;
+		using node_allocator_t = debug_allocator_t<node_t>;
 
-		static constexpr size_t block_size = iris_extract_block_size<element_t, allocator_t>::value;
+		static constexpr size_t block_size = iris_extract_block_size<element_t, debug_allocator_t>::value;
 		static constexpr size_t element_count = block_size / sizeof(element_t);
 
 		// do not copy this structure, only to move
