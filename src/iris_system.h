@@ -94,6 +94,11 @@ namespace iris {
 			static_assert(check_duplicated_components<components_t...>(), "duplicated component detected!");
 		}
 
+		iris_system_t(const allocator_t<entity_t>& allocator, const vector_allocator_t<entity_t>& vector_allocator)
+			: components(allocator_t<components_t>(allocator)...), entity_components(vector_allocator), entities(allocator) {
+			entity_components.resize(1);
+		}
+
 		// entity-based component insertion
 		bool valid(entity_t entity) const noexcept {
 			auto guard = read_fence();
@@ -389,6 +394,9 @@ namespace iris {
 		static size_t get_type_hash() noexcept {
 			return iris_static_instance_t<component_info_t<type_t>>::get_unique_hash();
 		}
+
+		iris_systems_t() {}
+		iris_systems_t(const allocator_t<entity_t>& allocator, const vector_allocator_t<entity_t>& vector_allocator) : system_infos(vector_allocator) {}
 
 		struct system_info_t {
 			void* address = nullptr;
