@@ -95,9 +95,7 @@ namespace iris {
 		}
 
 		iris_system_t(const allocator_t<entity_t>& allocator, const vector_allocator_t<entity_t>& vector_allocator)
-			: components(allocator_t<components_t>(allocator)...), entity_components(vector_allocator), entities(allocator) {
-			entity_components.resize(1);
-		}
+			: components(allocator_t<components_t>(allocator)...), entity_components(vector_allocator), entities(allocator) {}
 
 		// entity-based component insertion
 		bool valid(entity_t entity) const noexcept {
