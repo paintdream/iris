@@ -1779,14 +1779,14 @@ namespace iris {
 
 		explicit iris_queue_list_t(const node_allocator_t& allocator) noexcept(noexcept(std::declval<node_allocator_t>().allocate(1))) : node_allocator_t(allocator), push_head(nullptr), pop_head(nullptr) {
 			node_t* p = node_allocator_t::allocate(1);
-			new (p) node_t(node_allocator_t(*this), 0);
+			new (p) node_t(static_cast<node_allocator_t&>(*this), 0);
 			push_head = pop_head = p;
 			iterator_counter = element_count;
 		}
 
 		iris_queue_list_t() noexcept(noexcept(std::declval<node_allocator_t>().allocate(1))) : push_head(nullptr), pop_head(nullptr) {
 			node_t* p = node_allocator_t::allocate(1);
-			new (p) node_t(node_allocator_t(*this), 0);
+			new (p) node_t(static_cast<node_allocator_t&>(*this), 0);
 			push_head = pop_head = p;
 			iterator_counter = element_count;
 		}
@@ -1832,7 +1832,7 @@ namespace iris {
 
 			if (push_head->full()) {
 				node_t* p = node_allocator_t::allocate(1);
-				new (p) node_t(node_allocator_t(*this), iterator_counter);
+				new (p) node_t(static_cast<node_allocator_t&>(*this), iterator_counter);
 				iterator_counter = node_t::step_counter(iterator_counter, element_count);
 				element_t* w = p->push(std::forward<input_element_t>(t));
 
@@ -1858,7 +1858,7 @@ namespace iris {
 			while (from != to) {
 				// full
 				node_t* p = node_allocator_t::allocate(1);
-				new (p) node_t(node_allocator_t(*this), iterator_counter);
+				new (p) node_t(static_cast<node_allocator_t&>(*this), iterator_counter);
 				iterator_counter = node_t::step_counter(iterator_counter, element_count);
 				from = p->push(from, to);
 
@@ -2562,4 +2562,3 @@ namespace iris {
 		std::array<std::atomic<quantity_t>, n> quantities;
 	};
 }
-
