@@ -488,6 +488,12 @@ namespace iris {
 		template <typename type_t>
 		struct is_functor<type_t, iris_void_t<decltype(&type_t::operator ())>> : std::true_type {};
 
+		// create a lua managed object
+		template <typename type_t>
+		static optional_result_t<type_t*> trivial_object_creator(iris_lua_t, type_t* object) {
+			return new (object) type_t();
+		}
+
 		// register a new type, taking registar from &type_t::lua_registar by default, and you could also specify your own registar.
 		template <typename type_t, int user_value_count = 0, auto registar = has_lua_registar<type_t>::get_registar(), typename... args_t, typename... envs_t>
 		reftype_t<type_t> make_type(std::string_view name, optional_result_t<type_t*> (*creator)(iris_lua_t, type_t*, args_t...) = &trivial_object_creator<type_t>, envs_t&&... envs) {
@@ -1401,22 +1407,16 @@ namespace iris {
 		template <typename type_t>
 		struct has_lua_view_initialize<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_view_initialize)>> : std::true_type {};
 
-		// create a lua managed object
-		template <typename type_t>
-		static optional_result_t<type_t*> trivial_object_creator(iris_lua_t, type_t* object) {
-			return new (object) type_t();
-		}
-
 		template <typename type_t, int user_value_count, size_t env_count, typename... args_t>
 		static int new_object(lua_State* L) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
-			check_required_parameters<1, args_t...>(L);
+			check_required_parameters_skip<env_count, 1, args_t...>(L);
 
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
 			do {
 				stack_guard_t guard(L, 1);
 				type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), user_value_count));
-				auto result = invoke_create<type_t, env_count, std::tuple<args_t...>>(p, L, reinterpret_cast<optional_result_t<type_t*> (*)(iris_lua_t, type_t*, args_t...)>(lua_touserdata(L, lua_upvalueindex(2))), std::make_index_sequence<sizeof...(args_t)>());
+				auto result = invoke_create<type_t, env_count, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(p, L, reinterpret_cast<optional_result_t<type_t*> (*)(iris_lua_t, type_t*, args_t...)>(lua_touserdata(L, lua_upvalueindex(2))), std::make_index_sequence<sizeof...(args_t)>());
 				if (result) {
 					assert(result.value() == p); // must return original ptr if success
 					lua_pushvalue(L, lua_upvalueindex(1));
@@ -1583,7 +1583,6 @@ namespace iris {
 					}
 
 					if (object_hash != type_hash) {
-						iris_lua_t::systrap(L, "error.typecast", "iris_lua_t::get_variable() -> Object Hash %p is not matched with Type Hash %p\n", object_hash, type_hash);
 						lua_pop(L, 2);
 						return value_t();
 					}
@@ -1682,9 +1681,31 @@ namespace iris {
 					iris_lua_t::systrap(L, "error.parameter", "Required parameter %d of type %s is invalid or inaccessable.", index, typeid(first_t).name());
 					luaL_error(L, "Required parameter %d of type %s is invalid or inaccessable.", index, typeid(first_t).name());
 				}
+			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
+				using internal_type_t = typename value_t::internal_type_t;
+				if constexpr (!std::is_void_v<internal_type_t>) {
+					check_required_parameters<index, internal_type_t>(L);
+				}
+			} else if constexpr (std::is_pointer_v<value_t>) {
+				if (get_variable<value_t, true>(L, index) != get_variable<value_t, false>(L, index)) {
+					iris_lua_t::systrap(L, "error.parameter", "Parameter %d of type %s not satisfied.", index, typeid(first_t).name());
+					luaL_error(L, "Parameter %d of type %s not satisfied.", index, typeid(first_t).name());
+				}
 			}
 
 			check_required_parameters<index + (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<first_t>>>> ? 0 : 1), args_t...>(L);
+		}
+
+		template <int skip_count, int index>
+		static void check_required_parameters_skip(lua_State* L) {}
+
+		template <int skip_count, int index, typename first_t, typename... args_t>
+		static void check_required_parameters_skip(lua_State* L) {
+			if constexpr (skip_count > 0) {
+				check_required_parameters_skip<skip_count - 1, index, args_t...>(L);
+			} else {
+				check_required_parameters<index, first_t, args_t...>(L);
+			}
 		}
 
 		template <typename function_t, typename return_t, typename... args_t>

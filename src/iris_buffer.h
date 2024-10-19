@@ -571,7 +571,7 @@ namespace iris {
 			while ((address = storage_t::push_head->allocate(count, alignment)) == nullptr) {
 				if (storage_t::push_head->next == nullptr) {
 					auto* p = storage_t::node_allocator_t::allocate(1);
-					new (p) typename storage_t::node_t(static_cast<storage_t::node_allocator_t&>(*this), storage_t::iterator_counter);
+					new (p) typename storage_t::node_t(static_cast<typename storage_t::node_allocator_t&>(*this), storage_t::iterator_counter);
 					storage_t::iterator_counter = storage_t::node_t::step_counter(storage_t::iterator_counter, storage_t::element_count);
 
 					address = p->allocate(count, alignment); // must success
