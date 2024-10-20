@@ -126,9 +126,9 @@ namespace iris {
 				}
 
 				emplace_components<sizeof...(components_t)>(std::forward<elements_t>(t)...);
+				iris_binary_insert(entity_components, iris_make_key_value(entity, iris_verify_cast<index_t>(entities.end_index())));
 				entities.push(entity);
 
-				iris_binary_insert(entity_components, iris_make_key_value(entity, iris_verify_cast<index_t>(entities.end_index())));
 				return false;
 			}
 		}
