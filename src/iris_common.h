@@ -1133,8 +1133,7 @@ namespace iris {
 			if (n == block_size / sizeof(element_t)) {
 				return reinterpret_cast<element_t*>(allocator_t::get().allocate());
 			} else {
-				IRIS_ASSERT(n == 1);
-				return single_allocator_t<element_t>::allocate(1);
+				return single_allocator_t<element_t>::allocate(n);
 			}
 		}
 
@@ -1151,8 +1150,7 @@ namespace iris {
 			if (n == block_size / sizeof(element_t)) {
 				allocator_t::get().deallocate(p);
 			} else {
-				IRIS_ASSERT(n == 1);
-				single_allocator_t<element_t>::deallocate(p, 1);
+				single_allocator_t<element_t>::deallocate(p, n);
 			}
 		}
 	};

@@ -111,7 +111,7 @@ int main(void) {
 
 	for (size_t j = 0; j < nodes.size(); j++) {
 		if (root != &nodes[j]) {
-			root->attach(&nodes[j]);
+			nodes[j].attach(root);
 		}
 	}
 
@@ -124,7 +124,7 @@ int main(void) {
 		if (new_root != nullptr) {
 			root = new_root;
 			if (k & 1) {
-				root->attach(to_detach);
+				to_detach->attach(root);
 			}
 		}
 	}

@@ -147,11 +147,11 @@ namespace iris {
 
 		explicit iris_tree_t(const key_t& k = key_t(), index_t i = 0) noexcept : key(k), key_index(i), left_node(nullptr), right_node(nullptr), parent_node(nullptr) {}
 
-		// attach tree `t` to `this`
+		// attach tree `this` to `t`
 		void attach(iris_tree_t* t) noexcept {
 			IRIS_ASSERT(t != nullptr && t != this);
-			IRIS_ASSERT(t->left_node == nullptr && t->right_node == nullptr && t->get_parent() == nullptr);
-			merge(t);
+			IRIS_ASSERT(left_node == nullptr && right_node == nullptr && get_parent() == nullptr);
+			t->merge(this);
 		}
 
 		// detach `this` from its parent
@@ -346,7 +346,7 @@ namespace iris {
 			if (begin < end) {
 				tree_code_t* mid = begin + (end - begin) / 2;
 				mid->tree->key_index = index;
-				root->attach(mid->tree);
+				mid->tree->attach(root);
 
 				index = meta::next_index(index);
 				build(root, begin, mid, index);
