@@ -1407,6 +1407,12 @@ namespace iris {
 		template <typename type_t>
 		struct has_lua_view_initialize<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_view_initialize)>> : std::true_type {};
 
+		template <typename type_t, typename = void>
+		struct has_lua_check : std::false_type {};
+
+		template <typename type_t>
+		struct has_lua_check<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_check)>> : std::true_type {};
+
 		template <typename type_t, int user_value_count, size_t env_count, typename... args_t>
 		static int new_object(lua_State* L) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
@@ -1508,7 +1514,7 @@ namespace iris {
 			} else if constexpr (iris_is_tuple<value_t>::value) {
 				return get_tuple_variables<0, value_t>(L, lua_absindex(L, index));
 			} else if constexpr (iris_is_iterable<value_t>::value) {
-				type_t result;
+				value_t result;
 				if (lua_istable(L, index)) {
 					if constexpr (iris_is_map<value_t>::value) {
 						// for map-like containers, convert to lua hash table 
@@ -1531,7 +1537,7 @@ namespace iris {
 
 						for (size_t i = 0; i < size; i++) {
 							lua_rawgeti(L, index, static_cast<lua_Integer>(i) + 1);
-							result.emplace_back(get_variable<typename type_t::value_type>(L, -1));
+							result.emplace_back(get_variable<typename value_t::value_type>(L, -1));
 							lua_pop(L, 1);
 						}
 					}
@@ -1593,6 +1599,10 @@ namespace iris {
 				return extract_object_ptr<std::remove_volatile_t<std::remove_const_t<std::remove_pointer_t<value_t>>>>(L, index);
 			} else if constexpr (std::is_base_of_v<required_base_t, value_t>) {
 				return get_variable<typename value_t::required_type_t, true>(L, index);
+			} else if constexpr (std::is_reference_v<type_t>) {
+				// returning existing reference from interval storage
+				// must check before calling this
+				return *get_variable<std::remove_reference_t<type_t>*>(L, index);
 			} else {
 				// by default, force iris_lua_traits_t
 				return iris_lua_traits_t<value_t>::from_lua(L, index);
@@ -1661,10 +1671,46 @@ namespace iris {
 		template <int index>
 		static void check_required_parameters(lua_State* L) {}
 
-		template <int index, typename first_t, typename... args_t>
+		template <int index, typename type_t, typename... args_t>
 		static void check_required_parameters(lua_State* L) {
-			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<first_t>>>;
-			if constexpr (std::is_base_of_v<required_base_t, value_t>) {
+			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
+			if constexpr (iris_lua_traits_t<value_t>::value) {
+				if constexpr (has_lua_check<value_t>::value) {
+					iris_lua_traits_t<value_t>::type::lua_check(L, index);
+				}
+			} else if constexpr (std::is_null_pointer_v<value_t>) {
+				// do not check
+			} else if constexpr (iris_is_reference_wrapper<type_t>::value) {
+				// do not check
+			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
+				using internal_type_t = typename value_t::internal_type_t;
+				if constexpr (!std::is_void_v<internal_type_t>) {
+					check_required_parameters<index, internal_type_t>(L);
+				}
+			} else if constexpr (std::is_same_v<value_t, bool>) {
+				// do not check
+			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {
+				// do not check
+			} else if constexpr (std::is_integral_v<value_t> || std::is_enum_v<value_t>) {
+				// do not check
+			} else if constexpr (std::is_floating_point_v<value_t>) {
+				// do not check
+			} else if constexpr (std::is_same_v<value_t, lua_State*> || std::is_same_v<value_t, iris_lua_t>) {
+				// do not check
+			} else if constexpr (std::is_same_v<value_t, char*> || std::is_same_v<value_t, const char*>) {
+				// do not check
+			} else if constexpr (std::is_same_v<value_t, std::string_view> || std::is_same_v<value_t, std::string>) {
+				// do not check
+			} else if constexpr (iris_is_tuple<value_t>::value) {
+				// do not check
+			} else if constexpr (iris_is_iterable<value_t>::value) {
+				// do not check
+			} else if constexpr (std::is_pointer_v<value_t>) {
+				if (get_variable<value_t, true>(L, index) != get_variable<value_t, false>(L, index)) {
+					iris_lua_t::systrap(L, "error.parameter", "Parameter %d of type %s not satisfied.", index, typeid(type_t).name());
+					luaL_error(L, "Parameter %d of type %s not satisfied.", index, typeid(type_t).name());
+				}
+			} else if constexpr (std::is_base_of_v<required_base_t, value_t>) {
 				using required_type_t = typename value_t::required_type_t;
 				bool check_result = false;
 				do {
@@ -1678,22 +1724,18 @@ namespace iris {
 				} while (false);
 
 				if (!check_result) {
-					iris_lua_t::systrap(L, "error.parameter", "Required parameter %d of type %s is invalid or inaccessable.", index, typeid(first_t).name());
-					luaL_error(L, "Required parameter %d of type %s is invalid or inaccessable.", index, typeid(first_t).name());
+					iris_lua_t::systrap(L, "error.parameter", "Required parameter %d of type %s is invalid or inaccessable.", index, typeid(type_t).name());
+					luaL_error(L, "Required parameter %d of type %s is invalid or inaccessable.", index, typeid(type_t).name());
 				}
-			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
-				using internal_type_t = typename value_t::internal_type_t;
-				if constexpr (!std::is_void_v<internal_type_t>) {
-					check_required_parameters<index, internal_type_t>(L);
-				}
-			} else if constexpr (std::is_pointer_v<value_t>) {
-				if (get_variable<value_t, true>(L, index) != get_variable<value_t, false>(L, index)) {
-					iris_lua_t::systrap(L, "error.parameter", "Parameter %d of type %s not satisfied.", index, typeid(first_t).name());
-					luaL_error(L, "Parameter %d of type %s not satisfied.", index, typeid(first_t).name());
-				}
+			} else if constexpr (std::is_reference_v<type_t>) {
+				// returning existing reference from interval storage
+				// must check before calling this
+				check_required_parameters<index, required_t<std::remove_reference_t<type_t>*>>(L);
+			} else {
+				// do not check
 			}
 
-			check_required_parameters<index + (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<first_t>>>> ? 0 : 1), args_t...>(L);
+			check_required_parameters<index + (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>> ? 0 : 1), args_t...>(L);
 		}
 
 		template <int skip_count, int index>
