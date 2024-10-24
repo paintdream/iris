@@ -622,7 +622,7 @@ namespace iris {
 		struct buffer_t {
 			template <typename value_t>
 			buffer_t& operator << (value_t&& value) {
-				using type_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<value_t>>>;
+				using type_t = remove_cvref_t<value_t>;
 				if constexpr (std::is_convertible_v<value_t, std::string_view>) {
 					std::string_view view = value;
 					luaL_addlstring(buffer, view.data(), view.size());
@@ -711,7 +711,7 @@ namespace iris {
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 
-			using type_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<key_t>>>;
+			using type_t = remove_cvref_t<key_t>;
 			if constexpr (std::is_same_v<type_t, context_this_t>) {
 				IRIS_ASSERT(lua_isuserdata(L, 1));
 				return get_variable<value_t>(L, 1);
@@ -1029,26 +1029,32 @@ namespace iris {
 		}
 
 	protected:
+		template <typename type_t>
+		using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<type_t>>;
+
+		template <typename type_t>
+		using cast_arg_type_t = std::conditional_t<has_lua_registar<remove_cvref_t<type_t>>::value, remove_cvref_t<type_t>&, remove_cvref_t<type_t>>;
+		
 		// wrap a member function with normal function
 		template <auto method, typename return_t, typename type_t, typename... args_t>
-		static return_t method_function_adapter(required_t<type_t*>&& object, std::remove_reference_t<args_t>&&... args) {
+		static return_t method_function_adapter(required_t<type_t*>&& object, args_t&&... args) {
 			if constexpr (!std::is_void_v<return_t>) {
-				return (object.get()->*method)(std::move(args)...);
+				return (object.get()->*method)(std::forward<args_t>(args)...);
 			} else {
-				(object.get()->*method)(std::move(args)...);
+				(object.get()->*method)(std::forward<args_t>(args)...);
 			}
 		}
 
 		template <auto method, typename return_t, typename type_t, typename... args_t>
-		static return_t method_functor_adapter(iris_lua_t lua, std::remove_reference_t<args_t>&&... args) {
+		static return_t method_functor_adapter(iris_lua_t lua, args_t&&... args) {
 			lua_State* L = lua.get_state();
 			type_t* ptr = reinterpret_cast<type_t*>(lua_touserdata(L, lua_upvalueindex(1)));
 			IRIS_ASSERT(ptr != nullptr);
 
 			if constexpr (!std::is_void_v<return_t>) {
-				return (ptr->*method)(std::move(args)...);
+				return (ptr->*method)(std::forward<args_t>(args)...);
 			} else {
-				(ptr->*method)(std::move(args)...);
+				(ptr->*method)(std::forward<args_t>(args)...);
 			}
 		}
 
@@ -1235,9 +1241,9 @@ namespace iris {
 		static int forward_method_internal(lua_State* L, const function_t& method) {
 			auto adapter = [&method](required_t<type_t*>&& object, args_t&&... args) {
 				if constexpr (!std::is_void_v<return_t>) {
-					return (object.get()->*method)(std::move(args)...);
+					return (object.get()->*method)(std::forward<args_t>(args)...);
 				} else {
-					(object.get()->*method)(std::move(args)...);
+					(object.get()->*method)(std::forward<args_t>(args)...);
 				}
 			};
 
@@ -1422,7 +1428,7 @@ namespace iris {
 			do {
 				stack_guard_t guard(L, 1);
 				type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), user_value_count));
-				auto result = invoke_create<type_t, env_count, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(p, L, reinterpret_cast<optional_result_t<type_t*> (*)(iris_lua_t, type_t*, args_t...)>(lua_touserdata(L, lua_upvalueindex(2))), std::make_index_sequence<sizeof...(args_t)>());
+				auto result = invoke_create<type_t, env_count, std::tuple<remove_cvref_t<args_t>...>>(p, L, reinterpret_cast<optional_result_t<type_t*> (*)(iris_lua_t, type_t*, args_t...)>(lua_touserdata(L, lua_upvalueindex(2))), std::make_index_sequence<sizeof...(args_t)>());
 				if (result) {
 					assert(result.value() == p); // must return original ptr if success
 					lua_pushvalue(L, lua_upvalueindex(1));
@@ -1463,7 +1469,7 @@ namespace iris {
 		// get C++ variable from lua stack with given index
 		template <typename type_t, bool skip_checks = false>
 		static type_t get_variable(lua_State* L, int index) {
-			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
+			using value_t = remove_cvref_t<type_t>;
 			stack_guard_t guard(L);
 
 			if constexpr (iris_lua_traits_t<value_t>::value) {
@@ -1552,7 +1558,7 @@ namespace iris {
 					}
 
 					void* object_hash = nullptr;
-					void* type_hash = reinterpret_cast<void*>(get_hash<std::remove_volatile_t<std::remove_const_t<std::remove_pointer_t<value_t>>>>());
+					void* type_hash = reinterpret_cast<void*>(get_hash<remove_cvref_t<std::remove_pointer_t<value_t>>>());
 
 					while (true) {
 						lua_pushliteral(L, "__hash");
@@ -1596,11 +1602,11 @@ namespace iris {
 					lua_pop(L, 2);
 				}
 
-				return extract_object_ptr<std::remove_volatile_t<std::remove_const_t<std::remove_pointer_t<value_t>>>>(L, index);
+				return extract_object_ptr<remove_cvref_t<std::remove_pointer_t<value_t>>>(L, index);
 			} else if constexpr (std::is_base_of_v<required_base_t, value_t>) {
 				return get_variable<typename value_t::required_type_t, true>(L, index);
 			} else if constexpr (std::is_reference_v<type_t>) {
-				// returning existing reference from interval storage
+				// returning existing reference from internal storage
 				// must check before calling this
 				return *get_variable<std::remove_reference_t<type_t>*>(L, index);
 			} else {
@@ -1627,7 +1633,7 @@ namespace iris {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			if constexpr (index < std::tuple_size_v<tuple_t>) {
-				if constexpr (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::tuple_element_t<index, tuple_t>>>>>) {
+				if constexpr (std::is_same_v<iris_lua_t, remove_cvref_t<std::tuple_element_t<index, tuple_t>>>) {
 					return function_invoke<function_t, index + 1, return_t, tuple_t>(L, function, stack_index, std::forward<params_t>(params)..., iris_lua_t(L));
 				} else {
 					return function_invoke<function_t, index + 1, return_t, tuple_t>(L, function, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>, true>(L, stack_index));
@@ -1659,8 +1665,8 @@ namespace iris {
 
 		template <typename left_tuple_t, typename right_tuple_t, size_t index>
 		static void check_matched_parameters() {
-			using left_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::tuple_element_t<index - 1, left_tuple_t>>>>;
-			using right_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::tuple_element_t<index - 1, right_tuple_t>>>>;
+			using left_t = remove_cvref_t<std::tuple_element_t<index - 1, left_tuple_t>>;
+			using right_t = remove_cvref_t<std::tuple_element_t<index - 1, right_tuple_t>>;
 			static_assert(std::is_same_v<left_t, right_t>, "Parameter type must be extractly the same.");
 
 			if constexpr (index > 1) {
@@ -1673,7 +1679,7 @@ namespace iris {
 
 		template <int index, typename type_t, typename... args_t>
 		static void check_required_parameters(lua_State* L) {
-			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
+			using value_t = remove_cvref_t<type_t>;
 			if constexpr (iris_lua_traits_t<value_t>::value) {
 				if constexpr (has_lua_check<value_t>::value) {
 					iris_lua_traits_t<value_t>::type::lua_check(L, index);
@@ -1735,7 +1741,7 @@ namespace iris {
 				// do not check
 			}
 
-			check_required_parameters<index + (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>> ? 0 : 1), args_t...>(L);
+			check_required_parameters<index + (std::is_same_v<iris_lua_t, remove_cvref_t<type_t>> ? 0 : 1), args_t...>(L);
 		}
 
 		template <int skip_count, int index>
@@ -1753,7 +1759,7 @@ namespace iris {
 		template <typename function_t, typename return_t, typename... args_t>
 		static int function_proxy_dispatch(lua_State* L, const function_t& function) {
 			check_required_parameters<1, args_t...>(L);
-			int ret = function_invoke<function_t, 0, return_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, function, 1);
+			int ret = function_invoke<function_t, 0, return_t, std::tuple<cast_arg_type_t<args_t>...>>(L, function, 1);
 			if (ret < 0) {
 				iris_lua_t::systrap(L, "error.exec", "C-function execution error: %s", luaL_optstring(L, -1, ""));
 				luaL_error(L, "C-function execution error: %s", luaL_optstring(L, -1, ""));
@@ -1773,7 +1779,7 @@ namespace iris {
 		template <typename function_t, int index, typename coroutine_t, typename tuple_t, typename... params_t>
 		static int function_coroutine_invoke(lua_State* L, const function_t& function, int stack_index, params_t&&... params) {
 			if constexpr (index < std::tuple_size_v<tuple_t>) {
-				if constexpr (std::is_same_v<iris_lua_t, std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<std::tuple_element_t<index, tuple_t>>>>>) {
+				if constexpr (std::is_same_v<iris_lua_t, remove_cvref_t<std::tuple_element_t<index, tuple_t>>>) {
 					return function_coroutine_invoke<function_t, index + 1, coroutine_t, tuple_t>(L, function, stack_index, std::forward<params_t>(params)..., iris_lua_t(L));
 				} else {
 					return function_coroutine_invoke<function_t, index + 1, coroutine_t, tuple_t>(L, function, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>, true>(L, stack_index));
@@ -1903,7 +1909,7 @@ namespace iris {
 		static int function_coroutine_proxy_dispatch(lua_State* L, const function_t& function) {
 			check_required_parameters<1, args_t...>(L);
 			int count = 0;
-			if ((count = function_coroutine_invoke<function_t, 0, coroutine_t, std::tuple<std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<args_t>>>...>>(L, function, 1)) >= 0) {
+			if ((count = function_coroutine_invoke<function_t, 0, coroutine_t, std::tuple<cast_arg_type_t<args_t>...>>(L, function, 1)) >= 0) {
 				return count;
 			} else {
 				if (count == coroutine_state_error) {
@@ -1970,7 +1976,7 @@ namespace iris {
 		// push variables from a tuple into a lua table
 		template <int index, typename type_t>
 		static void push_tuple_variables(lua_State* L, type_t&& variable) {
-			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
+			using value_t = remove_cvref_t<type_t>;
 			if constexpr (index < std::tuple_size_v<value_t>) {
 				do {
 					stack_guard_t stack_guard(L);
@@ -2002,7 +2008,7 @@ namespace iris {
 
 		template <typename type_t>
 		static void push_variable(lua_State* L, type_t&& variable) {
-			using value_t = std::remove_volatile_t<std::remove_const_t<std::remove_reference_t<type_t>>>;
+			using value_t = remove_cvref_t<type_t>;
 			stack_guard_t guard(L, 1);
 
 			if constexpr (iris_lua_traits_t<value_t>::value) {
