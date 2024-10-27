@@ -1473,7 +1473,7 @@ namespace iris {
 			stack_guard_t guard(L);
 
 			if constexpr (iris_lua_traits_t<value_t>::value) {
-				return iris_lua_traits_t<value_t>::from_lua(L, index);
+				return iris_lua_traits_t<value_t>::type::from_lua(L, index);
 			} else if constexpr (std::is_null_pointer_v<value_t>) {
 				return nullptr;
 			} else if constexpr (iris_is_reference_wrapper<type_t>::value) {
@@ -1611,7 +1611,7 @@ namespace iris {
 				return *get_variable<std::remove_reference_t<type_t>*>(L, index);
 			} else {
 				// by default, force iris_lua_traits_t
-				return iris_lua_traits_t<value_t>::from_lua(L, index);
+				return iris_lua_traits_t<value_t>::type::from_lua(L, index);
 			}
 		}
 
@@ -2012,7 +2012,7 @@ namespace iris {
 			stack_guard_t guard(L, 1);
 
 			if constexpr (iris_lua_traits_t<value_t>::value) {
-				guard.append(iris_lua_traits_t<value_t>::to_lua(L, std::forward<type_t>(variable)) - 1);
+				guard.append(iris_lua_traits_t<value_t>::type::to_lua(L, std::forward<type_t>(variable)) - 1);
 			} else if constexpr (is_optional<value_t>::value) {
 				if (variable) {
 					if constexpr (std::is_rvalue_reference_v<type_t&&>) {
@@ -2095,7 +2095,7 @@ namespace iris {
 				push_method<&type_t::operator ()>(L, std::forward<type_t>(variable), &type_t::operator ());
 			} else {
 				// by default, force iris_lua_traits_t
-				guard.append(iris_lua_traits_t<value_t>::to_lua(L, std::forward<type_t>(variable)) - 1);
+				guard.append(iris_lua_traits_t<value_t>::type::to_lua(L, std::forward<type_t>(variable)) - 1);
 			}
 		}
 

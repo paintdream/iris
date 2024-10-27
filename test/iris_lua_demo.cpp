@@ -28,6 +28,8 @@ struct vector3 {
 
 template <>
 struct iris::iris_lua_traits_t<vector3> : std::true_type {
+	using type = iris::iris_lua_traits_t<vector3>;
+
 	static int to_lua(lua_State* L, vector3&& v) noexcept {
 		lua_newtable(L);
 		lua_pushnumber(L, v.z);
