@@ -510,6 +510,10 @@ namespace iris {
 	struct iris_cache_t : protected iris_queue_list_t<element_t, base_allocator_t, false> {
 		using storage_t = iris_queue_list_t<element_t, base_allocator_t, false>;
 
+		iris_cache_t() {}
+		template <typename allocator_t>
+		iris_cache_t(allocator_t&& alloc) : storage_t(std::forward<allocator_t>(alloc)) {}
+
 		iris_buffer_t<element_t> allocate(size_t size, size_t alignment = 16) {
 			size_t pack = storage_t::pack_size(alignment);
 			static_assert(alignof(iris_buffer_t<element_t>) % sizeof(element_t) == 0, "iris_buffer_t<element_t> must be aligned at least sizeof(element_t).");
