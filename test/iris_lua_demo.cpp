@@ -334,6 +334,12 @@ int main(void) {
 	expired_object = nullptr;
 	lua.call<void>(lua.load("use_expired(expired_instance, hold_instance)"));
 
+	lua.deref(iris_lua_t::ref_t().once(lua, [](iris_lua_t lua) -> iris_lua_t::ref_t {
+		return lua.make_table([](iris_lua_t lua) { lua.set_current("once", 1); });
+	}).with(lua, [](iris_lua_t lua) {
+		printf("once value = %d\n", lua.get_current<int>("once"));
+	}));
+
 	auto example_type = lua.make_type<example_t>("example_t").make_registry(lua);
 	auto example_base_type = lua.make_type<example_base_t>("example_base_t");
 	lua.cast_type(std::move(example_base_type), example_type);

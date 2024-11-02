@@ -184,6 +184,33 @@ namespace iris {
 				lua.deref(std::move(*this));
 			}
 
+			template <typename func_t>
+			ref_t& once(iris_lua_t lua, func_t&& f) & {
+				if (!*this) {
+					*this = f(lua);
+				}
+
+				return *this;
+			}
+
+			template <typename func_t>
+			ref_t&& once(iris_lua_t lua, func_t&& f) && {
+				static_cast<ref_t*>(this)->once(lua, std::forward<func_t>(f));
+				return std::move(*this);
+			}
+
+			template <typename func_t>
+			ref_t& with(iris_lua_t lua, func_t&& f) & {
+				lua.with(*this, std::forward<func_t>(f));
+				return *this;
+			}
+
+			template <typename func_t>
+			ref_t&& with(iris_lua_t lua, func_t&& f) && {
+				static_cast<ref_t*>(this)->with(lua, std::forward<func_t>(f));
+				return std::move(*this);
+			}
+
 			template <typename ref_index_t>
 			ref_index_t as(iris_lua_t lua) const {
 				lua_State* L = lua.get_state();
@@ -224,7 +251,7 @@ namespace iris {
 			}
 
 			template <typename ref_index_t, typename key_t>
-			void set(iris_lua_t lua, key_t&& key, ref_index_t&& ref_index) const {
+			ref_t& set(iris_lua_t lua, key_t&& key, ref_index_t&& ref_index) & {
 				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 
@@ -236,10 +263,17 @@ namespace iris {
 				}
 
 				lua_pop(L, 1);
+				return *this;
+			}
+
+			template <typename ref_index_t, typename key_t>
+			ref_t&& set(iris_lua_t lua, key_t&& key, ref_index_t&& ref_index) && {
+				static_cast<ref_t*>(this)->set(lua, std::forward<key_t>(key), std::forward<ref_index_t>(ref_index));
+				return std::move(*this);
 			}
 
 			template <auto ref_index_t, typename key_t>
-			void set(iris_lua_t lua, key_t&& key) const {
+			ref_t& set(iris_lua_t lua, key_t&& key) & {
 				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 
@@ -253,8 +287,14 @@ namespace iris {
 				lua_pop(L, 1);
 			}
 
+			template <auto ref_index_t, typename key_t>
+			ref_t&& set(iris_lua_t lua, key_t&& key) && {
+				static_cast<ref_t*>(this)->set<ref_index_t>(lua, std::forward<key_t>(key));
+				return std::move(*this);
+			}
+
 			template <typename ref_index_t, typename key_t, typename func_t>
-			void for_each(iris_lua_t lua, func_t&& func) const {
+			ref_t& for_each(iris_lua_t lua, func_t&& func) & {
 				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
 				push_variable(L, *this);
@@ -271,6 +311,13 @@ namespace iris {
 				}
 
 				lua_pop(L, 1);
+				return *this;
+			}
+
+			template <typename ref_index_t, typename key_t, typename func_t>
+			ref_t&& for_each(iris_lua_t lua, func_t&& func) && {
+				static_cast<ref_t*>(this)->for_each(lua, std::forward<func_t>(func));
+				return std::move(*this);
 			}
 
 			size_t size(iris_lua_t lua) const {
@@ -325,15 +372,7 @@ namespace iris {
 
 			// for chain expressions
 			reftype_t&& make_registry(iris_lua_t lua, bool enable = true) && {
-				const void* hash = get_type_hash();
-				if (hash != nullptr) {
-					if (enable) {
-						lua.set_registry(hash, *this);
-					} else {
-						lua.set_registry(hash, nullptr);
-					}
-				}
-
+				static_cast<reftype_t*>(this)->make_registry(lua, enable);
 				return std::move(*this);
 			}
 		};
