@@ -97,12 +97,14 @@ namespace iris {
 			return *this;
 		}
 
+		// get a compiler-related hash from a type
 		template <typename type_t>
 		static size_t get_hash() noexcept {
 			static size_t hash = std::hash<std::string_view>()(typeid(type_t).name()) & 0xFFFFFFFF; // compatible with tagged pointer trick by LuaJIT
 			return hash;
 		}
 
+		// get raw lua_State*, avoid using raw lua apis on it if possible, since it may broken stack layers in context
 		operator lua_State* () const noexcept {
 			return get_state();
 		}
@@ -116,6 +118,10 @@ namespace iris {
 			iris_lua_t::systrap(state, category, format, std::forward<args_t>(args)...);
 		}
 
+		// systrap is a low level error-capturing machanism
+		// usually you can get errors from result_error_t<> when calling lua
+		// but in LuaJIT and Lua 5.1, it is impossible to retrieve errors from C-lua mixed coroutines
+		// so you could declare a __iris_systrap__ lua variable to make a workaround.
 		template <typename... args_t>
 		static void systrap(lua_State* L, const char* category, const char* format, args_t&&... args) {
 			stack_guard_t stack_guard(L);
@@ -134,6 +140,7 @@ namespace iris {
 			}
 		}
 
+		// any return value with not-null message will cause a lua error
 		struct result_error_t {
 			template <typename value_t>
 			result_error_t(value_t&& value) : message(std::forward<value_t>(value)) {}
@@ -155,6 +162,7 @@ namespace iris {
 		};
 
 		// holding a lua value
+		// beaware of lua.deref() it before destruction!
 		struct ref_t {
 			explicit ref_t(int v = LUA_REFNIL) noexcept : ref_index(v) { IRIS_ASSERT(LUA_REFNIL == 0 || v != 0); }
 			~ref_t() noexcept { IRIS_ASSERT(ref_index == LUA_REFNIL); }
@@ -184,6 +192,7 @@ namespace iris {
 				lua.deref(std::move(*this));
 			}
 
+			// call f if this is nil, and update this with its return value
 			template <typename func_t>
 			ref_t& once(iris_lua_t lua, func_t&& f) & {
 				if (!*this) {
@@ -199,6 +208,7 @@ namespace iris {
 				return std::move(*this);
 			}
 
+			// call f with this as the current context table
 			template <typename func_t>
 			ref_t& with(iris_lua_t lua, func_t&& f) & {
 				lua.with(*this, std::forward<func_t>(f));
@@ -211,6 +221,8 @@ namespace iris {
 				return std::move(*this);
 			}
 
+			// convert another value
+			// note: use as<ref_t>(lua) to duplicate current variable
 			template <typename ref_index_t>
 			ref_index_t as(iris_lua_t lua) const {
 				lua_State* L = lua.get_state();
@@ -223,6 +235,7 @@ namespace iris {
 				return ret; // named return ref_index optimization
 			}
 
+			// get value from this table
 			template <typename ref_index_t = ref_t, typename key_t>
 			optional_result_t<ref_index_t> get(iris_lua_t lua, key_t&& key) const {
 				lua_State* L = lua.get_state();
@@ -250,6 +263,7 @@ namespace iris {
 				}
 			}
 
+			// set value to this table
 			template <typename ref_index_t, typename key_t>
 			ref_t& set(iris_lua_t lua, key_t&& key, ref_index_t&& ref_index) & {
 				lua_State* L = lua.get_state();
@@ -293,6 +307,7 @@ namespace iris {
 				return std::move(*this);
 			}
 
+			// iterate this table, returning this
 			template <typename ref_index_t, typename key_t, typename func_t>
 			ref_t& for_each(iris_lua_t lua, func_t&& func) & {
 				lua_State* L = lua.get_state();
@@ -320,6 +335,7 @@ namespace iris {
 				return std::move(*this);
 			}
 
+			// get raw length of this object
 			size_t size(iris_lua_t lua) const {
 				lua_State* L = lua.get_state();
 				stack_guard_t stack_guard(L);
@@ -357,6 +373,7 @@ namespace iris {
 				return reinterpret_cast<const void*>(get_hash<type_t>());
 			}
 
+			// register current table as global type to registry table.
 			reftype_t& make_registry(iris_lua_t lua, bool enable = true) & {
 				const void* hash = get_type_hash();
 				if (hash != nullptr) {
@@ -471,6 +488,7 @@ namespace iris {
 			return refguard_t<sizeof...(args_t)>(state, args...);
 		}
 
+		// load a code thunk and returning an callable function as return value
 		optional_result_t<ref_t> load(std::string_view code, std::string_view name = "") {
 			auto guard = write_fence();
 			lua_State* L = state;
@@ -580,6 +598,7 @@ namespace iris {
 			return reftype_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
+		// build a cast relationship from target_meta to base_meta
 		template <typename meta_base_t, typename meta_target_t>
 		void cast_type(meta_base_t&& base_meta, meta_target_t&& target_meta) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
@@ -605,6 +624,7 @@ namespace iris {
 			return make_object<type_t>(get_registry<ref_t>(reinterpret_cast<const void*>(get_hash<type_t>())), std::forward<args_t>(args)...);
 		}
 
+		// make an object with given meta
 		template <typename type_t, typename meta_t, typename... args_t>
 		refptr_t<type_t> make_object(meta_t&& meta, args_t&&... args) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
@@ -629,6 +649,7 @@ namespace iris {
 			return make_object_view<type_t>(get_registry<ref_t>(reinterpret_cast<const void*>(get_hash<type_t>())), object);
 		}
 
+		// make an object view with an exiting object
 		template <typename type_t, typename meta_t, typename... args_t>
 		refptr_t<type_t> make_object_view(meta_t&& meta, type_t* object) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
@@ -725,6 +746,7 @@ namespace iris {
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
+		// context pesudo keys
 		struct context_this_t {};
 		struct context_table_t {};
 		struct context_upvalue_t {

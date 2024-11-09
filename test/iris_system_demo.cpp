@@ -133,6 +133,15 @@ int main(void) {
 		i = counter++;
 	});
 
+	systems.filter<uint8_t>(1, [](uint8_t& v) {
+		printf("Entity 1 = %u\n", v);
+	});
+
+	entity_t qe[2] = { 1, 2 };
+	systems.filter<uint8_t>(qe, qe + 2, [](uint8_t& v) {
+		printf("Entity arr = %u\n", v);
+	});
+
 	systems.iterate_batch<iris_component_matrix_t>(4, [](size_t count, iris_queue_list_t<iris_component_matrix_t, block_allocator_t>::iterator it) {
 		while (count-- != 0) {
 			IRIS_ASSERT(it->values[3][3] == 2);

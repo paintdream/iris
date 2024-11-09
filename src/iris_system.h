@@ -65,18 +65,22 @@ namespace iris {
 		template <typename... type_t>
 		struct placeholder {};
 
+		template <typename... iterators_t>
+		void dummy(iterators_t&&...) {}
+
+		template <typename iterators_t, size_t... i>
+		void step_iterators(iterators_t& iterators, size_t count) {
+			dummy(std::get<i>(iterators) += static_cast<ptrdiff_t>(count)...);
+		}
+
 		template <typename iterators_t, typename operation_t, size_t... i>
-		static void step_operation(iterators_t& iterators, operation_t& op, iris_sequence<i...>) {
+		static void do_operation(iterators_t& iterators, operation_t& op, iris_sequence<i...>) {
 			op(*std::get<i>(iterators)++...);
 		}
 
-		template <typename iterators_t>
-		void step_iterators(iterators_t&&...) {}
-
 		template <typename iterators_t, typename operation_t, size_t... i>
-		static void step_operation(iterators_t& iterators, operation_t& op, iris_sequence<i...>, size_t count) {
+		static void do_operation_batch(iterators_t& iterators, operation_t& op, iris_sequence<i...>, size_t count) {
 			op(count, std::get<i>(iterators)...);
-			step_iterators((std::get<i>(iterators) += static_cast<ptrdiff_t>(count))...);
 		}
 	}
 
@@ -251,7 +255,8 @@ namespace iris {
 			const auto iterators_end = std::make_tuple(component<for_components_t>().end()...);
 
 			while (std::get<0>(iterators_begin) != std::get<0>(iterators_end)) {
-				step_operation(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>());
+				do_operation(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>());
+				step_iterators(iterators_begin, 1);
 			}
 		}
 
@@ -267,7 +272,9 @@ namespace iris {
 			auto iterators_current = iterators_begin;
 			size_t total = iris_verify_cast<size_t>(std::get<0>(iterators_end) - std::get<0>(iterators_begin));
 			for (size_t i = 0; i < total; i += batch_count) {
-				step_operation(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>(), std::min(i + batch_count, total) - i);
+				size_t count = std::min(i + batch_count, total) - i;
+				do_operation_batch(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>(), count);
+				step_iterators(iterators_begin, count);
 			}
 		}
 
@@ -298,6 +305,11 @@ namespace iris {
 		template <typename component_t>
 		static constexpr bool has() noexcept {
 			return fetch_index<component_t>::value < sizeof...(components_t);
+		}
+
+		using entity_components_t = std::vector<iris_key_value_t<entity_t, index_t>, vector_allocator_t<iris_key_value_t<entity_t, index_t>>>;
+		entity_components_t& get_entity_components() noexcept {
+			return entity_components;
 		}
 
 	protected:
@@ -348,7 +360,7 @@ namespace iris {
 
 	protected:
 		std::tuple<iris_queue_list_t<components_t, allocator_t>...> components;
-		std::vector<iris_key_value_t<entity_t, index_t>, vector_allocator_t<iris_key_value_t<entity_t, index_t>>> entity_components;
+		entity_components_t entity_components;
 		iris_queue_list_t<entity_t, allocator_t> entities;
 	};
 
@@ -387,6 +399,7 @@ namespace iris {
 	struct iris_systems_t : protected enable_read_write_fence_t<> {
 		template <typename type_t>
 		struct component_info_t {};
+		using index_t = entity_t;
 
 		template <typename type_t>
 		static size_t get_type_hash() noexcept {
@@ -401,6 +414,7 @@ namespace iris {
 			bool (*remove)(void*, entity_t) = nullptr;
 			void (*compress)(void*) = nullptr;
 			void (*clear)(void*) = nullptr;
+			std::vector<iris_key_value_t<entity_t, index_t>, vector_allocator_t<iris_key_value_t<entity_t, index_t>>>* entity_components = nullptr;
 			std::vector<iris_key_value_t<size_t, void*>> components;
 		};
 
@@ -412,6 +426,7 @@ namespace iris {
 			info.remove = &remove_handler<system_t>;
 			info.clear = &clear_handler<system_t>;
 			info.compress = &compress_handler<system_t>;
+			info.entity_components = &sys.get_entity_components();
 			info.components = generate_info(info, sys, iris_make_sequence<std::tuple_size<typename system_t::components_tuple_t>::value>());
 			std::sort(info.components.begin(), info.components.end());
 
@@ -473,7 +488,8 @@ namespace iris {
 
 				if (match_iterators<decltype(iterators_begin), 0, for_components_t...>(iterators_begin, iterators_end, system_info)) {
 					while (std::get<0>(iterators_begin) != std::get<0>(iterators_end)) {
-						step_operation(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>());
+						do_operation(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>());
+						step_iterators(iterators_begin, 1);
 					}
 				}
 			}
@@ -491,11 +507,55 @@ namespace iris {
 				if (match_iterators<decltype(iterators_begin), 0, for_components_t...>(iterators_begin, iterators_end, system_info)) {
 					size_t total = iris_verify_cast<size_t>(std::get<0>(iterators_end) - std::get<0>(iterators_begin));
 					for (size_t i = 0; i < total; i += batch_count) {
-						step_operation(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>(), std::min(i + batch_count, total) - i);
+						size_t count = std::min(i + batch_count, total) - i;
+						do_operation_batch(iterators_begin, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>(), count);
+						step_iterators(iterators_begin, count);
 					}
 				}
 			}
 		}
+
+		template <typename... for_components_t, typename operation_t>
+		void filter(entity_t entity, operation_t&& op) {
+			entity_t arr[1] = { entity };
+			filter<for_components_t...>(&arr[0], &arr[0] + 1, std::forward<operation_t>(op));
+		}
+
+		template <typename... for_components_t, typename iterator_t, typename operation_t>
+		void filter(iterator_t begin, iterator_t end, operation_t&& op) {
+			auto guard = read_fence();
+
+			for (size_t i = 0; i < system_infos.size(); i++) {
+				auto& system_info = system_infos[i];
+				auto iterators_begin = std::make_tuple(typename iris_queue_list_t<for_components_t, allocator_t>::iterator()...);
+				auto iterators_end = std::make_tuple(typename iris_queue_list_t<for_components_t, allocator_t>::iterator()...);
+
+				if (match_iterators<decltype(iterators_begin), 0, for_components_t...>(iterators_begin, iterators_end, system_info)) {
+					auto& entity_components = *system_info.entity_components;
+					auto ip = entity_components.begin();
+					iterator_t p = begin;
+					auto it = iterators_begin;
+
+					size_t last_index = 0;
+					while (p < end) {
+						ip = iris_binary_find(ip, entity_components.end(), *p);
+						if (ip == entity_components.end() || ip->second == ~index_t(0)) {
+							break;
+						}
+
+						if (last_index < ip->second) {
+							it = iterators_begin;
+							last_index = 0;
+						}
+
+						step_iterators(it, ip->second - last_index);
+						do_operation(it, op, iris_make_sequence<std::tuple_size<decltype(iterators_begin)>::value>());
+						++p;
+					}
+				}
+			}
+		}
+
 
 	protected:
 		template <typename system_t>
