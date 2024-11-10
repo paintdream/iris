@@ -95,11 +95,14 @@ namespace iris {
 
 		iris_system_t() {
 			// check if there are duplicated types
-			static_assert(check_duplicated_components<components_t...>(), "duplicated component detected!");
+			static_assert(check_duplicated_components<entity_t, components_t...>(), "duplicated entity/component detected!");
 		}
 
 		iris_system_t(const allocator_t<entity_t>& allocator, const vector_allocator_t<entity_t>& vector_allocator)
-			: components(allocator_t<components_t>(allocator)...), entity_components(vector_allocator), entities(allocator) {}
+			: components(allocator_t<components_t>(allocator)...), entity_components(vector_allocator), entities(allocator) {
+			// check if there are duplicated types
+			static_assert(check_duplicated_components<entity_t, components_t...>(), "duplicated entity/component detected!");
+		}
 
 		// entity-based component insertion
 		bool valid(entity_t entity) const noexcept {
