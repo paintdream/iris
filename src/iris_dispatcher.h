@@ -424,7 +424,9 @@ namespace iris {
 				while (true) {
 					preempt_guard_t preempt_guard(*p, ~size_t(0));
 					if (!preempt_guard) {
-						waiter();
+						if (!waiter()) {
+							return false;
+						}
 					} else {
 						if /* constexpr */ (execute_remaining) {
 							(*p).execute_parallel();
