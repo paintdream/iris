@@ -611,7 +611,12 @@ end\n\
 	warp.yield();
 	worker.join();
 
-	while (!worker.finalize() || !warp.join([] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); }) || !warp2.join([] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); })) {}
+	auto waiter = []() {
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		return false;
+	};
+
+	while (!worker.finalize() || !warp.join(waiter) || !warp2.join(waiter)) {}
 	preempt_guard.cleanup();
 #endif
 	lua_close(L);

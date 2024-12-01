@@ -1099,7 +1099,7 @@ namespace iris {
 			make_current(i);
 
 			while (!is_terminated()) {
-				if (!poll()) {
+				if (poll()) {
 					delay();
 				}
 			}
@@ -1139,7 +1139,7 @@ namespace iris {
 			return threads[i];
 		}
 
-		// poll any task from thread poll manually
+		// poll any task from thread pool manually
 		bool poll() {
 			size_t inv_priority = running_count.fetch_add(1, std::memory_order_acquire);
 			running_guard_t guard(running_count);
@@ -1157,20 +1157,20 @@ namespace iris {
 		// usually used in your customized thread procedures
 		template <typename duration_t>
 		bool poll_delay(size_t priority, duration_t&& delay) {
-			if (!poll(priority)) {
+			if (poll(priority)) {
 				std::unique_lock<std::mutex> lock(mutex);
 				condition.wait_for(lock, std::forward<duration_t>(delay));
 				lock.unlock();
 
-				if (!poll(priority)) {
+				if (poll(priority)) {
 					// priority restriction not satisfied, wake up anther thread to solve it
 					wakeup_one_with_priority(0);
 
-					return false;
+					return true;
 				}
 			}
 
-			return true;
+			return false;
 		}
 
 		// guard for exception on running
@@ -1473,6 +1473,9 @@ namespace iris {
 		// poll with given priority
 		bool poll_internal(size_t priority_size) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
+			if (is_terminated()) {
+				return finalize();
+			}
 
 			std::pair<size_t, size_t> slot = fetch(priority_size);
 			size_t index = slot.first;
@@ -1510,9 +1513,9 @@ namespace iris {
 					}
 				}
 
-				return true;
-			} else {
 				return false;
+			} else {
+				return true;
 			}
 		}
 
