@@ -244,10 +244,10 @@ int main(void) {
 	}
 
 	worker.thread_loop(main_thread_index);
-	worker.join();
+	worker.finalize();
 
 	// finished!
-	while (!worker.finalize() || !warp_t::join(warps.begin(), warps.end(), []() {
+	while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), []() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		return false;
 	})) {

@@ -78,7 +78,7 @@ void external_poll() {
 	warps[0].queue_routine_external([&worker]() {
 		worker.terminate();
 	});
-	worker.join();
+	worker.finalize();
 }
 
 void stack_op() {
@@ -111,7 +111,7 @@ void stack_op() {
 		});
 	}
 
-	worker.join();
+	worker.finalize();
 }
 
 void not_pow_two() {
@@ -280,10 +280,10 @@ void simple_explosion(void) {
 
 	// invoke explosion from external thread (current thread is external to the threads in thread pool)
 	warps[0].queue_routine_external(explosion);
-	worker.join();
+	worker.finalize();
 
 	// finished!
-	while (!worker.finalize() || !warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); return true; })) {}
+	while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); return true; })) {}
 
 	printf("after: \n");
 	for (size_t k = 0; k < warp_count; k++) {
@@ -294,10 +294,10 @@ void simple_explosion(void) {
 void garbage_collection() {
 	static constexpr size_t thread_count = 8;
 	static constexpr size_t warp_count = 16;
-	iris_async_worker_t<> worker(thread_count);
 	using warp_t = iris_warp_t<iris_async_worker_t<>>;
 
 	for (size_t m = 0; m < 4; m++) {
+		iris_async_worker_t<> worker(thread_count);
 		worker.start();
 
 		std::vector<warp_t> warps;
@@ -391,10 +391,10 @@ void garbage_collection() {
 
 		// invoke explosion from external thread (current thread is external to the threads in thread pool)
 		warps[graph.nodes[root_index].warp_index].queue_routine_external(std::bind(collector, root_index));
-		worker.join();
+		worker.finalize();
 
 		// finished!
-		while (!worker.finalize() || !warp_t::join(warps.begin(), warps.end(), []() {
+		while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), []() {
 			std::this_thread::sleep_for(std::chrono::milliseconds(50));
 			return false;
 		})) {}
@@ -497,12 +497,12 @@ void graph_dispatch() {
 	}
 
 	dispatcher.dispatch(last);
-	worker.join();
+	worker.finalize();
 	IRIS_ASSERT(task_count.load(std::memory_order_acquire) == 0);
 	printf("sum of factors: %d\n", (int)sum_factors);
 
 	// finished!
-	while (!worker.finalize() || !warp_t::join(warps.begin(), warps.end(), []() {
+	while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), []() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		return false;
 	})) {}
@@ -557,10 +557,10 @@ void graph_dispatch_exception() {
 	try {
 		dispatcher.dispatch(next);
 		dispatcher.dispatch(excepted);
-		worker.join();
+		worker.finalize();
 	} catch (int) {
 		exception_handler();
-		worker.join();
+		worker.finalize();
 	}
 }
 
@@ -596,7 +596,7 @@ void acquire_release() {
 		});
 	}
 
-	worker.join();
+	worker.finalize();
 	main_warp.join([] {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		return true;

@@ -135,6 +135,10 @@ namespace iris {
 				return state;
 			}
 
+			bool is_preempted() const noexcept {
+				return preempted;
+			}
+
 		protected:
 			iris_warp_t& warp;
 			size_t suspend_level;
@@ -425,7 +429,9 @@ namespace iris {
 					preempt_guard_t preempt_guard(*p, ~size_t(0));
 					if (!preempt_guard) {
 						if (!waiter()) {
-							return false;
+							empty = false;
+							p = end;
+							break;
 						}
 					} else {
 						if /* constexpr */ (execute_remaining) {
@@ -654,8 +660,9 @@ namespace iris {
 					if (!is_suspended()) { // double check for suspend_count
 						execute_internal<s, force>();
 						
+						bool preempted = preempt_guard.is_preempted();
 						preempt_guard.cleanup();
-						if (!yield()) {
+						if (preempted && !yield()) {
 							// already yielded? try to repost me to process remaining tasks.
 							flush();
 						}
@@ -1052,7 +1059,7 @@ namespace iris {
 		using task_allocator_t = allocator_t<task_t<void (*)()>>;
 		using large_task_allocator_t = allocator_t<task_t<large_callable_t>>;
 
-		iris_async_worker_t() : waiting_thread_count(0), limit_count(0), internal_thread_count(0), finalize_task_head(nullptr) {
+		iris_async_worker_t() : waiting_thread_count(0), limit_count(0), internal_thread_count(0) {
 			task_allocator_index.store(0, std::memory_order_relaxed);
 			running_count.store(0, std::memory_order_relaxed);
 			task_count.store(0, std::memory_order_relaxed);
@@ -1072,7 +1079,6 @@ namespace iris {
 
 		// initialize and start thread poll
 		void start() {
-			IRIS_ASSERT(finalize_task_head == nullptr);
 			IRIS_ASSERT(task_heads.empty()); // must not started
 
 			std::vector<std::atomic<task_base_t*>> heads(threads.size() * task_head_duplicate_count);
@@ -1182,8 +1188,7 @@ namespace iris {
 
 		~iris_async_worker_t() noexcept {
 			terminate();
-			join();
-			while (!finalize()) {}
+			finalize();
 
 			IRIS_ASSERT(task_count.load(std::memory_order_acquire) == 0);
 		}
@@ -1302,41 +1307,17 @@ namespace iris {
 				wakeup_one_with_priority(priority);
 			} else {
 				// terminate requested, chain to default task_head at 0
-				if (!task_heads.empty()) {
-					std::atomic<task_base_t*>& task_head = task_heads[0];
-					task_base_t* node = task_head.load(std::memory_order_relaxed);
-					do {
-						task->next = node;
-					} while (!task_head.compare_exchange_weak(node, task, std::memory_order_acq_rel, std::memory_order_relaxed));
-				} else {
-					// terminate finished, just run at here
-					IRIS_ASSERT(get_current_thread_index_internal() == ~size_t(0));
-					task->next = finalize_task_head;
-					finalize_task_head = task;
-				}
+				std::atomic<task_base_t*>& task_head = task_heads[0];
+				task_base_t* node = task_head.load(std::memory_order_relaxed);
+				do {
+					task->next = node;
+				} while (!task_head.compare_exchange_weak(node, task, std::memory_order_acq_rel, std::memory_order_relaxed));
 			}
 		}
 
 		template <typename callable_t>
 		void queue(callable_t&& callable, size_t priority = 0) {
 			queue_task(new_task(std::forward<callable_t>(callable)), priority);
-		}
-
-		bool finalize() {
-			IRIS_ASSERT(is_terminated());
-
-			task_base_t* p = finalize_task_head;
-			if (p != nullptr) {
-				do {
-					finalize_task_head = p->next;
-					execute_task(p);
-					p = finalize_task_head;
-				} while (p != nullptr);
-
-				return false;
-			} else {
-				return true;
-			}
 		}
 
 		// mark as terminated
@@ -1351,26 +1332,56 @@ namespace iris {
 		}
 
 		// wait for all threads in worker to be finished.
-		void join() {
+		void finalize() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
-			if (!task_heads.empty()) {
-				for (size_t i = 0; i < threads.size(); i++) {
-					if (threads[i].joinable()) {
-						threads[i].join();
-					}
+			for (size_t i = 0; i < threads.size(); i++) {
+				if (threads[i].joinable()) {
+					threads[i].join();
 				}
-
-				IRIS_ASSERT(running_count.load(std::memory_order_acquire) == 0);
-				IRIS_ASSERT(waiting_thread_count == 0);
-				while (!cleanup()) {}
-
-				threads.clear();
-				task_heads.clear();
-				threads.resize(internal_thread_count);
 			}
 
-			while (!finalize()) {}
+			IRIS_ASSERT(running_count.load(std::memory_order_acquire) == 0);
+			IRIS_ASSERT(waiting_thread_count == 0);
+			while (!join()) {}
+		}
+
+		// cleanup all pending tasks
+		bool join() {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
+
+			bool empty = true;
+			for (size_t i = 0; i < task_heads.size(); i++) {
+				std::atomic<task_base_t*>& task_head = task_heads[i];
+				task_base_t* task = task_head.exchange(nullptr, std::memory_order_acquire);
+				empty = empty && (task == nullptr);
+
+				while (task != nullptr) {
+					task_base_t* p = task;
+					task_base_t* org = task_head.exchange(task->next, std::memory_order_release);
+
+					// return the remaining
+					if (org != nullptr) {
+						do {
+							task_base_t* next = org->next;
+
+							// avoid legacy compiler bugs
+							// see https://en.cppreference.com/w/cpp/atomic/atomic/compare_exchange
+							task_base_t* node = task_head.load(std::memory_order_relaxed);
+							do {
+								org->next = node;
+							} while (!task_head.compare_exchange_weak(node, org, std::memory_order_relaxed, std::memory_order_relaxed));
+
+							org = next;
+						} while (org != nullptr);
+					}
+
+					execute_task(p);
+					task = task_head.exchange(nullptr, std::memory_order_acquire);
+				}
+			}
+
+			return empty;
 		}
 
 		// notify threads in thread pool, usually used for customized threads
@@ -1414,44 +1425,6 @@ namespace iris {
 			}
 		}
 
-		// cleanup all pending tasks
-		bool cleanup() {
-			IRIS_PROFILE_SCOPE(__FUNCTION__);
-
-			bool empty = true;
-			for (size_t i = 0; i < task_heads.size(); i++) {
-				std::atomic<task_base_t*>& task_head = task_heads[i];
-				task_base_t* task = task_head.exchange(nullptr, std::memory_order_acquire);
-				empty = empty && (task == nullptr);
-
-				while (task != nullptr) {
-					task_base_t* p = task;
-					task_base_t* org = task_head.exchange(task->next, std::memory_order_release);
-
-					// return the remaining
-					if (org != nullptr) {
-						do {
-							task_base_t* next = org->next;
-
-							// avoid legacy compiler bugs
-							// see https://en.cppreference.com/w/cpp/atomic/atomic/compare_exchange
-							task_base_t* node = task_head.load(std::memory_order_relaxed);
-							do {
-								org->next = node;
-							} while (!task_head.compare_exchange_weak(node, org, std::memory_order_relaxed, std::memory_order_relaxed));
-
-							org = next;
-						} while (org != nullptr);
-					}
-
-					execute_task(p);
-					task = task_head.exchange(nullptr, std::memory_order_acquire);
-				}
-			}
-
-			return empty;
-		}
-
 		// try fetching a task with given priority
 		std::pair<size_t, size_t> fetch(size_t priority_size) const noexcept {
 			size_t thread_count = threads.size();
@@ -1473,9 +1446,6 @@ namespace iris {
 		// poll with given priority
 		bool poll_internal(size_t priority_size) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
-			if (is_terminated()) {
-				return finalize();
-			}
 
 			std::pair<size_t, size_t> slot = fetch(priority_size);
 			size_t index = slot.first;
@@ -1527,7 +1497,6 @@ namespace iris {
 		std::atomic<size_t> running_count; // running_count
 		std::atomic<size_t> task_count; // the count of total waiting tasks 
 		std::vector<std::atomic<task_base_t*>> task_heads; // task pointer list
-		task_base_t* finalize_task_head;
 		std::mutex mutex; // mutex to protect condition
 		std::condition_variable condition; // condition variable for idle wait
 		std::atomic<size_t> terminated; // is to terminate

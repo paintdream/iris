@@ -26,14 +26,14 @@ struct engine_t {
 
 	~engine_t() noexcept {
 		worker.terminate();
-		worker.join();
+		worker.finalize();
 
 		auto waiter = [] {
 			std::this_thread::sleep_for(std::chrono::milliseconds(50));
 			return false;
 		};
 
-		while (!worker.finalize() || !warp_audio.join(waiter) || !warp_script.join(waiter) || !warp_network.join(waiter) || !warp_render.join(waiter)) {
+		while (!worker.join() || !warp_audio.join(waiter) || !warp_script.join(waiter) || !warp_network.join(waiter) || !warp_render.join(waiter)) {
 			printf("finalizing ...\n");
 		}
 	}
