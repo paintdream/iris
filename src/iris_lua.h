@@ -162,7 +162,7 @@ namespace iris {
 		};
 
 		// holding a lua value
-		// beaware of lua.deref() it before destruction!
+		// be aware of lua.deref() it before destruction!
 		struct ref_t {
 			explicit ref_t(int v = LUA_REFNIL) noexcept : ref_index(v) { IRIS_ASSERT(LUA_REFNIL == 0 || v != 0); }
 			~ref_t() noexcept { IRIS_ASSERT(ref_index == LUA_REFNIL); }
@@ -488,7 +488,7 @@ namespace iris {
 			return refguard_t<sizeof...(args_t)>(state, args...);
 		}
 
-		// load a code thunk and returning an callable function as return value
+		// load a code thunk and return an callable function
 		optional_result_t<ref_t> load(std::string_view code, std::string_view name = "") {
 			auto guard = write_fence();
 			lua_State* L = state;
@@ -1412,7 +1412,7 @@ namespace iris {
 		template <typename type_t>
 		struct has_lua_view_finalize<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_view_finalize)>> : std::true_type {};
 
-		// will be called when __gc triggerred
+		// will be called as __gc triggerred
 		template <typename type_t>
 		static int delete_object(lua_State* L) {
 			if (lua_rawlen(L, 1) & size_mask_view) {
@@ -1527,7 +1527,7 @@ namespace iris {
 		template <typename type_t>
 		struct has_reserve<type_t, iris_void_t<decltype(std::declval<type_t>().reserve(1))>> : std::true_type {};
 
-		// get C++ variable from lua stack with given index
+		// get a C++ variable from lua stack with given index
 		template <typename type_t, bool skip_checks = false>
 		static type_t get_variable(lua_State* L, int index) {
 			using value_t = remove_cvref_t<type_t>;
@@ -1688,7 +1688,7 @@ namespace iris {
 		template <typename type_t>
 		struct is_optional_result<optional_result_t<type_t>> : std::true_type {};
 
-		// invoke C++ function from lua stack
+		// invoke a C++ function from lua stack
 		template <typename function_t, int index, typename return_t, typename tuple_t, typename... params_t>
 		static int function_invoke(lua_State* L, const function_t& function, int stack_index, params_t&&... params) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
@@ -1997,7 +1997,7 @@ namespace iris {
 			return function_coroutine_proxy_dispatch<decltype(function), coroutine_t, args_t...>(L, function);
 		}
 
-		// for properties, define a function as:
+		// for a property, define a function as:
 		// proxy([newvalue]) : oldvalue
 		// will not assigned to newvalue if newvalue is not provided
 		template <typename prop_t, typename type_t>
@@ -2160,7 +2160,7 @@ namespace iris {
 			}
 		}
 
-		// transfer variable between different states
+		// transfer a variable between different states
 		template <bool move, typename lua_t>
 		static int cross_transfer_variable(lua_State* L, lua_t& target, int index, int recursion_source, int recursion_target, int recursion_index) {
 			stack_guard_t guard(L);
