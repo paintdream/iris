@@ -391,6 +391,16 @@ namespace iris {
 			queue_routine_external_internal<strand>(std::forward<callable_t>(func));
 		}
 
+		// queue external routine from any
+		template <typename callable_t>
+		void queue_routine_general(callable_t&& func) {
+			if (async_worker.get_current_thread_index() == ~size_t(0)) {
+				queue_routine_external_internal<strand>(std::forward<callable_t>(func));
+			} else {
+				queue_routine(std::forward<callable_t>(func));
+			}
+		}
+
 		// queue a barrier here, any routines queued after this barrier must be scheduled after any routines before this barrier
 		void queue_barrier() {
 			queue_barrier_internal<strand>();
