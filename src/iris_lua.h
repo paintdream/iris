@@ -1437,9 +1437,9 @@ namespace iris {
 		}
 
 		// pass argument by upvalues
-		template <typename type_t, size_t envs_count, typename args_tuple_t, typename creator_t, size_t... k>
+		template <typename type_t, int env_count, typename args_tuple_t, typename creator_t, size_t... k>
 		static optional_result_t<type_t*> invoke_create(type_t* p, lua_State* L, creator_t func, std::index_sequence<k...>) {
-			return func(iris_lua_t(L), p, get_variable<std::tuple_element_t<k, args_tuple_t>, true>(L, k < envs_count ? lua_upvalueindex(3 + int(k)) : 1 + int(k - envs_count))...);
+			return func(iris_lua_t(L), p, get_variable<std::tuple_element_t<k, args_tuple_t>, true>(L, k < env_count ? lua_upvalueindex(3 + int(k)) : 1 + int(k - env_count))...);
 		}
 
 		template <typename type_t, typename = void>
@@ -1480,10 +1480,10 @@ namespace iris {
 		template <typename type_t>
 		struct has_lua_check<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_check)>> : std::true_type {};
 
-		template <typename type_t, int user_value_count, size_t env_count, typename... args_t>
+		template <typename type_t, int user_value_count, int env_count, typename... args_t>
 		static int new_object(lua_State* L) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
-			check_required_parameters_skip<env_count, 1, args_t...>(L);
+			check_required_parameters<env_count, 2, 1, 1, args_t...>(L);
 
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
 			do {
@@ -1735,15 +1735,18 @@ namespace iris {
 			}
 		}
 
-		template <int index>
+		template <int env_count, int up_base, int stack_base, int index>
 		static void check_required_parameters(lua_State* L) {}
 
-		template <int index, typename type_t, typename... args_t>
+		template <int env_count, int up_base, int stack_base, int index, typename type_t, typename... args_t>
 		static void check_required_parameters(lua_State* L) {
 			using value_t = remove_cvref_t<type_t>;
+			constexpr int offset_index = index <= env_count ? index : index - env_count;
+			constexpr int stack_index = index <= env_count ? lua_upvalueindex(up_base + index) : stack_base + index - env_count;
+
 			if constexpr (iris_lua_traits_t<value_t>::value) {
 				if constexpr (has_lua_check<value_t>::value) {
-					iris_lua_traits_t<value_t>::type::lua_check(L, index);
+					iris_lua_traits_t<value_t>::type::lua_check(L, stack_index);
 				}
 			} else if constexpr (std::is_null_pointer_v<value_t>) {
 				// do not check
@@ -1752,7 +1755,7 @@ namespace iris {
 			} else if constexpr (std::is_base_of_v<ref_t, value_t>) {
 				using internal_type_t = typename value_t::internal_type_t;
 				if constexpr (!std::is_void_v<internal_type_t>) {
-					check_required_parameters<index, internal_type_t>(L);
+					check_required_parameters<env_count, up_base, stack_base, index, internal_type_t>(L);
 				}
 			} else if constexpr (std::is_same_v<value_t, bool>) {
 				// do not check
@@ -1773,16 +1776,23 @@ namespace iris {
 			} else if constexpr (iris_is_iterable<value_t>::value) {
 				// do not check
 			} else if constexpr (std::is_pointer_v<value_t>) {
-				if (get_variable<value_t, true>(L, index) != get_variable<value_t, false>(L, index)) {
-					iris_lua_t::systrap(L, "error.parameter", "Parameter %d of type %s not satisfied.", index, typeid(type_t).name());
-					luaL_error(L, "Parameter %d of type %s not satisfied.", index, typeid(type_t).name());
+				using internal_type_t = std::remove_pointer_t<value_t>;
+				if constexpr (has_lua_check<internal_type_t>::value) {
+					iris_lua_traits_t<internal_type_t>::type::lua_check(L, stack_index);
+				}
+
+				if (get_variable<value_t, true>(L, stack_index) != get_variable<value_t, false>(L, stack_index)) {
+					iris_lua_t::systrap(L, "error.parameter", "%s Parameter %d of type %s not satisfied.", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
+					luaL_error(L, "%s Parameter %d of type %s not satisfied.", index <= env_count ? "Env" : "Stack", stack_index, typeid(type_t).name());
 				}
 			} else if constexpr (std::is_base_of_v<required_base_t, value_t>) {
 				using required_type_t = typename value_t::required_type_t;
+				check_required_parameters<env_count, up_base, stack_base, index, required_type_t>(L);
+
 				bool check_result = false;
 				do {
 					// make sure that var destroyed before luaL_error
-					auto var = get_variable<required_type_t>(L, index);
+					auto var = get_variable<required_type_t>(L, stack_index);
 					check_result = var;
 
 					if constexpr (std::is_base_of_v<ref_t, required_type_t>) {
@@ -1791,35 +1801,23 @@ namespace iris {
 				} while (false);
 
 				if (!check_result) {
-					iris_lua_t::systrap(L, "error.parameter", "Required parameter %d of type %s is invalid or inaccessable.", index, typeid(type_t).name());
-					luaL_error(L, "Required parameter %d of type %s is invalid or inaccessable.", index, typeid(type_t).name());
+					iris_lua_t::systrap(L, "error.parameter", "Required %s parameter %d of type %s is invalid or inaccessable.", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
+					luaL_error(L, "Required %s parameter %d of type %s is invalid or inaccessable.", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
 				}
 			} else if constexpr (std::is_reference_v<type_t>) {
 				// returning existing reference from interval storage
 				// must check before calling this
-				check_required_parameters<index, required_t<std::remove_reference_t<type_t>*>>(L);
+				check_required_parameters<env_count, up_base, stack_base, index, required_t<std::remove_reference_t<type_t>*>>(L);
 			} else {
 				// do not check
 			}
 
-			check_required_parameters<index + (std::is_same_v<iris_lua_t, remove_cvref_t<type_t>> ? 0 : 1), args_t...>(L);
-		}
-
-		template <int skip_count, int index>
-		static void check_required_parameters_skip(lua_State* L) {}
-
-		template <int skip_count, int index, typename first_t, typename... args_t>
-		static void check_required_parameters_skip(lua_State* L) {
-			if constexpr (skip_count > 0) {
-				check_required_parameters_skip<skip_count - 1, index, args_t...>(L);
-			} else {
-				check_required_parameters<index, first_t, args_t...>(L);
-			}
+			check_required_parameters<env_count, up_base, stack_base, index + (std::is_same_v<iris_lua_t, remove_cvref_t<type_t>> ? 0 : 1), args_t...>(L);
 		}
 
 		template <typename function_t, typename return_t, typename... args_t>
 		static int function_proxy_dispatch(lua_State* L, const function_t& function) {
-			check_required_parameters<1, args_t...>(L);
+			check_required_parameters<0, 0, 0, 1, args_t...>(L);
 			int ret = function_invoke<function_t, 0, return_t, std::tuple<cast_arg_type_t<args_t>...>>(L, function, 1);
 			if (ret < 0) {
 				iris_lua_t::systrap(L, "error.exec", "C-function execution error: %s", luaL_optstring(L, -1, ""));
@@ -1968,7 +1966,7 @@ namespace iris {
 
 		template <typename function_t, typename coroutine_t, typename... args_t>
 		static int function_coroutine_proxy_dispatch(lua_State* L, const function_t& function) {
-			check_required_parameters<1, args_t...>(L);
+			check_required_parameters<0, 0, 0, 1, args_t...>(L);
 			int count = 0;
 			if ((count = function_coroutine_invoke<function_t, 0, coroutine_t, std::tuple<cast_arg_type_t<args_t>...>>(L, function, 1)) >= 0) {
 				return count;
@@ -2004,8 +2002,8 @@ namespace iris {
 		static int property_proxy_dispatch(lua_State* L, prop_t prop) {
 			type_t* object = get_variable<type_t*>(L, 1);
 			if (object == nullptr) {
-				iris_lua_t::systrap(L, "error.parameter", "The first parameter of a property must be a C++ instance of type %s", typeid(type_t).name());
-				luaL_error(L, "The first parameter of a property must be a C++ instance of type %s", typeid(type_t).name());
+				iris_lua_t::systrap(L, "error.parameter", "The first parameter of a property must be a C++ instance of type %s.", typeid(type_t).name());
+				luaL_error(L, "The first parameter of a property must be a C++ instance of type %s.", typeid(type_t).name());
 				return 0;
 			}
 
