@@ -355,7 +355,7 @@ It is a common case that a thread has to be blocked to wait for some signals arr
 ```C++
 while (some_variable.load(std::memory_order_acquire) != expected_value) {
 	// delay at most 20ms or poll tasks with priority 0 if possible 
-	worker.poll_delay(0, 20);
+	worker.poll_delay(0, std::chrono::milliseconds(20));
 }
 ```
 
