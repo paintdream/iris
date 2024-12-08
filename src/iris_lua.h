@@ -1534,7 +1534,7 @@ namespace iris {
 			stack_guard_t guard(L);
 
 			if constexpr (iris_lua_traits_t<value_t>::value) {
-				return iris_lua_traits_t<value_t>::type::from_lua(L, index);
+				return iris_lua_traits_t<value_t>::type::from_lua(iris_lua_t(L), index);
 			} else if constexpr (std::is_null_pointer_v<value_t>) {
 				return nullptr;
 			} else if constexpr (iris_is_reference_wrapper<type_t>::value) {
@@ -1672,7 +1672,7 @@ namespace iris {
 				return *get_variable<std::remove_reference_t<type_t>*>(L, index);
 			} else {
 				// by default, force iris_lua_traits_t
-				return iris_lua_traits_t<value_t>::type::from_lua(L, index);
+				return iris_lua_traits_t<value_t>::type::from_lua(iris_lua_t(L), index);
 			}
 		}
 
@@ -1743,10 +1743,11 @@ namespace iris {
 			using value_t = remove_cvref_t<type_t>;
 			constexpr int offset_index = index <= env_count ? index : index - env_count;
 			constexpr int stack_index = index <= env_count ? lua_upvalueindex(up_base + index) : stack_base + index - env_count;
+			bool check_result = true;
 
 			if constexpr (iris_lua_traits_t<value_t>::value) {
 				if constexpr (has_lua_check<value_t>::value) {
-					iris_lua_traits_t<value_t>::type::lua_check(L, stack_index);
+					check_result = iris_lua_traits_t<value_t>::type::lua_check(iris_lua_t(L), stack_index, nullptr);
 				}
 			} else if constexpr (std::is_null_pointer_v<value_t>) {
 				// do not check
@@ -1777,32 +1778,26 @@ namespace iris {
 				// do not check
 			} else if constexpr (std::is_pointer_v<value_t>) {
 				using internal_type_t = std::remove_pointer_t<value_t>;
-				if constexpr (has_lua_check<internal_type_t>::value) {
-					iris_lua_traits_t<internal_type_t>::type::lua_check(L, stack_index);
-				}
+				auto checked_value = get_variable<value_t, true>(L, stack_index);
+				auto unchecked_value = get_variable<value_t, false>(L, stack_index);
+				check_result = checked_value == unchecked_value;
 
-				if (get_variable<value_t, true>(L, stack_index) != get_variable<value_t, false>(L, stack_index)) {
-					iris_lua_t::systrap(L, "error.parameter", "%s Parameter %d of type %s not satisfied.", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
-					luaL_error(L, "%s Parameter %d of type %s not satisfied.", index <= env_count ? "Env" : "Stack", stack_index, typeid(type_t).name());
+				if constexpr (has_lua_check<internal_type_t>::value) {
+					if (checked_value != nullptr && check_result) {
+						if (!iris_lua_traits_t<internal_type_t>::type::lua_check(iris_lua_t(L), stack_index, checked_value)) {
+							check_result = false;
+						}
+					}
 				}
 			} else if constexpr (std::is_base_of_v<required_base_t, value_t>) {
 				using required_type_t = typename value_t::required_type_t;
 				check_required_parameters<env_count, up_base, stack_base, index, required_type_t>(L);
 
-				bool check_result = false;
-				do {
-					// make sure that var destroyed before luaL_error
-					auto var = get_variable<required_type_t>(L, stack_index);
-					check_result = var;
+				auto var = get_variable<required_type_t>(L, stack_index);
+				check_result = var;
 
-					if constexpr (std::is_base_of_v<ref_t, required_type_t>) {
-						deref(L, std::move(var));
-					}
-				} while (false);
-
-				if (!check_result) {
-					iris_lua_t::systrap(L, "error.parameter", "Required %s parameter %d of type %s is invalid or inaccessable.", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
-					luaL_error(L, "Required %s parameter %d of type %s is invalid or inaccessable.", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
+				if constexpr (std::is_base_of_v<ref_t, required_type_t>) {
+					deref(L, std::move(var));
 				}
 			} else if constexpr (std::is_reference_v<type_t>) {
 				// returning existing reference from interval storage
@@ -1810,6 +1805,11 @@ namespace iris {
 				check_required_parameters<env_count, up_base, stack_base, index, required_t<std::remove_reference_t<type_t>*>>(L);
 			} else {
 				// do not check
+			}
+
+			if (!check_result) {
+				iris_lua_t::systrap(L, "error.parameter", "Required %s parameter %d of type %s is invalid or inaccessable.", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
+				luaL_error(L, "Required %s parameter %d of type %s is invalid or inaccessable.", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
 			}
 
 			check_required_parameters<env_count, up_base, stack_base, index + (std::is_same_v<iris_lua_t, remove_cvref_t<type_t>> ? 0 : 1), args_t...>(L);
