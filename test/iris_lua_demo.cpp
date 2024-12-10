@@ -58,6 +58,16 @@ struct example_base_t {
 	static void lua_registar(lua_t lua) {
 		lua.set_current<&example_base_t::base_value>("base_value");
 		lua.set_current<&example_base_t::base_func>("base_func");
+		lua.set_current<&example_base_t::base_bind_static>("base_bind_static", 1.0);
+		lua.set_current<&example_base_t::base_bind>("base_bind", 1.0);
+	}
+
+	void base_bind(double value) {
+		printf("base bind\n");
+	}
+
+	static void base_bind_static(double value) {
+		printf("base bind static\n");
 	}
 
 	void base_func() {
@@ -422,6 +432,8 @@ int main(void) {
 	target.call<void>(target.load("\n\
 function test(a, b, c) \n\
 	b:base_func() \n\
+	b:base_bind() \n\
+	b.base_bind_static() \n\
 	print('equal value ======== ' .. tostring(b == c)) \n\
 	print('base value ======== ' .. tostring(b:base_value())) \n\
 	print('cross ' .. tostring(a)) \n\
