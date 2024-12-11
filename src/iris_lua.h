@@ -850,22 +850,22 @@ namespace iris {
 		}
 
 		// set lua global table with given name and value
-		template <typename value_t>
-		void set_global(std::string_view key, value_t&& value) {
+		template <typename value_t, typename... envs_t>
+		void set_global(std::string_view key, value_t&& value, envs_t&&... envs) {
 			auto guard = write_fence();
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
-			push_variable(L, std::forward<value_t>(value));
+			push_variable(L, std::forward<value_t>(value), std::forward<envs_t>(envs)...);
 			lua_setglobal(L, key.data());
 		}
 
 		// set lua global table
-		template <auto value_t>
-		void set_global(std::string_view key) {
+		template <auto value_t, typename... envs_t>
+		void set_global(std::string_view key, envs_t&&... envs) {
 			auto guard = write_fence();
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
-			push_variable<value_t>(L);
+			push_variable<value_t>(L, std::forward<envs_t>(envs)...);
 			lua_setglobal(L, key.data());
 		}
 
@@ -1514,8 +1514,7 @@ namespace iris {
 				}
 			} while (false);
 
-			luaL_error(L, "Failed to create object of type %s. %s", typeid(type_t).name(), luaL_optstring(L, -1, ""));
-			return 0;
+			return luaL_error(L, "Failed to create object of type %s. %s", typeid(type_t).name(), luaL_optstring(L, -1, ""));
 		}
 
 		// get multiple variables from a lua table and pack them into a tuple/pair 
@@ -1745,7 +1744,7 @@ namespace iris {
 		static void check_matched_parameters() {
 			using left_t = remove_cvref_t<std::tuple_element_t<index - 1, left_tuple_t>>;
 			using right_t = remove_cvref_t<std::tuple_element_t<index - 1, right_tuple_t>>;
-			static_assert(std::is_same_v<left_t, right_t>, "Parameter type must be extractly the same.");
+			static_assert(std::is_convertible_v<left_t, right_t> || std::is_convertible_v<right_t, left_t>, "Parameter type must be extractly the same.");
 
 			if constexpr (index > 1) {
 				check_matched_parameters<left_tuple_t, right_tuple_t, index - 1>();
@@ -1860,9 +1859,9 @@ namespace iris {
 			return ret;
 		}
 
-		template <auto function, typename return_t, size_t env_count, bool use_this, typename this_t, typename... args_t>
+		template <auto function, typename return_t, size_t env_count, bool use_this, typename... args_t>
 		static int function_proxy(lua_State* L) {
-			return function_proxy_dispatch<decltype(function), return_t, env_count, use_this, this_t, args_t...>(L, function);
+			return function_proxy_dispatch<decltype(function), return_t, env_count, use_this, args_t...>(L, function);
 		}
 
 		static constexpr int coroutine_state_yield = -1;
@@ -2042,8 +2041,7 @@ namespace iris {
 			type_t* object = get_variable<type_t*>(L, 1);
 			if (object == nullptr) {
 				iris_lua_t::systrap(L, "error.parameter", "The first parameter of a property must be a C++ instance of type %s.", typeid(type_t).name());
-				luaL_error(L, "The first parameter of a property must be a C++ instance of type %s.", typeid(type_t).name());
-				return 0;
+				return luaL_error(L, "The first parameter of a property must be a C++ instance of type %s.", typeid(type_t).name());
 			}
 
 			using value_t = decltype(object->*prop);

@@ -329,11 +329,17 @@ static void use_expired(shared_data_t* t, shared_data_t* s) {
 	printf("expired object: %p\nhold object: %p\n", t, s);
 }
 
+static void env_test(std::string title, std::string hi) {
+	printf("env_test %s - %s\n", title.c_str(), hi.c_str());
+}
+
 int main(void) {
 	lua_State* L = luaL_newstate();
 	luaL_openlibs(L);
 
 	lua_t lua(L);
+	lua.set_global<&env_test>("env_test", "lua_env");
+	lua.call<void>(lua.get_global<lua_t::ref_t>("env_test"), "extra");
 	lua.set_global<&use_expired>("use_expired");
 	std::shared_ptr<shared_data_t> expired_object = std::make_shared<shared_data_t>();
 	std::shared_ptr<shared_data_t> hold_object = std::make_shared<shared_data_t>();
