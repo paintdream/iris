@@ -393,6 +393,22 @@ namespace iris {
 				static_cast<reftype_t*>(this)->make_registry(lua, enable);
 				return std::move(*this);
 			}
+
+			ref_t get_registry(iris_lua_t lua) {
+				return lua.get_registry<ref_t>(get_type_hash());
+			}
+
+			template <typename refbase_t>
+			reftype_t& make_cast(iris_lua_t lua, refbase_t&& base) & {
+				lua.cast_type(std::forward<refbase_t>(base), *this);
+				return *this;
+			}
+
+			template <typename refbase_t>
+			reftype_t&& make_cast(iris_lua_t lua, refbase_t&& base) && {
+				lua.cast_type(std::forward<refbase_t>(base), *this);
+				return std::move(*this);
+			}
 		};
 
 		// ref_t for custom types

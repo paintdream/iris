@@ -461,8 +461,8 @@ end\n\
 	existing_object.value = 2222;
 	auto temp_type = target.make_type<example_t>("example_temp_t").make_registry(target);
 	{
-		auto example_base_type = target.make_type<example_base_t>("example_base_t");
-		target.cast_type(std::move(example_base_type), temp_type);
+		// target.cast_type(std::move(example_base_type), temp_type);
+		temp_type.make_cast(target, target.make_type<example_base_t>("example_base_t"));
 	}
 
 	target.call<void>(test, "existing", target.make_registry_object_view<example_t>(&existing_object), target.make_object_view<example_t>(temp_type, &existing_object));
