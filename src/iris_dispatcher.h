@@ -446,17 +446,14 @@ namespace iris {
 					} else {
 						if /* constexpr */ (execute_remaining) {
 							(*p).execute_parallel();
-						}
-
-						// nobody else suspend this warp
-						if ((*p).suspend_count.load(std::memory_order_acquire) == (finalize ? 0 : 1)) {
-							// execute remaining
-							if /* constexpr */ (execute_remaining) {
+							// nobody else suspend this warp
+							if ((*p).suspend_count.load(std::memory_order_acquire) == (finalize ? 0 : 1)) {
+								// execute remaining
 								(*p).template execute_internal<strand, true>();
 							}
-
-							break;
 						}
+
+						break;
 					}
 				} 
 			}
