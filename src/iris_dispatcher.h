@@ -431,19 +431,15 @@ namespace iris {
 			}
 
 			// do cleanup
-			bool empty = true;
+			size_t pending_count = 0;
+			size_t executing_count = 0;
 			for (iterator_t p = begin; p != end; ++p) {
-				empty = empty && (*p).empty() && !(*p).has_parallel_task();
-
-				while (true) {
+				if (!(*p).empty() || (*p).has_parallel_task()) {
+					pending_count++;
 					preempt_guard_t preempt_guard(*p, ~size_t(0));
-					if (!preempt_guard) {
-						if (!waiter()) {
-							empty = false;
-							p = end;
-							break;
-						}
-					} else {
+					if (preempt_guard) {
+						executing_count++;
+
 						if /* constexpr */ (execute_remaining) {
 							(*p).execute_parallel();
 							// nobody else suspend this warp
@@ -455,7 +451,7 @@ namespace iris {
 
 						break;
 					}
-				} 
+				}
 			}
 
 			// resume warps if not finalizing
@@ -465,7 +461,11 @@ namespace iris {
 				}
 			}
 
-			return empty;
+			if (executing_count != pending_count) {
+				return waiter();
+			} else {
+				return pending_count == 0;
+			}
 		}
 
 		template <bool execute_remaining = true, bool finalize = false, typename waiter_t>
