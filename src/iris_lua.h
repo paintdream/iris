@@ -1516,7 +1516,7 @@ namespace iris {
 			do {
 				stack_guard_t guard(L, 1);
 				type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), user_value_count));
-				auto result = invoke_create<type_t, env_count, std::tuple<remove_cvref_t<args_t>...>>(p, L, reinterpret_cast<optional_result_t<type_t*> (*)(iris_lua_t, type_t*, args_t...)>(lua_touserdata(L, lua_upvalueindex(2))), std::make_index_sequence<sizeof...(args_t)>());
+				auto result = invoke_create<type_t, env_count, std::tuple<cast_arg_type_t<args_t>...>>(p, L, reinterpret_cast<optional_result_t<type_t*> (*)(iris_lua_t, type_t*, args_t...)>(lua_touserdata(L, lua_upvalueindex(2))), std::make_index_sequence<sizeof...(args_t)>());
 				if (result) {
 					assert(result.value() == p); // must return original ptr if success
 					lua_pushvalue(L, lua_upvalueindex(1));
