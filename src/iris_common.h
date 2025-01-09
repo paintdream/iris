@@ -332,7 +332,7 @@ namespace iris {
 	template <typename type_t, typename = void>
 	struct iris_is_iterable : std::false_type {};
 
-	template< typename... args_t>
+	template <typename... args_t>
 	struct iris_make_void { typedef void type; };
  
 	template< typename... args_t>
