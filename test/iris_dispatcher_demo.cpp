@@ -291,10 +291,27 @@ void simple_explosion(void) {
 	}
 }
 
+struct count_warp_t : iris_warp_t<iris_async_worker_t<>, false, count_warp_t> {
+	template <typename... args_t>
+	count_warp_t(args_t&&... args) : iris_warp_t<iris_async_worker_t<>, false, count_warp_t>(std::forward<args_t>(args)...) {}
+	~count_warp_t() {
+		assert(counter == 0);
+	}
+
+	int counter = 0;
+	void enter_warp() {
+		counter++;
+	}
+
+	void leave_warp() {
+		counter--;
+	}
+};
+
 void garbage_collection() {
 	static constexpr size_t thread_count = 8;
 	static constexpr size_t warp_count = 16;
-	using warp_t = iris_warp_t<iris_async_worker_t<>>;
+	using warp_t = count_warp_t;
 
 	for (size_t m = 0; m < 4; m++) {
 		iris_async_worker_t<> worker(thread_count);
@@ -349,7 +366,7 @@ void garbage_collection() {
 		collecting_count.store(0, std::memory_order_release);
 
 		collector = [&warps, &collector, &worker, &graph, &collecting_count](size_t node_index) {
-			warp_t& current_warp = *warp_t::get_current_warp();
+			count_warp_t& current_warp = *static_cast<count_warp_t*>(warp_t::get_current_warp());
 			size_t warp_index = &current_warp - &warps[0];
 
 			node_t& node = graph.nodes[node_index];

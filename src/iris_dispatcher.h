@@ -72,7 +72,7 @@ namespace iris {
 	//     2. from external thread to warp (queue_routine_external).
 	//     3. from warp to external in parallel (queue_routine_parallel).
 	// you can select implemention from warp/strand via 'strand' template parameter.
-	template <typename worker_t, bool strand = true, typename monitor_t = void, typename func_t = std::function<void()>, template <typename...> class allocator_t = iris_default_block_allocator_t>
+	template <typename worker_t, bool strand = true, typename base_t = void, typename func_t = std::function<void()>, template <typename...> class allocator_t = iris_default_block_allocator_t>
 	struct iris_warp_t {
 		// for exception safe!
 		struct suspend_guard_t {
@@ -325,7 +325,7 @@ namespace iris {
 		bool yield() noexcept(noexcept(std::declval<iris_warp_t>().flush())) {
 			iris_warp_t** exp = &get_current_warp_internal();
 			if (thread_warp.load(std::memory_order_acquire) == exp) {
-				leave_warp<monitor_t>();
+				leave_warp<iris_warp_t>();
 
 				get_current_warp_internal() = stack_next_warp;
 				stack_next_warp = nullptr;
@@ -495,17 +495,17 @@ namespace iris {
 
 		// take execution atomically, returns true on success.
 		template <typename type_t>
-		typename std::enable_if<std::is_void<type_t>::value>::type enter_warp() {}
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type enter_warp() {}
 		template <typename type_t>
-		typename std::enable_if<!std::is_void<type_t>::value>::type enter_warp() {
-			monitor_t::enter_warp(this);
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type enter_warp() {
+			static_cast<base_t*>(this)->enter_warp();
 		}
 
 		template <typename type_t>
-		typename std::enable_if<std::is_void<type_t>::value>::type leave_warp() {}
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type leave_warp() {}
 		template <typename type_t>
-		typename std::enable_if<!std::is_void<type_t>::value>::type leave_warp() {
-			monitor_t::leave_warp(this);
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type leave_warp() {
+			static_cast<base_t*>(this)->leave_warp();
 		}
 
 		bool preempt() noexcept {
@@ -514,7 +514,7 @@ namespace iris {
 			if (thread_warp.compare_exchange_strong(expected, &get_current_warp_internal(), std::memory_order_acquire)) {
 				get_current_warp_internal() = this;
 				stack_next_warp = current;
-				enter_warp<monitor_t>();
+				enter_warp<iris_warp_t>();
 
 				return true;
 			} else {
