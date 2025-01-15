@@ -250,13 +250,7 @@ namespace iris {
 							}
 						};
 
-						// if we are in an external thread, post to thread pool first
-						// otherwise post it directly
-						if (target->get_async_worker().get_current_thread_index() != ~size_t(0)) {
-							target->queue_routine_post(std::move(callback));
-						} else {
-							target->queue_routine_external(std::move(callback));
-						}
+						target->queue_routine_post(std::move(callback));
 					} else {
 						// suspend the target warp
 						target->suspend();
@@ -414,18 +408,12 @@ namespace iris {
 				});
 			} else {
 				// dispatching under warp context
-				if (target->get_async_worker().get_current_thread_index() != ~size_t(0)) {
-					if (parallel_target) {
-						target->queue_routine_parallel([this, handle = std::move(handle)]() mutable {
-							handler(std::move(handle));
-						});
-					} else {
-						target->queue_routine_post([this, handle = std::move(handle)]() mutable {
-							handler(std::move(handle));
-						});
-					}
+				if (parallel_target && target->get_async_worker().get_current_thread_index() != ~size_t(0)) {
+					target->queue_routine_parallel([this, handle = std::move(handle)]() mutable {
+						handler(std::move(handle));
+					});
 				} else {
-					target->queue_routine_external([this, handle = std::move(handle)]() mutable {
+					target->queue_routine_post([this, handle = std::move(handle)]() mutable {
 						handler(std::move(handle));
 					});
 				}
@@ -471,24 +459,14 @@ namespace iris {
 			for (iterator_t p = begin; p != end; ++p) {
 				warp_t* target = &(*p);
 
-				if (target->get_async_worker().get_current_thread_index() != ~size_t(0)) {
-					target->queue_routine_post([shared_handle, target]() mutable noexcept(noexcept(handle.resume())) {
-						// taken and go execute
-						auto handle = shared_handle->first.exchange(std::coroutine_handle<>(), std::memory_order_release);
-						if (handle) {
-							shared_handle->second->selected = target;
-							handle.resume();
-						}
-					});
-				} else {
-					target->queue_routine_external([shared_handle, target]() mutable noexcept(noexcept(handle.resume())) {
-						auto handle = shared_handle->first.exchange(std::coroutine_handle<>(), std::memory_order_release);
-						if (handle) {
-							shared_handle->second->selected = target;
-							handle.resume();
-						}
-					});
-				}
+				target->queue_routine_post([shared_handle, target]() mutable noexcept(noexcept(handle.resume())) {
+					// taken and go execute
+					auto handle = shared_handle->first.exchange(std::coroutine_handle<>(), std::memory_order_release);
+					if (handle) {
+						shared_handle->second->selected = target;
+						handle.resume();
+					}
+				});
 
 				// already dispatched to one warp sucessfully, just give up the remaining
 				if (shared_handle->first.load(std::memory_order_acquire) == std::coroutine_handle<>())
@@ -546,12 +524,8 @@ namespace iris {
 					async_worker.queue([handle = std::move(info.handle)]() mutable noexcept(noexcept(info.handle.resume())) {
 						handle.resume();
 					});
-				} else if (target->get_async_worker().get_current_thread_index() != ~size_t(0)) {
-					target->queue_routine_post([handle = std::move(info.handle)]() mutable noexcept(noexcept(info.handle.resume())) {
-						handle.resume();
-					});
 				} else {
-					target->queue_routine_external([handle = std::move(info.handle)]() mutable noexcept(noexcept(info.handle.resume())) {
+					target->queue_routine_post([handle = std::move(info.handle)]() mutable noexcept(noexcept(info.handle.resume())) {
 						handle.resume();
 					});
 				}

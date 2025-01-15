@@ -69,8 +69,7 @@ namespace iris {
 
 	// dispatch routines:
 	//     1. from warp to warp. (queue_routine/queue_routine_post).
-	//     2. from external thread to warp (queue_routine_external).
-	//     3. from warp to external in parallel (queue_routine_parallel).
+	//     2. from warp to external in parallel (queue_routine_parallel).
 	// you can select implemention from warp/strand via 'strand' template parameter.
 	template <typename worker_t, bool strand = true, typename base_t = void, typename func_t = std::function<void()>, template <typename...> class allocator_t = iris_default_block_allocator_t>
 	struct iris_warp_t {
@@ -366,7 +365,6 @@ namespace iris {
 		template <typename callable_t>
 		void queue_routine(callable_t&& func) noexcept(noexcept(func()) &&
 			noexcept(std::declval<iris_warp_t>().template push<strand>(std::forward<callable_t>(func)))) {
-			IRIS_ASSERT(async_worker.get_current_thread_index() != ~size_t(0));
 
 			// can be executed immediately?
 			// try to acquire execution, if it fails, just go posting
@@ -374,7 +372,6 @@ namespace iris {
 			if (preempt_guard) {
 				func();
 			} else {
-				// send to current thread slot of current warp.
 				queue_routine_post<callable_t>(std::forward<callable_t>(func));
 			}
 		}
@@ -382,30 +379,12 @@ namespace iris {
 		// send task to warp indicated by warp. always post it to queue.
 		template <typename callable_t>
 		void queue_routine_post(callable_t&& func) noexcept(noexcept(std::declval<iris_warp_t>().template push<strand>(std::forward<callable_t>(func)))) {
-			// always send to current thread slot of current warp.
-			push<strand>(std::forward<callable_t>(func));
-		}
-
-		// queue external routine from non-warp/yielded warp
-		template <typename callable_t>
-		void queue_routine_external(callable_t&& func) {
-			IRIS_ASSERT(async_worker.get_current_thread_index() == ~size_t(0));
-			queue_routine_external_internal<strand>(std::forward<callable_t>(func));
-		}
-
-		// queue external routine from any
-		template <typename callable_t>
-		void queue_routine_general(callable_t&& func) {
-			if (async_worker.get_current_thread_index() == ~size_t(0)) {
-				queue_routine_external_internal<strand>(std::forward<callable_t>(func));
+			if (!strand && async_worker.get_current_thread_index() == ~size_t(0)) {
+				async_worker.queue(external_t<typename std::remove_reference<callable_t>::type>(*this, std::forward<callable_t>(func)), priority);
 			} else {
-				queue_routine(std::forward<callable_t>(func));
+				// always send to current thread slot of current warp.
+				push<strand>(std::forward<callable_t>(func));
 			}
-		}
-
-		// queue a barrier here, any routines queued after this barrier must be scheduled after any routines before this barrier
-		void queue_barrier() {
-			queue_barrier_internal<strand>();
 		}
 
 		// queue task parallelly to async_worker
@@ -418,6 +397,11 @@ namespace iris {
 		template <typename callable_t>
 		void queue_routine_parallel_post(callable_t&& func) {
 			queue_routine_parallel_internal<false>(std::forward<callable_t>(func));
+		}
+
+		// queue a barrier here, any routines queued after this barrier must be scheduled after any routines before this barrier
+		void queue_barrier() {
+			queue_barrier_internal<strand>();
 		}
 
 		// cleanup the dispatcher, pass true to 'execute_remaining' to make sure all tasks are executed finally.
@@ -521,16 +505,6 @@ namespace iris {
 				IRIS_ASSERT(get_current_warp_internal() != this);
 				return false;
 			}
-		}
-
-		template <bool s, typename callable_t>
-		typename std::enable_if<s>::type queue_routine_external_internal(callable_t&& func) {
-			queue_routine_post(std::forward<callable_t>(func));
-		}
-
-		template <bool s, typename callable_t>
-		typename std::enable_if<!s>::type queue_routine_external_internal(callable_t&& func) {
-			async_worker.queue(external_t<typename std::remove_reference<callable_t>::type>(*this, std::forward<callable_t>(func)), priority);
 		}
 
 		template <bool self_execute, typename callable_t>

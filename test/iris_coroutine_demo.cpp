@@ -204,7 +204,7 @@ int main(void) {
 	example_barrier(worker, barrier, 3).run();
 
 	barrier_warp_t barrier_warp(worker, 4);
-	warps[0].queue_routine_external([&worker, &barrier_warp]() {
+	warps[0].queue_routine_post([&worker, &barrier_warp]() {
 		example_barrier(worker, barrier_warp, 5).run();
 		example_barrier(worker, barrier_warp, 6).run();
 		example_barrier(worker, barrier_warp, 7).run();
@@ -226,7 +226,7 @@ int main(void) {
 	example_empty().run();
 	example(worker, nullptr, nullptr, 2).run();
 
-	warps[0].queue_routine_external([&worker, &warps]() {
+	warps[0].queue_routine_post([&worker, &warps]() {
 		// test for running example from an warp
 		example(worker, &warps[0], &warps[3], 3).run();
 		example(worker, nullptr, nullptr, 4).run();

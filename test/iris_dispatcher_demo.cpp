@@ -75,7 +75,7 @@ void external_poll() {
 		warps.emplace_back(worker, 1);
 	}
 
-	warps[0].queue_routine_external([&worker]() {
+	warps[0].queue_routine_post([&worker]() {
 		worker.terminate();
 	});
 	worker.finalize();
@@ -98,7 +98,7 @@ void stack_op() {
 	std::atomic<size_t> counter;
 	counter.store(warp_count, std::memory_order_relaxed);
 	for (size_t i = 0; i < warp_count; i++) {
-		warps[i].queue_routine_external([&, i]() {
+		warps[i].queue_routine_post([&, i]() {
 			for (size_t k = 0; k < warp_count; k++) {
 				IRIS_ASSERT(i == warp_t::get_current_warp() - &warps[0]);
 				warp_t::preempt_guard_t guard(warps[k], 0);
@@ -279,7 +279,7 @@ void simple_explosion(void) {
 	};
 
 	// invoke explosion from external thread (current thread is external to the threads in thread pool)
-	warps[0].queue_routine_external(explosion);
+	warps[0].queue_routine_post(explosion);
 	worker.finalize();
 
 	// finished!
@@ -407,7 +407,7 @@ void garbage_collection() {
 		}
 
 		// invoke explosion from external thread (current thread is external to the threads in thread pool)
-		warps[graph.nodes[root_index].warp_index].queue_routine_external(std::bind(collector, root_index));
+		warps[graph.nodes[root_index].warp_index].queue_routine_post(std::bind(collector, root_index));
 		worker.finalize();
 
 		// finished!
