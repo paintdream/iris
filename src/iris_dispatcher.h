@@ -324,7 +324,7 @@ namespace iris {
 		bool yield() noexcept(noexcept(std::declval<iris_warp_t>().flush())) {
 			iris_warp_t** exp = &get_current_warp_internal();
 			if (thread_warp.load(std::memory_order_acquire) == exp) {
-				leave_warp<iris_warp_t>();
+				invoke_leave_warp<iris_warp_t>();
 
 				get_current_warp_internal() = stack_next_warp;
 				stack_next_warp = nullptr;
@@ -343,7 +343,9 @@ namespace iris {
 
 		// blocks all tasks preemptions, stacked with internally counting.
 		bool suspend() noexcept {
-			return suspend_count.fetch_add(1, std::memory_order_acquire) == 0;
+			bool ret = suspend_count.fetch_add(1, std::memory_order_acquire) == 0;
+			invoke_suspend_warp<iris_warp_t>();
+			return ret;
 		}
 
 		// allows all tasks preemptions, stacked with internally counting.
@@ -352,6 +354,7 @@ namespace iris {
 			bool ret = suspend_count.fetch_sub(1, std::memory_order_release) == 1;
 
 			if (ret) {
+				invoke_resume_warp<iris_warp_t>();
 				// all suspend requests removed, try to flush me
 				if (queueing.exchange(queue_state_t::idle, std::memory_order_relaxed) == queue_state_t::pending) {
 					flush();
@@ -416,9 +419,13 @@ namespace iris {
 				}
 			}
 
-			// do cleanup
 			size_t pending_count = 0;
 			size_t executing_count = 0;
+
+			for (iterator_t p = begin; p != end; ++p) {
+				pending_count += (*p).template invoke_enter_join_warp<iris_warp_t>(execute_remaining, finalize);
+			}
+
 			for (iterator_t p = begin; p != end; ++p) {
 				if (!(*p).empty() || (*p).has_parallel_task()) {
 					pending_count++;
@@ -438,6 +445,10 @@ namespace iris {
 						break;
 					}
 				}
+			}
+
+			for (iterator_t p = begin; p != end; ++p) {
+				pending_count += (*p).template invoke_leave_join_warp<iris_warp_t>(execute_remaining, finalize);
 			}
 
 			// resume warps if not finalizing
@@ -477,28 +488,69 @@ namespace iris {
 			return parallel_task_head.load(std::memory_order_acquire) != nullptr || parallel_task_resurrect_head != nullptr;
 		}
 
-		// take execution atomically, returns true on success.
 		template <typename type_t>
-		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type enter_warp() {}
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type invoke_flush_warp() {}
 		template <typename type_t>
-		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type enter_warp() {
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type invoke_flush_warp() {
+			static_cast<base_t*>(this)->flush_warp();
+		}
+
+		template <typename type_t>
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type invoke_enter_warp() {}
+		template <typename type_t>
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type invoke_enter_warp() {
 			static_cast<base_t*>(this)->enter_warp();
 		}
 
 		template <typename type_t>
-		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type leave_warp() {}
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type invoke_leave_warp() {}
 		template <typename type_t>
-		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type leave_warp() {
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type invoke_leave_warp() {
 			static_cast<base_t*>(this)->leave_warp();
 		}
 
+		template <typename type_t>
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type invoke_suspend_warp() {}
+		template <typename type_t>
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type invoke_suspend_warp() {
+			static_cast<base_t*>(this)->suspend_warp();
+		}
+
+		template <typename type_t>
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type invoke_resume_warp() {}
+		template <typename type_t>
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type invoke_resume_warp() {
+			static_cast<base_t*>(this)->resume_warp();
+		}
+
+		template <typename type_t>
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value, size_t>::type invoke_enter_join_warp(bool execute_remaining, bool finalize) {
+			return 0;
+		}
+
+		template <typename type_t>
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value, size_t>::type invoke_enter_join_warp(bool execute_remaining, bool finalize) {
+			return static_cast<base_t*>(this)->enter_join_warp(execute_remaining, finalize);
+		}
+
+		template <typename type_t>
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value, size_t>::type invoke_leave_join_warp(bool execute_remaining, bool finalize) {
+			return 0;
+		}
+
+		template <typename type_t>
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value, size_t>::type invoke_leave_join_warp(bool execute_remaining, bool finalize) {
+			return static_cast<base_t*>(this)->leave_join_warp(execute_remaining, finalize);
+		}
+
+		// take execution atomically, returns true on success.
 		bool preempt() noexcept {
 			iris_warp_t** expected = nullptr;
 			iris_warp_t* current = get_current_warp_internal();
 			if (thread_warp.compare_exchange_strong(expected, &get_current_warp_internal(), std::memory_order_acquire)) {
 				get_current_warp_internal() = this;
 				stack_next_warp = current;
-				enter_warp<iris_warp_t>();
+				invoke_enter_warp<iris_warp_t>();
 
 				return true;
 			} else {
@@ -704,6 +756,7 @@ namespace iris {
 			// so we just need to queue a flush routine as soon as current state is idle
 			if (queueing.load(std::memory_order_acquire) != queue_state_t::pending) {
 				if (queueing.exchange(queue_state_t::pending, std::memory_order_acq_rel) == queue_state_t::idle) {
+					invoke_flush_warp<iris_warp_t>();
 					async_worker.queue(execute_t(*this), priority);
 				}
 			}

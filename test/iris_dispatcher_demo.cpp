@@ -306,6 +306,18 @@ struct count_warp_t : iris_warp_t<iris_async_worker_t<>, false, count_warp_t> {
 	void leave_warp() {
 		counter--;
 	}
+
+	size_t enter_join_warp(bool execute_remaining, bool finalize) {
+		return 0;
+	}
+
+	size_t leave_join_warp(bool execute_remaining, bool finalize) {
+		return 0;
+	}
+
+	void suspend_warp() {}
+	void resume_warp() {}
+	void flush_warp() {}
 };
 
 void garbage_collection() {
