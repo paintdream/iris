@@ -843,6 +843,7 @@ namespace iris {
 			iris_dispatcher_t& dispatcher;
 			routine_t* routine;
 		};
+
 		using async_worker_t = typename warp_t::async_worker_t;
 		using allocator_t = typename async_worker_t::template general_allocator_t<routine_t>;
 

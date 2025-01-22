@@ -146,6 +146,7 @@ struct example_t : example_base_t {
 	}
 
 	int call(lua_t lua, lua_t::ref_t&& r, int value) {
+		printf("call type %d\n", r.get_type(lua));
 		auto result = lua.call<int>(r, value);
 		lua.deref(std::move(r));
 

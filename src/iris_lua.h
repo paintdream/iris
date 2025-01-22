@@ -192,6 +192,17 @@ namespace iris {
 				lua.deref(std::move(*this));
 			}
 
+			int get_type(iris_lua_t lua) noexcept {
+				lua_State* L = lua.get_state();
+				stack_guard_t stack_guard(L);
+
+				push_variable(L, *this);
+				int type = lua_type(L, -1);
+				lua_pop(L, 1);
+
+				return type;
+			}
+
 			// call f if this is nil, and update this with its return value
 			template <typename func_t>
 			ref_t& once(iris_lua_t lua, func_t&& f) & {
@@ -370,7 +381,7 @@ namespace iris {
 				return *this;
 			}
 
-			const void* get_type_hash() const noexcept {
+			static const void* get_type_hash() noexcept {
 				return reinterpret_cast<const void*>(get_hash<type_t>());
 			}
 
@@ -394,7 +405,7 @@ namespace iris {
 				return std::move(*this);
 			}
 
-			ref_t get_registry(iris_lua_t lua) {
+			static ref_t get_registry(iris_lua_t lua) {
 				return lua.get_registry<ref_t>(get_type_hash());
 			}
 
