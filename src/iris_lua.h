@@ -390,6 +390,7 @@ namespace iris {
 				const void* hash = get_type_hash();
 				if (hash != nullptr) {
 					if (enable) {
+						IRIS_ASSERT(!lua.equal(lua.get_registry<ref_t>(hash), *this));
 						lua.set_registry(hash, *this);
 					} else {
 						lua.set_registry(hash, nullptr);
@@ -531,6 +532,20 @@ namespace iris {
 			}
 
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
+		}
+
+		template <typename lhs_t, typename rhs_t>
+		bool equal(lhs_t&& lhs, rhs_t&& rhs) {
+			auto guard = write_fence();
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+
+			push_variable<lhs_t>(L, std::forward<lhs_t>(lhs));
+			push_variable<rhs_t>(L, std::forward<rhs_t>(rhs));
+			int ret = lua_rawequal(L, -1, -2);
+			lua_pop(L, 2);
+
+			return ret != 0;
 		}
 
 		// a guard for checking stack balance
