@@ -875,7 +875,7 @@ namespace iris {
 	struct iris_listen_dispatch_t : iris_sync_t<typename async_dispatcher_t::warp_t, typename async_dispatcher_t::async_worker_t> {
 		using warp_t = typename async_dispatcher_t::warp_t;
 		using async_worker_t = typename async_dispatcher_t::async_worker_t;
-		using routine_t = typename async_dispatcher_t::routine_t;
+		using routine_handle_t = typename async_dispatcher_t::routine_handle_t;
 
 		explicit iris_listen_dispatch_t(async_dispatcher_t& disp) : iris_sync_t<warp_t, async_worker_t>(disp.get_async_worker()), dispatcher(disp) {
 			warp_t* warp = nullptr;
@@ -889,14 +889,12 @@ namespace iris {
 			});
 		}
 
-		~iris_listen_dispatch_t() noexcept {
-			IRIS_ASSERT(routine == nullptr);
-		}
+		~iris_listen_dispatch_t() noexcept {}
 
 		template <typename... args_t>
-		iris_listen_dispatch_t(async_dispatcher_t& disp, routine_t* first, args_t&&... args) : iris_listen_dispatch_t(disp, std::forward<args_t>(args)...) {
+		iris_listen_dispatch_t(async_dispatcher_t& disp, routine_handle_t&& first, args_t&&... args) : iris_listen_dispatch_t(disp, std::forward<args_t>(args)...) {
 			dispatcher.order(first, routine);
-			dispatcher.dispatch(first);
+			dispatcher.dispatch(std::move(first));
 		}
 
 		constexpr bool await_ready() const noexcept {
@@ -913,7 +911,7 @@ namespace iris {
 				IRIS_ASSERT(info.warp == nullptr);
 			}
 
-			dispatcher.dispatch(std::exchange(routine, nullptr));
+			dispatcher.dispatch(std::move(routine));
 		}
 
 		constexpr void await_resume() const noexcept {}
@@ -921,7 +919,7 @@ namespace iris {
 	protected:
 		using info_t = typename iris_sync_t<warp_t, async_worker_t>::info_t;
 		async_dispatcher_t& dispatcher;
-		routine_t* routine;
+		routine_handle_t routine;
 		info_t info;
 	};
 

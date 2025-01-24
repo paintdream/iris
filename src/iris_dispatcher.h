@@ -251,7 +251,7 @@ namespace iris {
 		iris_warp_t& operator = (const iris_warp_t& rhs) = delete;
 		iris_warp_t& operator = (iris_warp_t&& rhs) = delete;
 
-		// for strands, we prepare just one queue protected by a mutex
+		// for strands, we prepare just one lock-free queue
 		// for warps, we prepare one queue for each thread to remove mutex requirements
 
 		template <bool s>
@@ -832,6 +832,21 @@ namespace iris {
 			routine_t* next_tasks[4];
 		};
 
+		struct routine_handle_t {
+			routine_handle_t(routine_t* r = nullptr) noexcept : routine(r) {}
+			~routine_handle_t() noexcept { IRIS_ASSERT(routine == nullptr); }
+			routine_handle_t(routine_handle_t&& rhs) noexcept : routine(rhs.routine) { rhs.routine = nullptr; }
+			routine_handle_t& operator = (routine_handle_t&& rhs) noexcept { std::swap(routine, rhs.routine); return *this; }
+			routine_t* move() noexcept {
+				return std::exchange(routine, nullptr);
+			}
+
+			friend struct iris_dispatcher_t;
+
+		protected:
+			routine_t* routine;
+		};
+
 		// on execution of tasks
 		struct execute_t {
 			execute_t(iris_dispatcher_t& d, routine_t* r) noexcept : dispatcher(d), routine(r) {}
@@ -866,56 +881,33 @@ namespace iris {
 
 		// queue a routine, notice that priority takes effect if and only if warp == nullptr
 		template <typename func_t>
-		routine_t* allocate(warp_t* warp, func_t&& func, size_t priority = 0) {
+		routine_handle_t allocate(warp_t* warp, func_t&& func, size_t priority = 0) {
 			routine_t* routine = routine_allocator.allocate(1);
 			new (routine) routine_t(warp, std::forward<func_t>(func), priority);
 			pending_count.fetch_add(1, std::memory_order_acquire);
 			return routine;
 		}
 
-		routine_t* allocate(warp_t* warp) {
+		routine_handle_t allocate(warp_t* warp) {
 			return allocate(warp, function_t());
 		}
 
 		// set routine dependency [from] -> [to]
-		void order(routine_t* from, routine_t* to) {
-			IRIS_ASSERT(from != nullptr);
-			IRIS_ASSERT(to != nullptr);
-
-#if IRIS_DEBUG
-			validate(from, to);
-#endif
-
-			for (size_t i = 0; i < sizeof(from->next_tasks) / sizeof(from->next_tasks[0]); i++) {
-				routine_t*& p = from->next_tasks[i];
-				if (p == nullptr) {
-					to->lock_count.fetch_add(1, std::memory_order_relaxed);
-					p = to;
-					return;
-				}
-			}
-
-			if (!from->next_tasks[0]->routine) { // is junction node?
-				order(from->next_tasks[0], to);
-			} else {
-				to->lock_count.fetch_add(1, std::memory_order_relaxed);
-				routine_t* p = allocate(from->warp);
-				p->next_tasks[0] = from->next_tasks[0];
-				p->next_tasks[1] = to;
-				from->next_tasks[0] = p;
-			}
+		void order(const routine_handle_t& from_handle, const routine_handle_t& to_handle) {
+			return order_internal(from_handle.routine, to_handle.routine);
 		}
 
 		// delay a task temporarily, must called before it actually runs
-		routine_t* defer(routine_t* routine) noexcept {
+		routine_handle_t defer(routine_handle_t& routine_handle) noexcept {
 			IRIS_ASSERT(pending_count.load(std::memory_order_acquire) != 0);
-			IRIS_ASSERT(routine->lock_count.load(std::memory_order_relaxed) != 0);
-			routine->lock_count.fetch_add(1, std::memory_order_relaxed);
-			return routine;
+			IRIS_ASSERT(routine_handle.routine->lock_count.load(std::memory_order_relaxed) != 0);
+			routine_handle.routine->lock_count.fetch_add(1, std::memory_order_relaxed);
+			return routine_handle_t(routine_handle.routine);
 		}
 
 		// dispatch a task
-		void dispatch(routine_t* routine) {
+		void dispatch(routine_handle_t&& routine_handle) {
+			routine_t* routine = std::exchange(routine_handle.routine, nullptr);
 			impl::atomic_guard_t<impl::guard_operation_t::add> guard(routine->lock_count);
 			if (routine->lock_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
 				if (routine->routine) {
@@ -978,6 +970,34 @@ namespace iris {
 		}
 
 	protected:
+		void order_internal(routine_t* from, routine_t* to) {
+			IRIS_ASSERT(from != nullptr);
+			IRIS_ASSERT(to != nullptr);
+
+#if IRIS_DEBUG
+			validate(from, to);
+#endif
+
+			for (size_t i = 0; i < sizeof(from->next_tasks) / sizeof(from->next_tasks[0]); i++) {
+				routine_t*& p = from->next_tasks[i];
+				if (p == nullptr) {
+					to->lock_count.fetch_add(1, std::memory_order_relaxed);
+					p = to;
+					return;
+				}
+			}
+
+			if (!from->next_tasks[0]->routine) { // is junction node?
+				order_internal(from->next_tasks[0], to);
+			} else {
+				to->lock_count.fetch_add(1, std::memory_order_relaxed);
+				routine_t* p = allocate(from->warp).move();
+				p->next_tasks[0] = from->next_tasks[0];
+				p->next_tasks[1] = to;
+				from->next_tasks[0] = p;
+			}
+		}
+
 		// after finshing a routine, unlock the next_routines
 		struct routine_guard_t {
 			routine_guard_t(iris_dispatcher_t& d, routine_t* r, std::atomic<routine_t*>* resurrect) noexcept : dispatcher(d), routine(r), resurrect_routines(resurrect) {}

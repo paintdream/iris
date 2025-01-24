@@ -452,23 +452,24 @@ void graph_dispatch() {
 		worker.terminate();
 	});
 
-	auto last = dispatcher.allocate(nullptr);
+	using routine_handle_t = iris_dispatcher_t<warp_t>::routine_handle_t;
+	routine_handle_t last = dispatcher.allocate(nullptr);
 	for (size_t k = 0; k < total_pass; k++) {
-		auto d = dispatcher.allocate(&warps[2], [&task_count]() {
+		routine_handle_t d = dispatcher.allocate(&warps[2], [&task_count]() {
 			task_count.fetch_sub(1, std::memory_order_release);
 			printf("Warp 2 task [4]\n");
 		});
 
-		auto a = dispatcher.allocate(&warps[0], [&task_count]() {
+		routine_handle_t a = dispatcher.allocate(&warps[0], [&task_count]() {
 			task_count.fetch_sub(1, std::memory_order_release);
 			printf("Warp 0 task [1]\n");
 		});
 
-		auto b = dispatcher.allocate(&warps[1], [&dispatcher, d, &task_count]() {
+		routine_handle_t b = dispatcher.allocate(&warps[1], [&dispatcher, dd = dispatcher.defer(d).move(), &task_count]() {
+			routine_handle_t d(dd);
 			task_count.fetch_sub(1, std::memory_order_release);
-			dispatcher.defer(d);
 			printf("Warp 1 task [2]\n");
-			dispatcher.dispatch(d);
+			dispatcher.dispatch(std::move(d));
 		});
 
 		dispatcher.order(a, b);
@@ -482,18 +483,19 @@ void graph_dispatch() {
 		// dispatcher.order(c, a);// trigger validate assertion
 		dispatcher.order(b, d);
 
-		worker.queue([&dispatcher, a, b, c, d, &task_count]() {
+		worker.queue([&dispatcher, aa = a.move(), bb = b.move(), cc = c.move(), dd = d.move(), &task_count]() {
+			routine_handle_t a(aa), b(bb), c(cc), d(dd);
 			task_count.fetch_add(4, std::memory_order_release);
-			dispatcher.dispatch(a);
-			dispatcher.dispatch(b);
-			dispatcher.dispatch(c);
-			dispatcher.dispatch(d);
+			dispatcher.dispatch(std::move(a));
+			dispatcher.dispatch(std::move(b));
+			dispatcher.dispatch(std::move(c));
+			dispatcher.dispatch(std::move(d));
 		});
 	}
 
 	static constexpr size_t max_task_count = 0x1126;
 	uint8_t executed[max_task_count] = { 0 };
-	iris_dispatcher_t<warp_t>::routine_t* tasks[max_task_count];
+	iris_dispatcher_t<warp_t>::routine_handle_t tasks[max_task_count];
 	size_t sum_factors = 0;
 
 	for (size_t n = 0; n < max_task_count; n++) {
@@ -522,10 +524,10 @@ void graph_dispatch() {
 	}
 
 	for (size_t n = max_task_count; n != 0; n--) {
-		dispatcher.dispatch(tasks[n - 1]);
+		dispatcher.dispatch(std::move(tasks[n - 1]));
 	}
 
-	dispatcher.dispatch(last);
+	dispatcher.dispatch(std::move(last));
 	worker.finalize();
 	IRIS_ASSERT(task_count.load(std::memory_order_acquire) == 0);
 	printf("sum of factors: %d\n", (int)sum_factors);
@@ -584,8 +586,8 @@ void graph_dispatch_exception() {
 	};
 
 	try {
-		dispatcher.dispatch(next);
-		dispatcher.dispatch(excepted);
+		dispatcher.dispatch(std::move(next));
+		dispatcher.dispatch(std::move(excepted));
 		worker.finalize();
 	} catch (int) {
 		exception_handler();

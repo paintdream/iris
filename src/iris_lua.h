@@ -390,7 +390,12 @@ namespace iris {
 				const void* hash = get_type_hash();
 				if (hash != nullptr) {
 					if (enable) {
-						IRIS_ASSERT(!lua.equal(lua.get_registry<ref_t>(hash), *this));
+#if IRIS_DEBUG
+						auto r = lua.get_registry<ref_t>(hash);
+						if (r) {
+							IRIS_ASSERT(lua.equal(std::move(r), *this));
+						}
+#endif
 						lua.set_registry(hash, *this);
 					} else {
 						lua.set_registry(hash, nullptr);

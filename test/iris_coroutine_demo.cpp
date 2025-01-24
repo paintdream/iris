@@ -131,11 +131,11 @@ coroutine_t example_barrier(warp_t::async_worker_t& async_worker, barrier_type_t
 }
 
 static coroutine_t example_listen(iris_dispatcher_t<warp_t>& dispatcher) {
-	auto* prev = dispatcher.allocate(nullptr, []() {
+	auto prev = dispatcher.allocate(nullptr, []() {
 		printf("prev task!");
 	});
 
-	co_await iris_listen_dispatch(dispatcher, prev);
+	co_await iris_listen_dispatch(dispatcher, std::move(prev));
 	printf("next task!");
 
 	if (pending_count.fetch_sub(1, std::memory_order_release) == 1) {
@@ -250,8 +250,7 @@ int main(void) {
 	while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), []() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		return false;
-	})) {
-	}
+	})) {}
 
 	return 0;
 }
