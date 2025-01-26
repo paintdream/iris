@@ -566,6 +566,10 @@ namespace iris {
 			storage_t::reset(0);
 		}
 
+		size_t offset() const noexcept {
+			return storage_t::offset();
+		}
+
 		// allocate continuous array from queue_list
 		// may lead holes in low-level storage if current node is not enough
 		std::pair<element_t*, size_t> allocate_linear(size_t count, size_t alignment) {

@@ -1416,6 +1416,10 @@ namespace iris {
 			return iris_verify_cast<size_t>(diff);
 		}
 
+		size_t offset() const noexcept {
+			return pop_count;
+		}
+
 		// returns remaining possible available size with specified alignment
 		size_t pack_size(size_t alignment) const noexcept {
 			IRIS_ASSERT(element_count >= alignment);
@@ -2022,6 +2026,10 @@ namespace iris {
 			}
 
 			return counter;
+		}
+
+		size_t offset() const noexcept {
+			return pop_head->offset();
 		}
 
 		// returns pack size in current node
