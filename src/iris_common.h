@@ -2079,7 +2079,7 @@ namespace iris {
 		template <typename operation_t>
 		void for_each(operation_t&& op) noexcept(noexcept(std::declval<node_t>().for_each(op))) {
 			auto guard = out_fence();
-			for (node_t* p = pop_head; p != pop_head->next; p = p->next) {
+			for (node_t* p = pop_head; p != push_head->next; p = p->next) {
 				p->for_each(op);
 			}
 		}
@@ -2087,24 +2087,8 @@ namespace iris {
 		template <typename operation_t>
 		void for_each(operation_t&& op) const noexcept(noexcept(std::declval<node_t>().for_each(op))) {
 			auto guard = out_fence();
-			for (node_t* p = pop_head; p != pop_head->next; p = p->next) {
+			for (node_t* p = pop_head; p != push_head->next; p = p->next) {
 				p->for_each(op);
-			}
-		}
-
-		template <typename operation_t>
-		void for_each_queue(operation_t&& op) noexcept(noexcept(op(std::declval<iris_queue_list_t>().pop_head))) {
-			auto guard = out_fence();
-			for (node_t* p = pop_head; p != pop_head->next; p = p->next) {
-				op(p);
-			}
-		}
-
-		template <typename operation_t>
-		void for_each_queue(operation_t&& op) const noexcept(noexcept(op(std::declval<iris_queue_list_t>().pop_head))) {
-			auto guard = out_fence();
-			for (const node_t* p = pop_head; p != pop_head->next; p = p->next) {
-				op(p);
 			}
 		}
 

@@ -520,7 +520,7 @@ namespace iris {
 			const size_t head_count = sizeof(iris_buffer_t<element_t>) / sizeof(element_t);
 
 			if (size > pack) {
-				element_t* slice = allocate_linear(pack, alignment).first;
+				element_t* slice = allocate_linear(pack, alignment);
 				iris_buffer_t<element_t> head = iris_buffer_t<element_t>::make_view(slice, pack);
 				iris_buffer_t<element_t>* p = &head;
 				size -= pack;
@@ -529,7 +529,7 @@ namespace iris {
 
 				while (size != 0) {
 					size_t alloc_count = std::min(size, pack);
-					slice = allocate_linear(alloc_count + head_count, alignment).first;
+					slice = allocate_linear(alloc_count + head_count, alignment);
 					iris_buffer_t<element_t>* next = new (slice) iris_buffer_t<element_t>();
 					*next = iris_buffer_t<element_t>::make_view(slice + head_count, pack);
 					size -= alloc_count;
@@ -540,7 +540,19 @@ namespace iris {
 
 				return head;
 			} else {
-				return iris_buffer_t<element_t>::make_view(allocate_linear(size, alignment).first, size);
+				return iris_buffer_t<element_t>::make_view(allocate_linear(size, alignment), size);
+			}
+		}
+
+		// only support const for_each
+		// count skipped elements
+		template <typename operation_t>
+		void for_each(operation_t&& op) const noexcept(noexcept(std::declval<storage_t::node_t>().for_each(op))) {
+			auto guard = storage_t::out_fence();
+			for (typename storage_t::node_t* p = storage_t::pop_head; p != storage_t::push_head->next; p = p->next) {
+				p->for_each([&op, p](element_t* t, size_t n) {
+					op(t, p == storage_t::push_head ? n : storage_t::element_count);
+				});
 			}
 		}
 
@@ -572,7 +584,7 @@ namespace iris {
 
 		// allocate continuous array from queue_list
 		// may lead holes in low-level storage if current node is not enough
-		std::pair<element_t*, size_t> allocate_linear(size_t count, size_t alignment) {
+		element_t* allocate_linear(size_t count, size_t alignment) {
 			auto guard = storage_t::in_fence();
 
 			element_t* address;
@@ -594,7 +606,7 @@ namespace iris {
 				storage_t::push_head = storage_t::push_head->next;
 			}
 
-			return std::make_pair(address, storage_t::iterator_counter + storage_t::push_head->size() - count);
+			return address;
 		}
 	};
 
@@ -671,7 +683,7 @@ namespace iris {
 			static_assert(sizeof(element_t) % sizeof(base_t) == 0, "must be aligned.");
 			size_t count = n * sizeof(element_t) / sizeof(base_t);
 			if (count <= allocator_t::full_pack_size()) {
-				return reinterpret_cast<pointer>(allocator->allocate_linear(count, alignof(element_t)).first);
+				return reinterpret_cast<pointer>(allocator->allocate_linear(count, alignof(element_t)));
 			} else {
 				return reinterpret_cast<pointer>(large_allocator_t<element_t>::allocate(n));
 			}
