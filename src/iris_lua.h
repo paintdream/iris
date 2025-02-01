@@ -180,6 +180,9 @@ namespace iris {
 
 			using internal_type_t = void;
 
+			bool operator == (const ref_t& r) = delete;
+			bool operator < (const ref_t& r) = delete;
+
 			operator bool() const noexcept {
 				return ref_index != LUA_REFNIL;
 			}
@@ -462,6 +465,14 @@ namespace iris {
 
 			value_t& get() noexcept {
 				return value;
+			}
+
+			bool operator == (const refvalue_t& rhs) const noexcept {
+				return value < rhs.value;
+			}
+
+			bool operator < (const refvalue_t& rhs) const noexcept {
+				return value < rhs.value;
 			}
 
 			friend struct iris_lua_t;
