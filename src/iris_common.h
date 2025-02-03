@@ -367,6 +367,16 @@ namespace iris {
 	template <typename type_t>
 	struct iris_is_coroutine<type_t, iris_void_t<typename type_t::promise_type>> : std::true_type {};
 
+	template <typename type_t, typename member_t>
+	constexpr auto iris_add_member_const(member_t type_t::*ptr) {
+		return static_cast<const std::remove_const_t<member_t> type_t::*>(ptr);
+	};
+
+	template <typename type_t, typename member_t>
+	constexpr auto iris_remove_member_const(member_t type_t::*ptr) {
+		return static_cast<std::remove_const_t<member_t> type_t::*>(ptr);
+	};
+
 	template <typename value_t>
 	constexpr value_t iris_get_alignment(value_t a) noexcept {
 		return a & (~a + 1); // the same as a & -a, but no compiler warnings.

@@ -1572,7 +1572,7 @@ namespace iris {
 				}
 			} while (false);
 
-			return luaL_error(L, "Failed to create object of type %s. %s", typeid(type_t).name(), luaL_optstring(L, -1, ""));
+			return luaL_error(L, "Failed to create object of type %s. %s\n", typeid(type_t).name(), luaL_optstring(L, -1, ""));
 		}
 
 		// get multiple variables from a lua table and pack them into a tuple/pair 
@@ -1897,8 +1897,8 @@ namespace iris {
 			}
 
 			if (!check_result) {
-				iris_lua_t::systrap(L, "error.parameter", "Required %s parameter %d of type %s is invalid or inaccessable.", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
-				luaL_error(L, "Required %s parameter %d of type %s is invalid or inaccessable.", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
+				iris_lua_t::systrap(L, "error.parameter", "Required %s parameter %d of type %s is invalid or inaccessable.\n", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
+				luaL_error(L, "Required %s parameter %d of type %s is invalid or inaccessable.\n", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
 			}
 
 			check_required_parameters<env_count, up_base, use_this, index + (std::is_same_v<iris_lua_t, remove_cvref_t<type_t>> ? 0 : 1), args_t...>(L);
@@ -1910,8 +1910,8 @@ namespace iris {
 
 			int ret = function_invoke<function_t, 0, return_t, env_count, use_this, std::tuple<cast_arg_type_t<args_t>...>>(L, function, 1);
 			if (ret < 0) {
-				iris_lua_t::systrap(L, "error.exec", "C-function execution error: %s", luaL_optstring(L, -1, ""));
-				luaL_error(L, "C-function execution error: %s", luaL_optstring(L, -1, ""));
+				iris_lua_t::systrap(L, "error.exec", "C-function execution error: %s\n", luaL_optstring(L, -1, ""));
+				luaL_error(L, "C-function execution error: %s\n", luaL_optstring(L, -1, ""));
 			}
 
 			return ret;
@@ -2098,28 +2098,26 @@ namespace iris {
 		static int property_proxy_dispatch(lua_State* L, prop_t prop) {
 			type_t* object = get_variable<type_t*>(L, 1);
 			if (object == nullptr) {
-				iris_lua_t::systrap(L, "error.parameter", "The first parameter of a property must be a C++ instance of type %s.", typeid(type_t).name());
-				return luaL_error(L, "The first parameter of a property must be a C++ instance of type %s.", typeid(type_t).name());
+				iris_lua_t::systrap(L, "error.parameter", "The first parameter of a property must be a C++ instance of type %s.\n", typeid(type_t).name());
+				return luaL_error(L, "The first parameter of a property must be a C++ instance of type %s.\n", typeid(type_t).name());
 			}
 
 			using value_t = decltype(object->*prop);
 			bool assign = !lua_isnone(L, 2);
 
-			if constexpr (std::is_const_v<std::remove_reference_t<value_t>>) {
-				if (!assign) {
-					stack_guard_t guard(L, 1);
-					push_variable(L, object->*prop); // return the original value
-				}
+			if (!assign) {
+				stack_guard_t guard(L, 1);
+				push_variable(L, object->*prop); // return the original value
+				return 1;
 			} else {
-				if (assign) {
+				if constexpr (!std::is_const_v<std::remove_reference_t<value_t>>) {
 					object->*prop = get_variable<std::remove_reference_t<value_t>>(L, 2);
+					return 0;
 				} else {
-					stack_guard_t guard(L, 1);
-					push_variable(L, object->*prop);
+					iris_lua_t::systrap(L, "error.exec", "Cannot modify const member of type %s.\n", typeid(type_t).name());
+					return luaL_error(L, "Cannot modify const member of type %s.\n", typeid(type_t).name());
 				}
 			}
-
-			return assign ? 0 : 1;
 		}
 
 		template <auto prop, typename type_t>

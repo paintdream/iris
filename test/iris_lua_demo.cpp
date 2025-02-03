@@ -107,6 +107,7 @@ struct example_t : example_base_t {
 			return 4;
 		});
 		lua.set_current<&example_t::value>("value");
+		lua.set_current<iris_add_member_const(&example_t::value_as_const)> ("value_as_const");
 		lua.set_current<&example_t::value_raw>("value_raw");
 		lua.set_current<&example_t::const_value>("const_value");
 		lua.set_current<&example_t::accum_value>("accum_value");
@@ -286,13 +287,12 @@ struct example_t : example_base_t {
 
 	int value = 10;
 	const int const_value = 0;
+	int value_as_const = 2;
 };
-
 
 struct shared_data_t : std::enable_shared_from_this<shared_data_t> {
 	std::string data = "shared data";
 };
-
 
 template <typename type_t>
 struct iris::iris_lua_traits_t<type_t, std::enable_if_t<std::is_base_of_v<std::enable_shared_from_this<type_t>, type_t>>> {
