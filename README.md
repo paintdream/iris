@@ -79,34 +79,25 @@ for (size_t i = 0; i < warp_count; i++) {
 }
 ```
 
-Then we can schedule a task into the warp you want.
-
-If you are already in one thread of thread pool, just use **queue_routine**. Otherwise **queue_routine_external** is required (a typical case is to schedule task from main thread).
+Then we can schedule a task into the warp you want. Just call **queue_routine**. 
 
 ```C++
-warps[0].queue_routine_external([]() {/* operations on warps[0] */}); // outter of thread pool
-warps[0].queue_routine([]() {/* operations on warps[0] */});          // inner of thread pool
+warps[0].queue_routine([]() {/* operations on warps[0] */});
+warps[0].queue_routine([]() {/* operations on warps[0] */});
 ```
 
-That's all you need to do. Suppose you wrote the following two lines:
+That's all you need to do. According to warp restrictions, operation A and operation B are **never executed at the same time**, since they are in the **same** warp.
 
-```C++
-warps[0].queue_routine([]() { /* do operation A */});
-warps[0].queue_routine([]() { /* do operation B */});
-```
-
-Then according to warp restrictions, operation A and operation B are **never executed at the same time**, since they are in the **same** warp.
-
-For another case,
+Otherwise, if we queue_routine tasks to different warps, like:
 
 ```C++
 warps[0].queue_routine([]() { /* do operation C */});
 warps[1].queue_routine([]() { /* do operation D */});
 ```
 
-According to warp restrictions, operation A and operation B **could be executed at the same time**, since they are in **different warps**.
+According to warp restrictions, operation A and operation B **could be executed at the same time**.
 
-Now let's back to the "explosion" example, we code a function called "explosion", which randomly folks multiple recursions of writing operations on a integer array described here:
+Here is an "explosion" example. In this example, we code a function called "explosion", which randomly folks multiple recursions of writing operations on a integer array described here:
 
 ```C++
 static int32_t warp_data[warp_count] = { 0 };
@@ -115,6 +106,10 @@ static int32_t warp_data[warp_count] = { 0 };
 The restriction is that warp 0 can only write warp_data[0], warp 1 can only write warp_data[1]:
 
 ```C++
+std::function<void()> explosion;
+static constexpr size_t split_count = 4;
+static constexpr size_t terminate_factor = 100;
+
 explosion = [&warps, &explosion, &worker]() {
 	if (worker.is_terminated())
 		return;
@@ -162,6 +157,10 @@ struct node_t {
 	size_t visit_count = 0; // we do not use std::atomic<> here.
 	std::vector<size_t> references;
 };
+
+struct graph_t {
+	std::vector<node_t> nodes;
+};
 ```
 
 To apply garbage collection, we need to record every **references** from the current node, and traverse them from root object as collecting. We use **visit_count** to record whether the current node is **visited**.
@@ -183,6 +182,11 @@ warps[target_node.warp_index].queue_routine([]() {
 Since we have visited a new node, all **references** should be added into next collection process. To preserve the warp restriction, we schedule them into their own warps: (see the line commented with <------)
 
 ```C++
+graph_t graph;
+std::function<void(size_t)> collector;
+std::atomic<size_t> collecting_count;
+collecting_count.store(0, std::memory_order_release);
+
 collector = [&warps, &collector, &worker, &graph, &collecting_count](size_t node_index) {
 	warp_t& current_warp = *warp_t::get_current_warp();
 	size_t warp_index = &current_warp - &warps[0];
@@ -231,6 +235,8 @@ In common case, there is only one thread running in a warp context. But what if 
 Open the [iris_dispatcher_demo.cpp](iris_dispatcher_demo.cpp) and you could find a piece of code in function "simple_explosion":
 
 ```C++
+static constexpr size_t parallel_factor = 11;
+static constexpr size_t parallel_count = 6;
 if (rand() % parallel_factor == 0) {
 	// read-write lock example: multiple reading blocks writing
 	std::shared_ptr<std::atomic<int32_t>> shared_value = std::make_shared<std::atomic<int32_t>>(-0x7fffffff);
@@ -240,7 +246,7 @@ if (rand() % parallel_factor == 0) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 40));
 			int32_t v = shared_value->exchange(warp_data[warp_index], std::memory_order_release);
 			assert(v == warp_data[warp_index] || v == -0x7fffffff);
-		}, 1);
+		});
 	}
 }
 ```
