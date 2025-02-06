@@ -448,11 +448,22 @@ void graph_dispatch() {
 	std::atomic<size_t> task_count;
 	static constexpr size_t total_pass = 716;
 	task_count.store(0, std::memory_order_relaxed);
-	iris_dispatcher_t<warp_t> dispatcher(worker, [&worker](iris_dispatcher_t<warp_t>& dispatcher, bool success) {
-		worker.terminate();
-	});
 
-	using routine_handle_t = iris_dispatcher_t<warp_t>::routine_handle_t;
+	struct dispatcher_t : iris_dispatcher_t<dispatcher_t, warp_t> {
+		dispatcher_t(iris_async_worker_t<>& w) : iris_dispatcher_t<dispatcher_t, warp_t>(w) {}
+		void dispatcher_complete() {
+			async_worker.terminate();
+		}
+
+		void dispatcher_resurrect() {}
+		void dispatcher_cleanup() {}
+		void dispatcher_enter_execute(routine_t*) {}
+		void dispatcher_leave_execute(routine_t*) {}
+	};
+
+	dispatcher_t dispatcher(worker);
+
+	using routine_handle_t = dispatcher_t::routine_handle_t;
 	routine_handle_t last = dispatcher.allocate(nullptr);
 	for (size_t k = 0; k < total_pass; k++) {
 		routine_handle_t d = dispatcher.allocate(&warps[2], [&task_count]() {
@@ -495,7 +506,7 @@ void graph_dispatch() {
 
 	static constexpr size_t max_task_count = 0x1126;
 	uint8_t executed[max_task_count] = { 0 };
-	iris_dispatcher_t<warp_t>::routine_handle_t tasks[max_task_count];
+	routine_handle_t tasks[max_task_count];
 	size_t sum_factors = 0;
 
 	for (size_t n = 0; n < max_task_count; n++) {
@@ -562,9 +573,19 @@ void graph_dispatch_exception() {
 
 	worker.start();
 
-	iris_dispatcher_t<warp_t> dispatcher(worker, [&worker](iris_dispatcher_t<warp_t>& dispatcher, bool success) {
-		worker.terminate();
-	});
+	struct dispatcher_t : iris_dispatcher_t<dispatcher_t, warp_t> {
+		dispatcher_t(iris_async_worker_t<>& w) : iris_dispatcher_t<dispatcher_t, warp_t>(w) {}
+		void dispatcher_complete() {
+			async_worker.terminate();
+		}
+
+		void dispatcher_resurrect() {}
+		void dispatcher_cleanup() {}
+		void dispatcher_enter_execute(routine_t*) {}
+		void dispatcher_leave_execute(routine_t*) {}
+	};
+
+	dispatcher_t dispatcher(worker);
 
 	// try with exception
 	int exception_counter = 0;

@@ -810,7 +810,7 @@ namespace iris {
 	};
 
 	// dispatcher based-on directed-acyclic graph
-	template <typename base_warp_t>
+	template <typename base_t, typename base_warp_t>
 	struct iris_dispatcher_t {
 		using warp_t = base_warp_t;
 		// wraps task data
@@ -823,7 +823,7 @@ namespace iris {
 				std::memset(next_tasks, 0, sizeof(next_tasks));
 			}
 
-			friend struct iris_dispatcher_t<warp_t>;
+			friend struct iris_dispatcher_t<base_t, warp_t>;
 			function_t routine;
 			std::atomic<size_t> lock_count;
 			size_t priority;
@@ -861,14 +861,6 @@ namespace iris {
 
 		using async_worker_t = typename warp_t::async_worker_t;
 		using allocator_t = typename async_worker_t::template general_allocator_t<routine_t>;
-
-		// all_complete will be called each time all tasks complete
-		template <typename func_t>
-		iris_dispatcher_t(async_worker_t& worker, func_t&& all_complete) noexcept
-			: async_worker(worker), completion(std::forward<func_t>(all_complete)) {
-			pending_count.store(0, std::memory_order_relaxed);
-			resurrect_routines.store(nullptr, std::memory_order_release);
-		}
 
 		iris_dispatcher_t(async_worker_t& worker) noexcept : async_worker(worker) {
 			pending_count.store(0, std::memory_order_relaxed);
@@ -931,6 +923,7 @@ namespace iris {
 
 		bool cleanup() noexcept {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
+			invoke_dispatcher_cleanup<iris_dispatcher_t>();
 
 			routine_t* p = resurrect_routines.exchange(nullptr, std::memory_order_acquire);
 			if (p != nullptr) {
@@ -950,6 +943,7 @@ namespace iris {
 
 		bool resurrect() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
+			invoke_dispatcher_resurrect<iris_dispatcher_t>();
 
 			routine_t* p = resurrect_routines.exchange(nullptr, std::memory_order_acquire);
 			if (p != nullptr) {
@@ -1026,15 +1020,48 @@ namespace iris {
 			routine_t* routine;
 		};
 
+		template <typename type_t>
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type invoke_dispatcher_complete(bool success) {}
+		template <typename type_t>
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type invoke_dispatcher_complete(bool success) {
+			static_cast<base_t*>(this)->dispatcher_complete();
+		}
+
+		template <typename type_t>
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type invoke_dispatcher_enter_execute(routine_t* routine) {}
+		template <typename type_t>
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type invoke_dispatcher_enter_execute(routine_t* routine) {
+			static_cast<base_t*>(this)->dispatcher_enter_execute(routine);
+		}
+
+		template <typename type_t>
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type invoke_dispatcher_leave_execute(routine_t* routine) {}
+		template <typename type_t>
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type invoke_dispatcher_leave_execute(routine_t* routine) {
+			static_cast<base_t*>(this)->dispatcher_leave_execute(routine);
+		}
+
+		template <typename type_t>
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type invoke_dispatcher_resurrect() {}
+		template <typename type_t>
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type invoke_dispatcher_resurrect() {
+			static_cast<base_t*>(this)->dispatcher_resurrect();
+		}
+
+		template <typename type_t>
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value>::type invoke_dispatcher_cleanup() {}
+		template <typename type_t>
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value>::type invoke_dispatcher_cleanup() {
+			static_cast<base_t*>(this)->dispatcher_cleanup();
+		}
+
 		void complete(bool success) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			// all pending routines finished?
 			if (pending_count.fetch_sub(1, std::memory_order_release) == 1) {
 				// if completion throws exception, we still do not care about pending_count anyway
-				if (completion) {
-					completion(*this, success);
-				}
+				invoke_dispatcher_complete<iris_dispatcher_t>(success);
 			}
 		}
 
@@ -1045,7 +1072,9 @@ namespace iris {
 			do {
 				routine_guard_t guard(*this, routine, &resurrect_routines);
 				if (routine->routine) {
+					invoke_dispatcher_enter_execute<iris_dispatcher_t>(routine);
 					routine->routine();
+					invoke_dispatcher_leave_execute<iris_dispatcher_t>(routine);
 					routine->routine = {};
 				}
 
@@ -1080,7 +1109,6 @@ namespace iris {
 		allocator_t routine_allocator;
 		std::atomic<size_t> pending_count;
 		std::atomic<routine_t*> resurrect_routines;
-		std::function<void(iris_dispatcher_t&, bool)> completion;
 	};
 
 	// here we code a trivial worker demo

@@ -130,7 +130,20 @@ coroutine_t example_barrier(warp_t::async_worker_t& async_worker, barrier_type_t
 	}
 }
 
-static coroutine_t example_listen(iris_dispatcher_t<warp_t>& dispatcher) {
+
+struct dispatcher_t : iris_dispatcher_t<dispatcher_t, warp_t> {
+	dispatcher_t(iris_async_worker_t<>& w) : iris_dispatcher_t<dispatcher_t, warp_t>(w) {}
+	void dispatcher_complete() {
+		async_worker.terminate();
+	}
+
+	void dispatcher_resurrect() {}
+	void dispatcher_cleanup() {}
+	void dispatcher_enter_execute(routine_t*) {}
+	void dispatcher_leave_execute(routine_t*) {}
+};
+
+static coroutine_t example_listen(dispatcher_t& dispatcher) {
 	auto prev = dispatcher.allocate(nullptr, []() {
 		printf("prev task!");
 	});
@@ -180,7 +193,7 @@ int main(void) {
 
 	pending_count.fetch_add(1, std::memory_order_release);
 
-	iris_dispatcher_t<warp_t> dispatcher(worker);
+	dispatcher_t dispatcher(worker);
 	example_listen(dispatcher).run();
 	quota_t quota({ 4, 5 });
 

@@ -310,7 +310,7 @@ We also provide a DAG-based Task Dispatcher called iris_dispatcher_t (see functi
 You can create a dispatcher with:
 
 ```C++
-iris_dispatcher_t<warp_t> dispatcher(worker, [](iris_dispatcher_t<warp_t>&) { /* on all task finish */});
+iris_dispatcher_t<warp_t> dispatcher(worker);
 ```
 
 The second parameter is an optional function, called after all tasks in dispatcher graph finished.
