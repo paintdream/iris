@@ -101,7 +101,7 @@ namespace iris {
 	// debug utilities for multi-thread programming
 	template <typename atomic_t>
 	struct iris_write_fence_t {
-		operator bool() const noexcept {
+		explicit operator bool() const noexcept {
 			return true;
 		}
 
@@ -132,7 +132,7 @@ namespace iris {
 
 	template <typename atomic_t>
 	struct iris_read_fence_t {
-		operator bool() const noexcept {
+		explicit operator bool() const noexcept {
 			return true;
 		}
 
@@ -2536,7 +2536,7 @@ namespace iris {
 			guard_t(const guard_t&) noexcept = delete;
 			guard_t(guard_t&& rhs) noexcept : host(rhs.host), amount(rhs.amount) { rhs.host = nullptr; }
 
-			operator bool() noexcept {
+			explicit operator bool() noexcept {
 				return host != nullptr;
 			}
 

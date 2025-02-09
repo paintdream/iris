@@ -183,7 +183,7 @@ namespace iris {
 			bool operator == (const ref_t& r) = delete;
 			bool operator < (const ref_t& r) = delete;
 
-			operator bool() const noexcept {
+			explicit operator bool() const noexcept {
 				return ref_index != LUA_REFNIL;
 			}
 
@@ -1883,7 +1883,7 @@ namespace iris {
 				check_required_parameters<env_count, up_base, use_this, index, required_type_t>(L);
 
 				auto var = get_variable<required_type_t>(L, stack_index);
-				check_result = var;
+				check_result = !!var;
 
 				if constexpr (std::is_base_of_v<ref_t, required_type_t>) {
 					deref(L, std::move(var));

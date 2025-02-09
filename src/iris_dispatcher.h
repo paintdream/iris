@@ -130,7 +130,7 @@ namespace iris {
 				}
 			}
 
-			operator bool() const noexcept {
+			explicit operator bool() const noexcept {
 				return state;
 			}
 
@@ -841,8 +841,11 @@ namespace iris {
 				return std::exchange(routine, nullptr);
 			}
 
-			friend struct iris_dispatcher_t;
+			explicit operator bool() const noexcept {
+				return routine != nullptr;
+			}
 
+			friend struct iris_dispatcher_t;
 		protected:
 			routine_t* routine;
 		};
