@@ -989,13 +989,7 @@ namespace iris {
 
 			if (!lua_isnoneornil(L, -1)) {
 				op(*this);
-
-				if constexpr (std::is_rvalue_reference_v<value_t&&>) {
-					deref(std::move(value));
-				}
-
 				lua_pop(L, 1);
-
 				return true;
 			} else {
 				lua_pop(L, 1);
