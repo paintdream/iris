@@ -1194,16 +1194,21 @@ namespace iris {
 
 		template <typename type_t = void>
 		static type_t* extract_object_ptr(lua_State* L, int index) {
+			void* ptr = lua_touserdata(L, index);
+			if (ptr == nullptr) {
+				return nullptr;
+			}
+
 			size_t len = static_cast<size_t>(lua_rawlen(L, index));
 			if (len & size_mask_view) {
 				if constexpr (has_lua_view_extract<type_t>::value) {
 					static_assert(has_lua_view_initialize<type_t>::value, "Must implement lua_view_initialize()");
-					return static_cast<type_t*>(iris_lua_traits_t<type_t>::type::lua_view_extract(iris_lua_t(L), index, reinterpret_cast<type_t**>(lua_touserdata(L, index))));
+					return static_cast<type_t*>(iris_lua_traits_t<type_t>::type::lua_view_extract(iris_lua_t(L), index, reinterpret_cast<type_t**>(ptr)));
 				} else {
-					return *reinterpret_cast<type_t**>(lua_touserdata(L, index));
+					return *reinterpret_cast<type_t**>(ptr);
 				}
 			} else {
-				return reinterpret_cast<type_t*>(lua_touserdata(L, index));
+				return reinterpret_cast<type_t*>(ptr);
 			}
 		}
 
