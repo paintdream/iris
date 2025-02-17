@@ -1953,9 +1953,9 @@ namespace iris {
 				int top = lua_gettop(L);
 				if constexpr (!std::is_void_v<return_t>) {
 #if LUA_CLEAR_STACK_ON_YIELD
-					coroutine.complete([L, address](return_t&& value) {
+					coroutine.complete([L](void* address, return_t&& value) {
 #else
-					coroutine.complete([L, address, top](return_t&& value) {
+					coroutine.complete([L, top](void* address, return_t&& value) {
 #endif
 						IRIS_PROFILE_SCOPE(__FUNCTION__);
 						void* context = address;
@@ -1988,7 +1988,7 @@ namespace iris {
 						coroutine_continuation(L, count, address);
 					}).run();
 				} else {
-					coroutine.complete([L, address]() {
+					coroutine.complete([L](void* address) {
 						IRIS_PROFILE_SCOPE(__FUNCTION__);
 						lua_pushnil(L);
 						push_variable(L, address);

@@ -228,11 +228,11 @@ int main(void) {
 	pending_count.fetch_add(30, std::memory_order_acq_rel);
 
 	// test for running example from an external thread
-	example(worker, &warps[0], &warps[3], 1).complete([]() {
+	example(worker, &warps[0], &warps[3], 1).complete([](void*) {
 		printf("Complete!\n");
 	}).run();
 
-	example_empty().complete([](int&& value) {
+	example_empty().complete([](void*, int&& value) {
 		printf("Complete empty %d!\n", value);
 	}).run();
 

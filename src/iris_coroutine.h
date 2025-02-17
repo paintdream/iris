@@ -47,14 +47,13 @@ namespace iris {
 			template <typename value_t>
 			void return_value(value_t&& value) noexcept {
 				if (completion) {
-					completion(std::forward<value_t>(value));
+					completion(std::coroutine_handle<decltype(*this)>::from_promise(*this).address(), std::forward<value_t>(value));
 				}
 			}
 
 			// currently we do not handle unexcepted exceptions
 			void unhandled_exception() noexcept { return std::terminate(); }
-
-			std::function<void(return_t&&)> completion;
+			std::function<void(void*, return_t&&)> completion;
 		};
 
 		template <>
@@ -64,12 +63,12 @@ namespace iris {
 
 			void return_void() noexcept {
 				if (completion) {
-					completion();
+					completion(std::coroutine_handle<decltype(*this)>::from_promise(*this).address());
 				}
 			}
 
 			void unhandled_exception() noexcept { return std::terminate(); }
-			std::function<void()> completion;
+			std::function<void(void*)> completion;
 		};
 	}
 
@@ -129,12 +128,12 @@ namespace iris {
 		// chain execution
 		void await_suspend(std::coroutine_handle<> parent_handle) {
 			if constexpr (!std::is_void_v<return_t>) {
-				complete([this, parent_handle = std::move(parent_handle)](return_t&& value) mutable noexcept(noexcept(std::declval<std::coroutine_handle<>>().resume())) {
+				complete([this, parent_handle = std::move(parent_handle)](void*, return_t&& value) mutable noexcept(noexcept(std::declval<std::coroutine_handle<>>().resume())) {
 					await_result = &value;
 					parent_handle.resume();
 				});
 			} else {
-				complete([this, parent_handle = std::move(parent_handle)]() mutable noexcept(noexcept(std::declval<std::coroutine_handle<>>().resume())) {
+				complete([this, parent_handle = std::move(parent_handle)](void*) mutable noexcept(noexcept(std::declval<std::coroutine_handle<>>().resume())) {
 					parent_handle.resume();
 				});
 			}
