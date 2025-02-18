@@ -27,10 +27,10 @@ SOFTWARE.
 
 #pragma once
 
-#include "../../../src/iris_common.h"
-#include "../../../src/iris_coroutine.h"
-#include "../../../src/iris_dispatcher.h"
-#include "../../../src/iris_lua.h"
+#include <iris_common.h>
+#include <iris_coroutine.h>
+#include <iris_dispatcher.h>
+#include <iris_lua.h>
 #include <chrono>
 
 namespace iris {

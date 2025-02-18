@@ -51,7 +51,7 @@ namespace iris {
 			main_warp = std::make_unique<lua_warp_t>(std::ref(*async_worker));
 			main_guard = std::make_unique<lua_warp_preempt_guard_t>(*main_warp, 0);
 			assert(*main_guard); // must success
-			return *main_guard;
+			return !!*main_guard;
 		} else {
 			return false;
 		}
