@@ -432,7 +432,7 @@ namespace iris {
 		};
 
 		// ref_t for custom types
-		template <typename type_t, typename value_t>
+		template <typename value_t>
 		struct refvalue_t : ref_t {
 			refvalue_t(int v = LUA_REFNIL) noexcept : ref_t(v) {}
 			template <typename input_t>
@@ -482,10 +482,126 @@ namespace iris {
 		};
 
 		template <typename type_t>
-		using refptr_t = refvalue_t<type_t, type_t*>;
+		using refview_t = refvalue_t<type_t>;
 
 		template <typename type_t>
-		using refview_t = refvalue_t<type_t, type_t>;
+		using refptr_t = refvalue_t<type_t*>;
+
+		template <typename type_t>
+		struct shared_ref_t;
+
+		struct shared_object_t {
+		protected:
+			static void lua_shared_acquire(shared_object_t* object, lua_State* L, int index) {
+				object->ref_count.fetch_add(1, std::memory_order_relaxed);
+				IRIS_ASSERT(L != nullptr || object->ref);
+				if (L != nullptr && !object->ref) {
+					object->ref = iris_lua_t(L).get_context<ref_t>(context_stackvalue_t(index));
+				}
+			}
+
+			static void lua_shared_release(shared_object_t* object, lua_State* L) {
+				if (object->ref_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
+					IRIS_ASSERT(L != nullptr); // last reference must be released with lua
+					deref(L, std::move(object->ref));
+				}
+			}
+
+			template <typename type_t>
+			friend struct shared_ref_t;
+
+			ref_t ref;
+			std::atomic<uint32_t> ref_count = 0;
+		};
+
+		template <typename type_t>
+		struct shared_ref_t {
+			shared_ref_t() noexcept : ptr(nullptr) {}
+			shared_ref_t(lua_State* L, int index, type_t* p) noexcept : ptr(p) {
+				if (ptr != nullptr) {
+					type_t::lua_shared_acquire(ptr, L, index);
+				}
+			}
+
+			using internal_type_t = type_t*;
+
+			~shared_ref_t() noexcept {
+				reset();
+			}
+
+			void deref(lua_State* L) {
+				if (ptr != nullptr) {
+					type_t::lua_shared_release(ptr, L);
+					ptr = nullptr;
+				}
+			}
+
+			type_t* operator * () const noexcept {
+				return get();
+			}
+
+			type_t* operator -> () noexcept {
+				return get();
+			}
+
+			const type_t* operator -> () const noexcept {
+				return get();
+			}
+
+			ref_t get_ref() const noexcept {
+				return ptr == nullptr ? ref_t() : ptr->ref;
+			}
+
+			type_t* get() const noexcept {
+				return ptr;
+			}
+
+			explicit operator bool() const noexcept {
+				return ptr != nullptr;
+			}
+
+			shared_ref_t(shared_ref_t&& rhs) noexcept : ptr(rhs.ptr) { rhs.ptr = nullptr; }
+			shared_ref_t(const shared_ref_t& rhs) noexcept {
+				if (this != &rhs) {
+					ptr = rhs.ptr;
+					type_t::lua_shared_acquire(ptr, nullptr, 0);
+				}
+			}
+
+			shared_ref_t& operator = (const shared_ref_t& rhs) noexcept {
+				if (this != &rhs) {
+					reset();
+					ptr = rhs.ptr;
+					type_t::lua_shared_acquire(ptr, nullptr, 0);
+				}
+
+				return *this;
+			}
+
+			shared_ref_t& operator = (shared_ref_t&& rhs) noexcept {
+				if (this != &rhs) {
+					ptr = rhs.ptr;
+					rhs.ptr = nullptr;
+				}
+
+				return *this;
+			}
+
+		protected:
+			void reset() noexcept {
+				if (ptr != nullptr) {
+					type_t::lua_shared_release(ptr, nullptr);
+				}
+			}
+
+			type_t* ptr;
+		};
+
+		template <typename type_t>
+		struct is_shared_ref_t : std::false_type {};
+
+		template <typename type_t>
+		struct is_shared_ref_t<shared_ref_t<type_t>> : std::true_type {};
 
 		// requried_t is for validating parameters before actually call the C++ stub
 		// will raise a lua error if it fails
@@ -1038,7 +1154,8 @@ namespace iris {
 		}
 
 		// dereference a ref
-		void deref(ref_t&& r) noexcept {
+		template <typename value_t>
+		void deref(value_t&& r) noexcept {
 			auto guard = write_fence();
 			deref(state, std::move(r));
 		}
@@ -1177,6 +1294,11 @@ namespace iris {
 				luaL_unref(L, LUA_REGISTRYINDEX, r.ref_index);
 				r.ref_index = LUA_REFNIL;
 			}
+		}
+
+		template <typename type_t>
+		static void deref(lua_State* L, shared_ref_t<type_t>&& r) noexcept {
+			r.deref(iris_lua_t(L));
 		}
 
 		static void push_arguments(lua_State* L) {}
@@ -1618,6 +1740,8 @@ namespace iris {
 					lua_pushvalue(L, index);
 					return value_t(luaL_ref(L, LUA_REGISTRYINDEX));
 				}
+			} else if constexpr (is_shared_ref_t<value_t>::value) {
+				return value_t(L, index, get_variable<typename value_t::internal_type_t>(L, index));
 			} else if constexpr (std::is_same_v<value_t, bool>) {
 				return static_cast<value_t>(lua_toboolean(L, index));
 			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {
@@ -1846,6 +1970,9 @@ namespace iris {
 				if constexpr (!std::is_void_v<internal_type_t>) {
 					check_required_parameters<env_count, up_base, use_this, index, internal_type_t>(L);
 				}
+			} else if constexpr (is_shared_ref_t<value_t>::value) {
+				using internal_type_t = typename value_t::internal_type_t;
+				check_required_parameters<env_count, up_base, use_this, index, internal_type_t>(L);
 			} else if constexpr (std::is_same_v<value_t, bool>) {
 				// do not check
 			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {
@@ -2189,6 +2316,8 @@ namespace iris {
 				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
 					deref(L, std::move(variable));
 				}
+			} else if constexpr (is_shared_ref_t<value_t>::value) {
+				push_variable(L, variable.get_ref());
 			} else if constexpr (std::is_convertible_v<value_t, int (*)(lua_State*)> || std::is_convertible_v<value_t, int (*)(lua_State*) noexcept>) {
 				lua_pushcfunction(L, variable);
 			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {

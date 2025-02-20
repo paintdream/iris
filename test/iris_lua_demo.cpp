@@ -334,11 +334,28 @@ static void env_test(std::string title, std::string hi) {
 	printf("env_test %s - %s\n", title.c_str(), hi.c_str());
 }
 
+struct shared_object_example_t : lua_t::shared_object_t {
+	static void lua_registar(lua_t lua) {
+		lua.set_current<&shared_object_example_t::foo>("foo");
+	}
+
+	void foo(lua_t::shared_ref_t<shared_object_example_t> ptr, lua_t::required_t<lua_t::shared_ref_t<shared_object_example_t>> req) {}
+};
+
 int main(void) {
 	lua_State* L = luaL_newstate();
 	luaL_openlibs(L);
 
 	lua_t lua(L);
+	auto shared_object_example_type = lua.make_type<shared_object_example_t>("shared_object_example_t");
+	auto shared_ptr_instance = lua.make_object<shared_object_example_t>(shared_object_example_type);
+	lua.set_global("shared_ptrinstance", std::move(shared_ptr_instance));
+	auto instance_copy1 = lua.get_global<lua_t::shared_ref_t<shared_object_example_t>>("shared_ptrinstance");
+	auto instance_copy2 = instance_copy1;
+	lua.deref(instance_copy1);
+	lua.deref(instance_copy2);
+
+	lua.deref(std::move(shared_object_example_type));
 	lua.set_global<&env_test>("env_test", "lua_env");
 	lua.call<void>(lua.get_global<lua_t::ref_t>("env_test"), "extra");
 	lua.set_global<&use_expired>("use_expired");
