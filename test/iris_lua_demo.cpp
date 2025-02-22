@@ -334,12 +334,15 @@ static void env_test(std::string title, std::string hi) {
 	printf("env_test %s - %s\n", title.c_str(), hi.c_str());
 }
 
-struct shared_object_example_t : lua_t::shared_object_t {
+struct shared_object_example_t : lua_t::shared_object_t<shared_object_example_t> {
 	static void lua_registar(lua_t lua) {
 		lua.set_current<&shared_object_example_t::foo>("foo");
+		lua.set_current<&shared_object_example_t::other>("other");
 	}
 
 	void foo(lua_t::shared_ref_t<shared_object_example_t> ptr, lua_t::required_t<lua_t::shared_ref_t<shared_object_example_t>> req) {}
+
+	lua_t::shared_ref_t<shared_object_example_t> other;
 };
 
 int main(void) {
@@ -350,10 +353,16 @@ int main(void) {
 	auto shared_object_example_type = lua.make_type<shared_object_example_t>("shared_object_example_t");
 	auto shared_ptr_instance = lua.make_object<shared_object_example_t>(shared_object_example_type);
 	lua.set_global("shared_ptrinstance", std::move(shared_ptr_instance));
-	auto instance_copy1 = lua.get_global<lua_t::shared_ref_t<shared_object_example_t>>("shared_ptrinstance");
-	auto instance_copy2 = instance_copy1;
-	lua.deref(instance_copy1);
-	lua.deref(instance_copy2);
+	{
+		auto instance_copy1 = lua.get_global<lua_t::shared_ref_t<shared_object_example_t>>("shared_ptrinstance");
+		auto instance_copy2 = instance_copy1;
+		{
+			auto instance_copy3 = instance_copy2;
+		}
+		// lua.deref(instance_copy1);
+		lua.set_global("shared_deref_auto", std::move(instance_copy1));
+		lua.deref(instance_copy2);
+	}
 
 	lua.deref(std::move(shared_object_example_type));
 	lua.set_global<&env_test>("env_test", "lua_env");

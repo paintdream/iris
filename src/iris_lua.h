@@ -490,9 +490,10 @@ namespace iris {
 		template <typename type_t>
 		struct shared_ref_t;
 
+		template <typename type_t>
 		struct shared_object_t {
-		protected:
-			static void lua_shared_acquire(shared_object_t* object, lua_State* L, int index) {
+			static void lua_shared_acquire(shared_object_t* base_object, lua_State* L, int index) {
+				type_t* object = static_cast<type_t*>(base_object);
 				object->ref_count.fetch_add(1, std::memory_order_relaxed);
 				IRIS_ASSERT(L != nullptr || object->ref);
 				if (L != nullptr && !object->ref) {
@@ -500,16 +501,18 @@ namespace iris {
 				}
 			}
 
-			static void lua_shared_release(shared_object_t* object, lua_State* L) {
+			static void lua_shared_release(shared_object_t* base_object, lua_State* L) {
+				type_t* object = static_cast<type_t*>(base_object);
 				if (object->ref_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
 					IRIS_ASSERT(L != nullptr); // last reference must be released with lua
 					deref(L, std::move(object->ref));
 				}
 			}
 
-			template <typename type_t>
-			friend struct shared_ref_t;
+			const ref_t& get_ref() const noexcept { return ref; }
+			bool get_ref_count() const noexcept { return ref_count.load(std::memory_order_relaxed); }
 
+		protected:
 			ref_t ref;
 			std::atomic<uint32_t> ref_count = 0;
 		};
@@ -546,10 +549,6 @@ namespace iris {
 
 			const type_t* operator -> () const noexcept {
 				return get();
-			}
-
-			ref_t get_ref() const noexcept {
-				return ptr == nullptr ? ref_t() : ptr->ref;
 			}
 
 			type_t* get() const noexcept {
@@ -2317,7 +2316,15 @@ namespace iris {
 					deref(L, std::move(variable));
 				}
 			} else if constexpr (is_shared_ref_t<value_t>::value) {
-				push_variable(L, variable.get_ref());
+				auto* ptr = variable.get();
+				if (ptr == nullptr) {
+					push_variable(L, nullptr);
+				} else {
+					push_variable(L, ptr->get_ref());
+					if constexpr (std::is_rvalue_reference_v<type_t&&>) {
+						deref(L, std::move(variable));
+					}
+				}
 			} else if constexpr (std::is_convertible_v<value_t, int (*)(lua_State*)> || std::is_convertible_v<value_t, int (*)(lua_State*) noexcept>) {
 				lua_pushcfunction(L, variable);
 			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {
