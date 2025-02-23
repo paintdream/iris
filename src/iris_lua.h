@@ -520,6 +520,7 @@ namespace iris {
 		template <typename type_t>
 		struct shared_ref_t {
 			shared_ref_t() noexcept : ptr(nullptr) {}
+			shared_ref_t(std::nullptr_t) : ptr(nullptr) {}
 			shared_ref_t(lua_State* L, int index, type_t* p) noexcept : ptr(p) {
 				if (ptr != nullptr) {
 					type_t::lua_shared_acquire(ptr, L, index);
@@ -543,11 +544,7 @@ namespace iris {
 				return get();
 			}
 
-			type_t* operator -> () noexcept {
-				return get();
-			}
-
-			const type_t* operator -> () const noexcept {
+			type_t* operator -> () const noexcept {
 				return get();
 			}
 
@@ -560,14 +557,31 @@ namespace iris {
 			}
 
 			shared_ref_t(shared_ref_t&& rhs) noexcept : ptr(rhs.ptr) { rhs.ptr = nullptr; }
-			shared_ref_t(const shared_ref_t& rhs) noexcept {
-				if (this != &rhs) {
-					ptr = rhs.ptr;
-					type_t::lua_shared_acquire(ptr, nullptr, 0);
-				}
+			shared_ref_t(const shared_ref_t& rhs) noexcept : ptr(rhs.ptr) {
+				type_t::lua_shared_acquire(ptr, nullptr, 0);
+			}
+
+			template <typename subtype_t>
+			shared_ref_t(const shared_ref_t<subtype_t>& rhs) noexcept : ptr(rhs.ptr) {
+				static_assert(std::is_convertible_v<subtype_t*, type_t*>, "Must be convertible");
+
+				type_t::lua_shared_acquire(ptr, nullptr, 0);
 			}
 
 			shared_ref_t& operator = (const shared_ref_t& rhs) noexcept {
+				if (this != &rhs) {
+					reset();
+					ptr = rhs.ptr;
+					type_t::lua_shared_acquire(ptr, nullptr, 0);
+				}
+
+				return *this;
+			}
+
+			template <typename subtype_t>
+			shared_ref_t& operator = (const shared_ref_t<subtype_t>& rhs) noexcept {
+				static_assert(std::is_convertible_v<subtype_t*, type_t*>, "Must be convertible");
+
 				if (this != &rhs) {
 					reset();
 					ptr = rhs.ptr;
@@ -586,6 +600,36 @@ namespace iris {
 				return *this;
 			}
 
+			template <typename subtype_t>
+			shared_ref_t& operator = (shared_ref_t<subtype_t>&& rhs) noexcept {
+				if (this != &rhs) {
+					ptr = rhs.ptr;
+					rhs.ptr = nullptr;
+				}
+
+				return *this;
+			}
+
+			bool operator < (const shared_ref_t& rhs) const noexcept {
+				return ptr < rhs.ptr;
+			}
+
+			template <typename subtype_t>
+			bool operator < (const shared_ref_t<subtype_t>& rhs) const noexcept {
+				static_assert(std::is_convertible_v<subtype_t*, type_t*>, "Must be convertible");
+				return ptr < rhs.ptr;
+			}
+
+			bool operator == (const shared_ref_t& rhs) const noexcept {
+				return ptr == rhs.ptr;
+			}
+
+			template <typename subtype_t>
+			bool operator == (const shared_ref_t<subtype_t>& rhs) const noexcept {
+				static_assert(std::is_convertible_v<subtype_t*, type_t*>, "Must be convertible");
+				return ptr == rhs.ptr;
+			}
+
 		protected:
 			void reset() noexcept {
 				if (ptr != nullptr) {
@@ -593,6 +637,8 @@ namespace iris {
 				}
 			}
 
+			template <typename subtype_t>
+			friend struct shared_ref_t;
 			type_t* ptr;
 		};
 
@@ -802,19 +848,26 @@ namespace iris {
 		template <typename type_t, typename meta_t, typename... args_t>
 		refptr_t<type_t> make_object(meta_t&& meta, args_t&&... args) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
-
 			lua_State* L = state;
 			stack_guard_t guard(L);
-			IRIS_ASSERT(*meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<type_t>()));
-
-			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
-			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), meta.template get<int>(*this, "__uservalue").value_or(0)));
-			new (p) type_t(std::forward<args_t>(args)...);
-			push_variable(L, std::forward<meta_t>(meta));
-			lua_setmetatable(L, -2);
-			initialize_object(L, lua_absindex(L, -1), p);
-
+			type_t* p = make_object_internal<type_t>(L, std::forward<meta_t>(meta), std::forward<args_t>(args)...);
 			return refptr_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX), p);
+		}
+
+		template <typename type_t, typename... args_t>
+		shared_ref_t<type_t> make_registry_shared(args_t&&... args) {
+			return make_shared<type_t>(get_registry<ref_t>(reinterpret_cast<const void*>(get_hash<type_t>())), std::forward<args_t>(args)...);
+		}
+
+		template <typename type_t, typename meta_t, typename... args_t>
+		shared_ref_t<type_t> make_shared(meta_t&& meta, args_t&&... args) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
+			lua_State* L = state;
+			stack_guard_t guard(L);
+			type_t* p = make_object_internal<type_t>(L, std::forward<meta_t>(meta), std::forward<args_t>(args)...);
+			shared_ref_t<type_t> ret(L, -1, p);
+			lua_pop(L, 1);
+			return ret;
 		}
 		
 		// make object view from registry meta
@@ -1259,6 +1312,20 @@ namespace iris {
 		}
 
 	protected:
+		template <typename type_t, typename meta_t, typename... args_t>
+		type_t* make_object_internal(lua_State* L, meta_t&& meta, args_t&&... args) {
+			IRIS_ASSERT(*meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<type_t>()));
+
+			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
+			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), meta.template get<int>(*this, "__uservalue").value_or(0)));
+			new (p) type_t(std::forward<args_t>(args)...);
+			push_variable(L, std::forward<meta_t>(meta));
+			lua_setmetatable(L, -2);
+			initialize_object(L, lua_absindex(L, -1), p);
+
+			return p;
+		}
+
 		template <typename type_t>
 		using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<type_t>>;
 
@@ -2010,7 +2077,7 @@ namespace iris {
 				auto var = get_variable<required_type_t>(L, stack_index);
 				check_result = !!var;
 
-				if constexpr (std::is_base_of_v<ref_t, required_type_t>) {
+				if constexpr (std::is_base_of_v<ref_t, required_type_t> || is_shared_ref_t<required_type_t>::value) {
 					deref(L, std::move(var));
 				}
 			} else if constexpr (std::is_reference_v<type_t>) {

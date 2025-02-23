@@ -340,7 +340,9 @@ struct shared_object_example_t : lua_t::shared_object_t<shared_object_example_t>
 		lua.set_current<&shared_object_example_t::other>("other");
 	}
 
-	void foo(lua_t::shared_ref_t<shared_object_example_t> ptr, lua_t::required_t<lua_t::shared_ref_t<shared_object_example_t>> req) {}
+	void foo(lua_t::shared_ref_t<shared_object_example_t> ptr, lua_t::required_t<lua_t::shared_ref_t<shared_object_example_t>> req) {
+		printf("foo: %p\n", other.get());
+	}
 
 	lua_t::shared_ref_t<shared_object_example_t> other;
 };
@@ -362,6 +364,11 @@ int main(void) {
 		// lua.deref(instance_copy1);
 		lua.set_global("shared_deref_auto", std::move(instance_copy1));
 		lua.deref(instance_copy2);
+
+		shared_object_example_type.make_registry(lua, true);
+		auto instance_construct = lua.make_registry_shared<shared_object_example_t>();
+		instance_construct->foo(nullptr, nullptr);
+		lua.deref(instance_construct);
 	}
 
 	lua.deref(std::move(shared_object_example_type));
