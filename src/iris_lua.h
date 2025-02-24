@@ -643,6 +643,9 @@ namespace iris {
 		};
 
 		template <typename type_t>
+		struct is_shared_object_t : std::is_base_of<shared_object_t<type_t>, type_t> {};
+
+		template <typename type_t>
 		struct is_shared_ref_t : std::false_type {};
 
 		template <typename type_t>
@@ -1254,7 +1257,7 @@ namespace iris {
 			lua_newtable(L);
 			lua_newtable(T);
 
-			cross_transfer_variable<move>(state, target, src_index, lua_absindex(L, -1), lua_absindex(T, -1), 0);
+			cross_transfer_variable<move>(L, target, src_index, lua_absindex(L, -1), lua_absindex(T, -1), 0);
 
 			lua_replace(T, -2);
 			lua_pop(L, 1);
@@ -2450,6 +2453,10 @@ namespace iris {
 				} else {
 					push_variable(L, variable.get());
 				}
+			} else if constexpr (is_shared_object_t<value_t>::value) {
+				push_variable(L, variable.get_ref());
+			} else if constexpr (std::is_pointer_v<value_t> && is_shared_object_t<std::remove_pointer_t<value_t>>::value) {
+				push_variable(L, variable->get_ref());
 			} else if constexpr (is_functor<value_t>::value) {
 				push_method<&type_t::operator ()>(L, std::forward<type_t>(variable), &type_t::operator ());
 			} else {
