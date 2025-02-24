@@ -340,13 +340,23 @@ struct shared_object_example_t : lua_t::shared_object_t<shared_object_example_t>
 		lua.set_current<&shared_object_example_t::other>("other");
 	}
 
+	shared_object_example_t() : index(0) {}
+	shared_object_example_t(int i) : index(i) {}
+
+	~shared_object_example_t() {
+		printf("shared_object_example_t destruct %d\n", index);
+	}
+
 	shared_object_example_t* foo(lua_t::shared_ref_t<shared_object_example_t> ptr, lua_t::required_t<lua_t::shared_ref_t<shared_object_example_t>> req, shared_object_example_t* ptr2) {
 		printf("foo: %p\n", other.get());
 		return this;
 	}
 
 	lua_t::shared_ref_t<shared_object_example_t> other;
+	int index;
 };
+
+struct shared_object_example_sub_t : shared_object_example_t {};
 
 int main(void) {
 	lua_State* L = luaL_newstate();
@@ -354,10 +364,12 @@ int main(void) {
 
 	lua_t lua(L);
 	auto shared_object_example_type = lua.make_type<shared_object_example_t>("shared_object_example_t");
-	auto shared_ptr_instance = lua.make_object<shared_object_example_t>(shared_object_example_type);
+	auto shared_ptr_instance = lua.make_object<shared_object_example_t>(shared_object_example_type, 1);
 	lua.set_global("shared_ptrinstance", std::move(shared_ptr_instance));
 	{
 		auto instance_copy1 = lua.get_global<lua_t::shared_ref_t<shared_object_example_t>>("shared_ptrinstance");
+		auto casted = instance_copy1.cast<shared_object_example_sub_t>();
+		lua.deref(std::move(casted));
 		auto instance_copy2 = instance_copy1;
 		{
 			auto instance_copy3 = instance_copy2;
@@ -367,9 +379,20 @@ int main(void) {
 		lua.deref(instance_copy2);
 
 		shared_object_example_type.make_registry(lua, true);
-		auto instance_construct = lua.make_registry_shared<shared_object_example_t>();
+		auto instance_construct = lua.make_registry_shared<shared_object_example_t>(2);
 		instance_construct->foo(nullptr, nullptr, nullptr);
 		lua.deref(instance_construct);
+
+		auto instance_offline = lua_t::shared_ref_t<shared_object_example_t>::make(3);
+		lua.set_global("failed_instance", std::move(instance_offline));
+		IRIS_ASSERT(lua.get_global<shared_object_example_t*>("failed_instance") == nullptr);
+	
+		{
+			auto instance_offline2 = lua_t::shared_ref_t<shared_object_example_t>::make(4);
+			lua.set_global("success_instance", lua.make_object_view(shared_object_example_type, instance_offline2.get()));
+			IRIS_ASSERT(lua.get_global<shared_object_example_t*>("success_instance") != nullptr);
+			lua.deref(std::move(instance_offline2));
+		}
 	}
 
 	lua.deref(std::move(shared_object_example_type));

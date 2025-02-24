@@ -495,7 +495,6 @@ namespace iris {
 			static void lua_shared_acquire(shared_object_t* base_object, lua_State* L, int index) {
 				type_t* object = static_cast<type_t*>(base_object);
 				object->ref_count.fetch_add(1, std::memory_order_relaxed);
-				IRIS_ASSERT(L != nullptr || object->ref);
 				if (L != nullptr && !object->ref) {
 					object->ref = iris_lua_t(L).get_context<ref_t>(context_stackvalue_t(index));
 				}
@@ -504,13 +503,41 @@ namespace iris {
 			static void lua_shared_release(shared_object_t* base_object, lua_State* L) {
 				type_t* object = static_cast<type_t*>(base_object);
 				if (object->ref_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
-					IRIS_ASSERT(L != nullptr); // last reference must be released with lua
-					deref(L, std::move(object->ref));
+					if (L != nullptr && object->ref) {
+						deref(L, std::move(object->ref));
+					} else {
+						IRIS_ASSERT(!object->ref); // last reference must be released with lua
+						static_cast<type_t*>(object)->release(); // not managed by script, call release directly
+					}
 				}
+			}
+
+			static void lua_finalize(iris_lua_t lua, int index, void* p) {
+				type_t* object = reinterpret_cast<type_t*>(p);
+				IRIS_ASSERT(!object->ref);
+			}
+
+			static void lua_view_initialize(iris_lua_t lua, int index, void* p) {
+				type_t::lua_shared_acquire(type_t::lua_view_extract(lua, index, p), nullptr, 0);
+			}
+
+			static void lua_view_finalize(iris_lua_t lua, int index, void* p) {
+				type_t::lua_shared_release(type_t::lua_view_extract(lua, index, p), nullptr);
+			}
+
+			static size_t lua_view_payload(iris_lua_t lua, void* p) {
+				return 0;
+			}
+
+			static shared_object_t* lua_view_extract(iris_lua_t lua, int index, void* t) {
+				shared_object_t** p = reinterpret_cast<shared_object_t**>(t);
+				IRIS_ASSERT(*p != nullptr);
+				return *p;
 			}
 
 			const ref_t& get_ref() const noexcept { return ref; }
 			bool get_ref_count() const noexcept { return ref_count.load(std::memory_order_relaxed); }
+			void release() { delete static_cast<type_t*>(this); }
 
 		protected:
 			ref_t ref;
@@ -519,6 +546,8 @@ namespace iris {
 
 		template <typename type_t>
 		struct shared_ref_t {
+			using internal_type_t = type_t*;
+
 			shared_ref_t() noexcept : ptr(nullptr) {}
 			shared_ref_t(std::nullptr_t) : ptr(nullptr) {}
 			shared_ref_t(lua_State* L, int index, type_t* p) noexcept : ptr(p) {
@@ -527,10 +556,24 @@ namespace iris {
 				}
 			}
 
-			using internal_type_t = type_t*;
+			explicit shared_ref_t(type_t* p) : ptr(p) {
+				if (ptr != nullptr) {
+					type_t::lua_shared_acquire(ptr, nullptr, 0); // not managed by script
+				}
+			}
 
 			~shared_ref_t() noexcept {
 				reset();
+			}
+
+			template <typename cast_type_t>
+			shared_ref_t<cast_type_t> cast() {
+				return shared_ref_t<cast_type_t>(static_cast<cast_type_t*>(ptr));
+			}
+
+			template <typename... args_t>
+			static shared_ref_t make(args_t&&... args) {
+				return shared_ref_t(new type_t(std::forward<args_t>(args)...));
 			}
 
 			void deref(lua_State* L) {
@@ -564,7 +607,6 @@ namespace iris {
 			template <typename subtype_t>
 			shared_ref_t(const shared_ref_t<subtype_t>& rhs) noexcept : ptr(rhs.ptr) {
 				static_assert(std::is_convertible_v<subtype_t*, type_t*>, "Must be convertible");
-
 				type_t::lua_shared_acquire(ptr, nullptr, 0);
 			}
 
@@ -1810,7 +1852,17 @@ namespace iris {
 					return value_t(luaL_ref(L, LUA_REGISTRYINDEX));
 				}
 			} else if constexpr (is_shared_ref_t<value_t>::value) {
-				return value_t(L, index, get_variable<typename value_t::internal_type_t>(L, index));
+				auto* ptr = get_variable<typename value_t::internal_type_t>(L, index);
+				if (ptr != nullptr) {
+					size_t len = static_cast<size_t>(lua_rawlen(L, index));
+					if (len & size_mask_view) {
+						return value_t(nullptr, 0, ptr); // do not add script ref for views
+					} else {
+						return value_t(L, index, ptr);
+					}
+				} else {
+					return value_t();
+				}
 			} else if constexpr (std::is_same_v<value_t, bool>) {
 				return static_cast<value_t>(lua_toboolean(L, index));
 			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {
@@ -2387,13 +2439,14 @@ namespace iris {
 				}
 			} else if constexpr (is_shared_ref_t<value_t>::value) {
 				auto* ptr = variable.get();
-				if (ptr == nullptr) {
+				if (ptr == nullptr || !ptr->get_ref()) {
 					push_variable(L, nullptr);
 				} else {
 					push_variable(L, ptr->get_ref());
-					if constexpr (std::is_rvalue_reference_v<type_t&&>) {
-						deref(L, std::move(variable));
-					}
+				}
+
+				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
+					deref(L, std::move(variable));
 				}
 			} else if constexpr (std::is_convertible_v<value_t, int (*)(lua_State*)> || std::is_convertible_v<value_t, int (*)(lua_State*) noexcept>) {
 				lua_pushcfunction(L, variable);
