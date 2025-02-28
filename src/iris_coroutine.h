@@ -44,10 +44,9 @@ namespace iris {
 
 			// call completion handle when returning a value
 			// notice that value must be a rvalue and this completion is happened before destruction of living local variables in coroutine body
-			template <typename value_t>
-			void return_value(value_t&& value) noexcept {
+			void return_value(return_t&& value) noexcept {
 				if (completion) {
-					completion(std::coroutine_handle<decltype(*this)>::from_promise(*this).address(), std::forward<value_t>(value));
+					completion(std::coroutine_handle<decltype(*this)>::from_promise(*this).address(), std::move(value));
 				}
 			}
 
