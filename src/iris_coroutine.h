@@ -37,7 +37,7 @@ SOFTWARE.
 namespace iris {
 	// standard coroutine interface settings
 	namespace impl {
-		template <typename return_t>
+		template <typename return_t, template <typename...> class function_t>
 		struct promise_type_base {
 			constexpr std::suspend_always initial_suspend() noexcept { return std::suspend_always(); }
 			constexpr std::suspend_never final_suspend() noexcept { return std::suspend_never(); }
@@ -52,11 +52,11 @@ namespace iris {
 
 			// currently we do not handle unexcepted exceptions
 			void unhandled_exception() noexcept { return std::terminate(); }
-			std::function<void(void*, return_t&&)> completion;
+			function_t<void(void*, return_t&&)> completion;
 		};
 
-		template <>
-		struct promise_type_base<void> {
+		template <template <typename...> class function_t>
+		struct promise_type_base<void, function_t> {
 			constexpr std::suspend_always initial_suspend() noexcept { return std::suspend_always(); }
 			constexpr std::suspend_never final_suspend() noexcept { return std::suspend_never(); }
 
@@ -67,16 +67,16 @@ namespace iris {
 			}
 
 			void unhandled_exception() noexcept { return std::terminate(); }
-			std::function<void(void*)> completion;
+			function_t<void(void*)> completion;
 		};
 	}
 
 	// uniform coroutine class with a return type specified
-	template <typename return_t = void>
+	template <typename return_t = void, template <typename...> class function_t = std::function>
 	struct iris_coroutine_t {
 		using return_type_t = return_t;
 
-		struct promise_type : impl::promise_type_base<return_t> {
+		struct promise_type : impl::promise_type_base<return_t, function_t> {
 			iris_coroutine_t get_return_object() noexcept {
 				return iris_coroutine_t(std::coroutine_handle<promise_type>::from_promise(*this));
 			}
