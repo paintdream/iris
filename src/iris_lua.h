@@ -1892,6 +1892,8 @@ namespace iris {
 				}
 			} else if constexpr (iris_is_tuple<value_t>::value) {
 				return get_tuple_variables<0, value_t>(L, lua_absindex(L, index));
+			} else if constexpr (iris_is_keyvalue<value_t>::value) {
+				return get_variable<typename value_t::base>(L, index);
 			} else if constexpr (iris_is_iterable<value_t>::value) {
 				value_t result;
 				if (lua_istable(L, index)) {
@@ -2464,6 +2466,12 @@ namespace iris {
 			} else if constexpr (iris_is_tuple<value_t>::value) {
 				lua_createtable(L, std::tuple_size_v<value_t>, 0);
 				push_tuple_variables<0>(L, std::forward<type_t>(variable));
+			} else if constexpr (iris_is_keyvalue<value_t>::value) {
+				if constexpr (std::is_rvalue_reference_v<value_t>) {
+					push_variable(L, std::move(static_cast<typename value_t::base&>(variable)));
+				} else {
+					push_variable(L, static_cast<const typename value_t::base&>(variable));
+				}
 			} else if constexpr (iris_is_iterable<value_t>::value) {
 				if constexpr (iris_is_map<value_t>::value) {
 					lua_createtable(L, 0, static_cast<int>(variable.size()));

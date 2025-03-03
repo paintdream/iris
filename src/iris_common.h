@@ -328,45 +328,6 @@ namespace iris {
 	struct iris_make_sequence : iris_concat<typename iris_make_sequence<n / 2>::type, typename iris_make_sequence<n - n / 2>::type>::type {};
 	template <> struct iris_make_sequence<0> : iris_sequence<> {};
 	template <> struct iris_make_sequence<1> : iris_sequence<0> {};
-
-	template <typename type_t, typename = void>
-	struct iris_is_iterable : std::false_type {};
-
-	template <typename... args_t>
-	struct iris_make_void { typedef void type; };
- 
-	template< typename... args_t>
-	using iris_void_t = typename iris_make_void<args_t...>::type;
-
-	template <typename type_t>
-	struct iris_is_reference_wrapper : std::false_type {};
-
-	template <typename type_t>
-	struct iris_is_reference_wrapper<std::reference_wrapper<type_t>> : std::true_type {};
-
-	template <typename type_t>
-	struct iris_is_iterable<type_t,
-		iris_void_t<decltype(std::begin(std::declval<type_t>())), decltype(std::end(std::declval<type_t>()))>
-	> : std::true_type {};
-
-	template <typename type_t, typename = void>
-	struct iris_is_map : std::false_type {};
-
-	template <typename type_t>
-	struct iris_is_map<type_t, iris_void_t<typename type_t::mapped_type>> : std::true_type {};
-
-	template <typename type_t, typename = void>
-	struct iris_is_tuple : std::false_type {};
-
-	template <typename type_t>
-	struct iris_is_tuple<type_t, iris_void_t<typename std::tuple_size<type_t>::value_type>> : std::true_type {};
-
-	template <typename type_t, typename = void>
-	struct iris_is_coroutine : std::false_type {};
-
-	template <typename type_t>
-	struct iris_is_coroutine<type_t, iris_void_t<typename type_t::promise_type>> : std::true_type {};
-
 	template <typename type_t, typename member_t>
 	constexpr auto iris_add_member_const(member_t type_t::*ptr) {
 		return static_cast<const std::remove_const_t<member_t> type_t::*>(ptr);
@@ -393,6 +354,8 @@ namespace iris {
 		using base = std::pair<key_t, value_t>;
 		template <typename key_args_t, typename value_args_t>
 		iris_key_value_t(key_args_t&& k, value_args_t&& v) : std::pair<key_t, value_t>(std::forward<key_args_t>(k), std::forward<value_args_t>(v)) {}
+		iris_key_value_t(const base& b) : std::pair<key_t, value_t>(b) {}
+		iris_key_value_t(base&& b) : std::pair<key_t, value_t>(std::move(b)) {}
 		iris_key_value_t(const key_t& k) : std::pair<key_t, value_t>(k, value_t()) {}
 		iris_key_value_t() {}
 
@@ -497,6 +460,50 @@ namespace iris {
 			return false;
 		}
 	}
+
+	template <typename type_t, typename = void>
+	struct iris_is_iterable : std::false_type {};
+
+	template <typename... args_t>
+	struct iris_make_void { typedef void type; };
+ 
+	template< typename... args_t>
+	using iris_void_t = typename iris_make_void<args_t...>::type;
+
+	template <typename type_t>
+	struct iris_is_reference_wrapper : std::false_type {};
+
+	template <typename type_t>
+	struct iris_is_reference_wrapper<std::reference_wrapper<type_t>> : std::true_type {};
+
+	template <typename type_t>
+	struct iris_is_iterable<type_t,
+		iris_void_t<decltype(std::begin(std::declval<type_t>())), decltype(std::end(std::declval<type_t>()))>
+	> : std::true_type {};
+
+	template <typename type_t, typename = void>
+	struct iris_is_map : std::false_type {};
+
+	template <typename type_t>
+	struct iris_is_map<type_t, iris_void_t<typename type_t::mapped_type>> : std::true_type {};
+
+	template <typename type_t, typename = void>
+	struct iris_is_tuple : std::false_type {};
+
+	template <typename type_t>
+	struct iris_is_tuple<type_t, iris_void_t<typename std::tuple_size<type_t>::value_type>> : std::true_type {};
+
+	template <typename type_t>
+	struct iris_is_keyvalue : std::false_type {};
+
+	template <typename key_t, typename value_t>
+	struct iris_is_keyvalue<iris_key_value_t<key_t, value_t>> : std::true_type {};
+
+	template <typename type_t, typename = void>
+	struct iris_is_coroutine : std::false_type {};
+
+	template <typename type_t>
+	struct iris_is_coroutine<type_t, iris_void_t<typename type_t::promise_type>> : std::true_type {};
 
 	inline uint32_t iris_get_trailing_zeros(uint32_t value) noexcept {
 		IRIS_ASSERT(value != 0);
