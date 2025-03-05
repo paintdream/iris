@@ -1,6 +1,6 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "lua_co_await.h"
-#include "../../../src/iris_common.inl"
+#include <iris_common.inl>
 #include "plugins.inl"
 using namespace iris;
 

@@ -82,7 +82,7 @@ namespace iris {
 		}
 	}
 
-	bool lua_co_await_t::poll(size_t delayInMilliseconds) {
+	bool lua_co_await_t::poll(size_t delay_in_milliseconds) {
 		auto guard = write_fence();
 		// try to poll tasks of main_warp, also poll other tasks in given time if there is no task in main_warp.
 
@@ -91,10 +91,10 @@ namespace iris {
 			auto waiter = [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); return false; };
 			if (main_warp->join(waiter)) {
 				return true;
-			} else if (delayInMilliseconds == 0) {
+			} else if (delay_in_milliseconds == 0) {
 				return false;
 			} else {
-				async_worker->poll_delay(0, std::chrono::milliseconds(delayInMilliseconds));
+				async_worker->poll_delay(0, std::chrono::milliseconds(delay_in_milliseconds));
 				// try poll again
 				return main_warp->join(waiter);
 			}

@@ -16,7 +16,7 @@ namespace iris {
 		bool is_running() const noexcept;
 		bool start(size_t thread_count);
 		bool terminate() noexcept;
-		bool poll(size_t delayInMilliseonds);
+		bool poll(size_t delay_in_milliseconds);
 
 		// examples
 		lua_ref_t tutorial_binding(lua_t&& lua);
