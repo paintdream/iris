@@ -186,27 +186,27 @@ IF (MSVC)
 	)
 
 	# ADD_DEFINITIONS (-D_HAS_EXCEPTIONS=0)
-	# IF (${MSVC_RUNTIME} STREQUAL "static")
-	# 	# disable RTTI & Exceptions
-	# 	SET (CMAKE_CXX_FLAGS, "/DWIN32 /D_WINDOWS /W3")
-	# 	MESSAGE (STATUS
-	# 		"MSVC -> forcing use of statically-linked runtime."
-	# 	)
-	# 	FOREACH (variable ${variables})
-	# 		IF (${variable} MATCHES "/MD")
-	# 			string(REGEX REPLACE "/MD" "/MT" ${variable} "${${variable}}")
-	# 		ENDIF ()
-	# 	ENDFOREACH ()
-	# ELSE ()
-	# 	MESSAGE(STATUS
-	# 		"MSVC -> forcing use of dynamically-linked runtime."
-	# 	)
-	# 	FOREACH (variable ${variables})
-	# 		IF (${variable} MATCHES "/MT")
-	# 			string(REGEX REPLACE "/MT" "/MD" ${variable} "${${variable}}")
-	# 		ENDIF ()
-	# 	ENDFOREACH ()
-	# ENDIF ()
+	IF (${MSVC_RUNTIME} STREQUAL "static")
+		# disable RTTI & Exceptions
+		SET (CMAKE_CXX_FLAGS, "/DWIN32 /D_WINDOWS /W3")
+		MESSAGE (STATUS
+			"MSVC -> forcing use of statically-linked runtime."
+		)
+		FOREACH (variable ${variables})
+			IF (${variable} MATCHES "/MD")
+				string(REGEX REPLACE "/MD" "/MT" ${variable} "${${variable}}")
+			ENDIF ()
+		ENDFOREACH ()
+	ELSE ()
+		MESSAGE(STATUS
+			"MSVC -> forcing use of dynamically-linked runtime."
+		)
+		FOREACH (variable ${variables})
+			IF (${variable} MATCHES "/MT")
+				string(REGEX REPLACE "/MT" "/MD" ${variable} "${${variable}}")
+			ENDIF ()
+		ENDFOREACH ()
+	ENDIF ()
 ENDIF ()
 
 IF (NOT ENABLE_LUA_BUILTIN)
