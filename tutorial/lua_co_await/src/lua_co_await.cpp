@@ -128,7 +128,7 @@ namespace iris {
 
 	lua_ref_t lua_co_await_t::tutorial_readwrite(lua_t&& lua) {
 		assert(async_worker != nullptr);
-		return lua.make_type<tutorial_readwrite_t>("tutorial_quota", +[](iris_lua_t lua, tutorial_readwrite_t* object, std::reference_wrapper<lua_async_worker_t> async_worker) -> iris_lua_t::optional_result_t<tutorial_readwrite_t*> {
+		return lua.make_type<tutorial_readwrite_t>("tutorial_readwrite", +[](iris_lua_t lua, tutorial_readwrite_t* object, std::reference_wrapper<lua_async_worker_t> async_worker) -> iris_lua_t::optional_result_t<tutorial_readwrite_t*> {
 			return new (object) tutorial_readwrite_t(async_worker);
 		}, std::ref(*async_worker));
 	}

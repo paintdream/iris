@@ -38,15 +38,61 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
 	return TRUE;
 }
 
-extern "C" void CALLBACK Main(HWND hwnd, HINSTANCE hinst, LPTSTR lpCmdLine, int nCmdShow) {
+#if _UNICODE
+#define Main MainW
+#endif
+
+static std::string WideToUtf8(std::wstring_view str) {
+	DWORD dwMinSize;
+	dwMinSize = ::WideCharToMultiByte(CP_UTF8, 0, str.data(), (int)str.size(), nullptr, 0, nullptr, nullptr);
+	std::string ret;
+	ret.resize(dwMinSize, 0);
+	::WideCharToMultiByte(CP_UTF8, 0, str.data(), (int)str.size(), ret.data(), dwMinSize, nullptr, nullptr);
+	return ret;
+}
+
+static std::wstring AnsiToWide(std::string_view str) {
+	DWORD dwMinSize;
+	dwMinSize = ::MultiByteToWideChar(CP_ACP, 0, str.data(), (int)str.size(), nullptr, 0);
+	std::wstring ret;
+	ret.resize(dwMinSize + 1, 0);
+	::MultiByteToWideChar(CP_ACP, 0, str.data(), (int)str.size(), ret.data(), dwMinSize);
+	return ret;
+}
+
+static std::wstring Utf8ToWide(std::string_view str) {
+	DWORD dwMinSize;
+	dwMinSize = ::MultiByteToWideChar(CP_UTF8, 0, str.data(), (int)str.size(), nullptr, 0);
+	std::wstring ret;
+	ret.resize(dwMinSize + 1, 0);
+	::MultiByteToWideChar(CP_UTF8, 0, str.data(), (int)str.size(), ret.data(), dwMinSize);
+	return ret;
+}
+
+static std::wstring TStrToWide(LPCTSTR str) {
+#if _UNICODE
+	return str;
+#else
+	return AnsiToWide(str);
+#endif
+}
+
+static std::string TStrToUtf8(LPCTSTR str) {
+	return WideToUtf8(TStrToWide(str));
+}
+
+extern "C" __declspec(dllexport) void CALLBACK Main(HWND hwnd, HINSTANCE hinst, LPTSTR lpCmdLine, int nCmdShow) {
 	if (lpCmdLine[0] == '\0')
 		return;
 
+	std::string scriptDirectory;
 	LPTSTR fileName = ::PathFindFileName(lpCmdLine);
 	if (fileName != lpCmdLine) {
 		auto ch = *fileName;
 		*fileName = 0;
 		bool ret = ::SetCurrentDirectory(lpCmdLine);
+		scriptDirectory = TStrToUtf8(lpCmdLine);
+
 		if (!ret) {
 			fprintf(stderr, "Cannot change directory!");
 			return;
@@ -55,12 +101,14 @@ extern "C" void CALLBACK Main(HWND hwnd, HINSTANCE hinst, LPTSTR lpCmdLine, int 
 		*fileName = ch;
 	}
 
+	std::string dllDirectory;
 	WCHAR szDllPath[MAX_PATH * 2];
 	::GetModuleFileNameW(DllHandle, szDllPath, MAX_PATH * 2 * sizeof(TCHAR));
 	LPWSTR dllFileName = ::PathFindFileNameW(szDllPath);
 	if (dllFileName != szDllPath) {
 		*dllFileName = 0;
 		::AddDllDirectory(szDllPath);
+		dllDirectory = WideToUtf8(szDllPath);
 	}
 
 #ifdef _DEBUG
@@ -72,8 +120,35 @@ extern "C" void CALLBACK Main(HWND hwnd, HINSTANCE hinst, LPTSTR lpCmdLine, int 
 
 	lua_State* L = luaL_newstate();
 	luaL_openlibs(L);
-	if (luaL_dofile(L, fileName) != LUA_OK) {
-		fprintf(stderr, "Lua Error: %s\n", lua_tostring(L, -1));
+
+	HANDLE file = ::CreateFile(fileName, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (file != INVALID_HANDLE_VALUE) {
+		DWORD size = ::GetFileSize(file, nullptr);
+		if (size != 0xFFFFFFFF) {
+			std::string str;
+			str.resize(size);
+
+			if (::ReadFile(file, str.data(), size, nullptr, nullptr)) {
+				if (luaL_loadstring(L, str.data()) == LUA_OK) {
+					lua_pushlstring(L, scriptDirectory.data(), scriptDirectory.size());
+					lua_pushlstring(L, dllDirectory.data(), dllDirectory.size());
+
+					if (lua_pcall(L, 2, LUA_MULTRET, 0) != LUA_OK) {
+						fprintf(stderr, "Lua Error: %s\n", lua_tostring(L, -1));
+					}
+				} else {
+					fprintf(stderr, "Lua Error: %s\n", lua_tostring(L, -1));
+				}
+			} else {
+				fprintf(stderr, "Lua Error: ReadFile error!\n");
+			}
+		} else {
+			fprintf(stderr, "Lua Error: Too large file!\n");
+		}
+
+		::CloseHandle(file);
+	} else {
+		fprintf(stderr, "Lua Error: Invalid entry file!\n");
 	}
 
 	lua_close(L);
