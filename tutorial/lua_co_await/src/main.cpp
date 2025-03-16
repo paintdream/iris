@@ -103,7 +103,7 @@ extern "C" __declspec(dllexport) void CALLBACK Main(HWND hwnd, HINSTANCE hinst, 
 
 	std::string dllDirectory;
 	WCHAR szDllPath[MAX_PATH * 2];
-	::GetModuleFileNameW(DllHandle, szDllPath, MAX_PATH * 2 * sizeof(TCHAR));
+	::GetModuleFileNameW(DllHandle, szDllPath, MAX_PATH * 2);
 	LPWSTR dllFileName = ::PathFindFileNameW(szDllPath);
 	if (dllFileName != szDllPath) {
 		*dllFileName = 0;
@@ -113,8 +113,8 @@ extern "C" __declspec(dllexport) void CALLBACK Main(HWND hwnd, HINSTANCE hinst, 
 
 #ifdef _DEBUG
 	if (::AllocConsole()) {
-		freopen("conout$", "w", stdout);
-		freopen("conout$", "w", stderr);
+		(void)freopen("conout$", "w", stdout);
+		(void)freopen("conout$", "w", stderr);
 	}
 #endif
 
