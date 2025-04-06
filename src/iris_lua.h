@@ -434,7 +434,7 @@ namespace iris {
 		// ref_t for custom types
 		template <typename value_t>
 		struct refvalue_t : ref_t {
-			refvalue_t(int v = LUA_REFNIL) noexcept : ref_t(v) {}
+			refvalue_t() noexcept : ref_t() {}
 			template <typename input_t>
 			refvalue_t(int v = LUA_REFNIL, input_t&& i = input_t()) noexcept : ref_t(v), value(std::forward<input_t>(i)) {}
 			refvalue_t(refvalue_t&& rhs) noexcept : ref_t(std::move(static_cast<ref_t&>(rhs))), value(std::move(rhs.value)) {}
@@ -1356,7 +1356,237 @@ namespace iris {
 			}
 		}
 
+		template <typename value_t, typename encoder_t>
+		refview_t<std::string_view> encode(value_t&& value, encoder_t&& encoder) {
+			auto guard = write_fence();
+			lua_State* L = get_state();
+			stack_guard_t stack_guard(L);
+			push_variable(L, std::forward<value_t>(value));
+			int index = lua_absindex(L, -1);
+
+			luaL_Buffer B;
+			luaL_buffinit(L, &B);
+			encode_internal(L, &B, index, std::forward<encoder_t>(encoder));
+			luaL_pushresult(&B);
+			lua_replace(L, -2);
+
+			std::string_view view = get_variable<std::string_view>(L, -1);
+			return refview_t<std::string_view>(luaL_ref(L, LUA_REGISTRYINDEX), view);
+		}
+
+		static void empty_encoder(lua_State* L, luaL_Buffer* B, int index, int type) {}
+		template <typename value_t>
+		refview_t<std::string_view> encode(value_t&& value) {
+			return encode(std::forward<value_t>(value), &empty_encoder);
+		}
+
+		template <typename value_t, typename decoder_t>
+		optional_result_t<ref_t> decode(value_t&& value, decoder_t&& decoder) {
+			auto guard = write_fence();
+			lua_State* L = get_state();
+			stack_guard_t stack_guard(L);
+			int top = lua_gettop(L);
+			push_variable(L, std::forward<value_t>(value));
+			std::string_view view = get_variable<std::string_view>(L, -1);
+			if (decode_internal(L, view.data(), view.data() + view.size(), std::forward<decoder_t>(decoder)) != nullptr) {
+				ref_t ref(luaL_ref(L, LUA_REGISTRYINDEX));
+				lua_pop(L, 1);
+				return ref;
+			} else {
+				lua_settop(L, top);
+				return result_error_t("Decode stream error!");
+			}
+		}
+
+		static const char* empty_decoder(lua_State* L, const char* from, const char* to, int type) {
+			lua_pushnil(L);
+			return from;
+		}
+
+		template <typename value_t>
+		optional_result_t<ref_t> decode(value_t&& value) {
+			return decode(std::forward<value_t>(value), &empty_decoder);
+		}
+
 	protected:
+		static constexpr uint8_t LUA_TYPE_TAG = 0x80;
+		template <typename encoder_t>
+		static void encode_internal(lua_State* L, luaL_Buffer* B, int index, encoder_t&& encoder) {
+			int type = lua_type(L, index);
+			switch (type) {
+				case LUA_TNONE:
+				case LUA_TNIL:
+				{
+					luaL_addchar(B, LUA_TNIL);
+					break;
+				}
+				case LUA_TBOOLEAN:
+				{
+					luaL_addchar(B, uint8_t(LUA_TBOOLEAN | (lua_toboolean(L, index) ? LUA_TYPE_TAG : 0)));
+					break;
+				}
+				case LUA_TNUMBER:
+				{
+#if LUA_VERSION_NUM >= 503
+					bool isInteger = lua_isinteger(L, index);
+					if (isInteger) {
+						luaL_addchar(B, uint8_t(LUA_TNUMBER | LUA_TYPE_TAG));
+						lua_Integer value = lua_tointeger(L, index);
+						luaL_addlstring(B, reinterpret_cast<const char*>(&value), sizeof(value));
+					} else {
+#endif
+						luaL_addchar(B, LUA_TNUMBER);
+						lua_Number value = lua_tonumber(L, index);
+						luaL_addlstring(B, reinterpret_cast<const char*>(&value), sizeof(value));
+#if LUA_VERSION_NUM >= 503
+					}
+#endif
+
+					break;
+				}
+				case LUA_TSTRING:
+				{
+					size_t len;
+					luaL_addchar(B, LUA_TSTRING);
+					const char* s = lua_tolstring(L, index, &len);
+					lua_Integer llen = len;
+					luaL_addlstring(B, reinterpret_cast<const char*>(&llen), sizeof(llen));
+					luaL_addlstring(B, s, len);
+					break;
+				}
+				case LUA_TTABLE:
+				{
+					luaL_addchar(B, LUA_TTABLE);
+					lua_pushnil(L);
+					while (lua_next(L, index) != 0) {
+						lua_pushvalue(L, -3);
+						// since we do not allow implicit lua_tostring conversion, so it's safe to extract key without duplicating it
+						encode_internal(L, B, lua_absindex(L, -3), std::forward<encoder_t>(encoder));
+						encode_internal(L, B, lua_absindex(L, -2), std::forward<encoder_t>(encoder));
+						lua_replace(L, -4);
+						lua_pop(L, 1);
+					}
+
+					luaL_addchar(B, LUA_TNIL); // end
+					break;
+				}
+				case LUA_TLIGHTUSERDATA:
+				case LUA_TUSERDATA:
+				case LUA_TFUNCTION:
+				case LUA_TTHREAD:
+				{
+					luaL_addchar(B, type);
+					encoder(iris_lua_t(L), B, index, type);
+					break;
+				}
+			}
+		}
+
+		template <typename value_t>
+		static const char* decode_variable(value_t& value, const char* from, const char* to) {
+			if (from + sizeof(value_t) > to) {
+				return nullptr;
+			}
+
+			std::memcpy(&value, from, sizeof(value_t));
+			return from + sizeof(value_t);
+		}
+
+		template <typename decoder_t>
+		static const char* decode_internal(lua_State* L, const char* from, const char* to, decoder_t&& decoder) {
+			uint8_t type;
+			if ((from = decode_variable<uint8_t>(type, from, to)) == nullptr) {
+				return nullptr;
+			}
+	
+			switch (type) {
+			case LUA_TNONE:
+				case LUA_TNIL:
+				{
+					lua_pushnil(L);
+					break;
+				}
+				case LUA_TBOOLEAN:
+				case LUA_TBOOLEAN | LUA_TYPE_TAG:
+				{
+					lua_pushboolean(L, type & LUA_TYPE_TAG);
+					break;
+				}
+				case LUA_TNUMBER:
+				{
+					lua_Number value;
+					if ((from = decode_variable<lua_Number>(value, from, to)) == nullptr) {
+						return nullptr;
+					}
+
+					lua_pushnumber(L, value);
+					break;
+				}
+				case LUA_TNUMBER | LUA_TYPE_TAG:
+				{
+					lua_Integer value;
+					if ((from = decode_variable<lua_Integer>(value, from, to)) == nullptr) {
+						return nullptr;
+					}
+
+					lua_pushinteger(L, value);
+					break;
+				}
+				case LUA_TSTRING:
+				{
+					lua_Integer len;
+					if ((from = decode_variable<lua_Integer>(len, from, to)) == nullptr) {
+						return nullptr;
+					}
+
+					if (len < 0 || len > to - from) {
+						return nullptr;
+					}
+
+					lua_pushlstring(L, from, static_cast<size_t>(len));
+					from += len;
+					break;
+				}
+				case LUA_TTABLE:
+				{
+					lua_newtable(L);
+					while (true) {
+						// kv pair
+						if ((from = decode_internal(L, from, to, std::forward<decoder_t>(decoder))) == nullptr) {
+							return nullptr;
+						}
+
+						if (lua_type(L, -1) == LUA_TNIL) {
+							lua_pop(L, 1);
+							break;
+						}
+
+						if ((from = decode_internal(L, from, to, std::forward<decoder_t>(decoder))) == nullptr) {
+							return nullptr;
+						}
+
+						// set kv
+						lua_rawset(L, -3);
+					}
+
+					break;
+				}
+				case LUA_TLIGHTUSERDATA:
+				case LUA_TUSERDATA:
+				case LUA_TFUNCTION:
+				case LUA_TTHREAD:
+				{
+					if ((from = decoder(iris_lua_t(L), from, to, type)) == nullptr) {
+						return nullptr;
+					}
+
+					break;
+				}
+			}
+
+			return from;
+		}
+
 		template <typename type_t, typename meta_t, typename... args_t>
 		type_t* make_object_internal(lua_State* L, meta_t&& meta, args_t&&... args) {
 			IRIS_ASSERT(*meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<type_t>()));
