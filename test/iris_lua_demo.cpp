@@ -555,7 +555,7 @@ end\n\
 		assert(a.b.self == a) \n\
 	end\n").value());
 
-	auto encode_text = lua.encode("haha");
+	auto encode_text = lua.encode(0, "haha");
 	auto decode_text = std::move(lua.decode(std::move(encode_text)).value());
 	auto decode_textview = decode_text.as<std::string_view>(lua);
 	IRIS_ASSERT(decode_textview == "haha");
@@ -572,7 +572,7 @@ end\n\
 		}));
 	});
 
-	auto encode_complex = lua.encode(std::move(complex), [](iris_lua_t lua, luaL_Buffer* B, int index, int type) {
+	auto encode_complex = lua.encode(5, std::move(complex), [](iris_lua_t lua, luaL_Buffer* B, int index, int type) {
 		if (type == LUA_TFUNCTION) {
 			void* p = (void*)&error_handler;
 			luaL_addlstring(B, reinterpret_cast<const char*>(&p), sizeof(p));

@@ -1357,7 +1357,7 @@ namespace iris {
 		}
 
 		template <typename value_t, typename encoder_t>
-		refview_t<std::string_view> encode(value_t&& value, encoder_t&& encoder) {
+		refview_t<std::string_view> encode(int recursion, value_t&& value, encoder_t&& encoder) {
 			auto guard = write_fence();
 			lua_State* L = get_state();
 			stack_guard_t stack_guard(L);
@@ -1366,18 +1366,22 @@ namespace iris {
 
 			luaL_Buffer B;
 			luaL_buffinit(L, &B);
-			encode_internal(L, &B, index, std::forward<encoder_t>(encoder));
+			bool success = encode_internal(L, &B, index, recursion, std::forward<encoder_t>(encoder));
 			luaL_pushresult(&B);
 			lua_replace(L, -2);
 
-			std::string_view view = get_variable<std::string_view>(L, -1);
-			return refview_t<std::string_view>(luaL_ref(L, LUA_REGISTRYINDEX), view);
+			if (success) {
+				std::string_view view = get_variable<std::string_view>(L, -1);
+				return refview_t<std::string_view>(luaL_ref(L, LUA_REGISTRYINDEX), view);
+			} else {
+				return refview_t<std::string_view>();
+			}
 		}
 
 		static void empty_encoder(lua_State* L, luaL_Buffer* B, int index, int type) {}
 		template <typename value_t>
-		refview_t<std::string_view> encode(value_t&& value) {
-			return encode(std::forward<value_t>(value), &empty_encoder);
+		refview_t<std::string_view> encode(int recursion, value_t&& value) {
+			return encode(recursion, std::forward<value_t>(value), &empty_encoder);
 		}
 
 		template <typename value_t, typename decoder_t>
@@ -1411,7 +1415,11 @@ namespace iris {
 	protected:
 		static constexpr uint8_t LUA_TYPE_TAG = 0x80;
 		template <typename encoder_t>
-		static void encode_internal(lua_State* L, luaL_Buffer* B, int index, encoder_t&& encoder) {
+		static bool encode_internal(lua_State* L, luaL_Buffer* B, int index, int recursion, encoder_t&& encoder) {
+			if (recursion < 0) {
+				return false;
+			}
+
 			int type = lua_type(L, index);
 			switch (type) {
 				case LUA_TNONE:
@@ -1461,8 +1469,10 @@ namespace iris {
 					while (lua_next(L, index) != 0) {
 						lua_pushvalue(L, -3);
 						// since we do not allow implicit lua_tostring conversion, so it's safe to extract key without duplicating it
-						encode_internal(L, B, lua_absindex(L, -3), std::forward<encoder_t>(encoder));
-						encode_internal(L, B, lua_absindex(L, -2), std::forward<encoder_t>(encoder));
+						if (!encode_internal(L, B, lua_absindex(L, -3), recursion - 1, std::forward<encoder_t>(encoder)))
+							return false;
+						if (!encode_internal(L, B, lua_absindex(L, -2), recursion - 1, std::forward<encoder_t>(encoder)))
+							return false;
 						lua_replace(L, -4);
 						lua_pop(L, 1);
 					}
@@ -1480,6 +1490,8 @@ namespace iris {
 					break;
 				}
 			}
+
+			return true;
 		}
 
 		template <typename value_t>
