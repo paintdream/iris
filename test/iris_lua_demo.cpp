@@ -574,7 +574,7 @@ end\n\
 
 	auto encode_complex = lua.encode(std::move(complex), [](iris_lua_t lua, luaL_Buffer* B, int index, int type) {
 		if (type == LUA_TFUNCTION) {
-			void* p = error_handler;
+			void* p = (void*)&error_handler;
 			luaL_addlstring(B, reinterpret_cast<const char*>(&p), sizeof(p));
 		}
 	});
@@ -599,7 +599,7 @@ end\n\
 	IRIS_ASSERT(decode_tab2->get_type(lua) == LUA_TTABLE);
 
 	lua.native_push_variable(decode_tab->get<lua_t::ref_t>(lua, 2));
-	void* pfunc = lua_tocfunction(lua.get_state(), -1);
+	void* pfunc = (void*)lua_tocfunction(lua.get_state(), -1);
 	IRIS_ASSERT(pfunc == error_handler);
 	lua.native_pop_variable(1);
 
