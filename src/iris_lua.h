@@ -1500,7 +1500,6 @@ namespace iris {
 			}
 	
 			switch (type) {
-			case LUA_TNONE:
 				case LUA_TNIL:
 				{
 					lua_pushnil(L);
