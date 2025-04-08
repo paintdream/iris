@@ -563,7 +563,7 @@ end\n\
 
 	auto complex = lua.make_table([](lua_t lua) {
 		lua.set_current("key", "value");
-		lua.set_current(1, "number");
+		lua.set_current(1, true);
 		lua.set_current(2, 2);
 		lua.set_current("tab", lua.make_table([](lua_t lua) {
 			lua.set_current("key2", lua.make_table([](lua_t) {}));
@@ -577,21 +577,23 @@ end\n\
 			void* p = (void*)&error_handler;
 			luaL_addlstring(B, reinterpret_cast<const char*>(&p), sizeof(p));
 		}
+
+		return true;
 	});
 
-	auto decode_complex = std::move(lua.decode(std::move(encode_complex), [](iris_lua_t lua, const char* from, const char* to, int type) {
+	auto decode_complex = std::move(lua.decode(std::move(encode_complex), [](iris_lua_t lua, const char*& from, const char* to, int type) {
 		if (type == LUA_TFUNCTION) {
 			void* p = nullptr;
 			memcpy(&p, from, sizeof(p));
 			lua_pushcclosure(lua.get_state(), (lua_CFunction)p, 0);
-			return from + sizeof(p);
-		} else {
-			return from;
+			from += sizeof(p);
 		}
+
+		return true;
 	}).value());
 
 	IRIS_ASSERT(decode_complex.get<std::string_view>(lua, "key") == "value");
-	IRIS_ASSERT(decode_complex.get<std::string>(lua, 1) == "number");
+	IRIS_ASSERT(decode_complex.get<bool>(lua, 1));
 	IRIS_ASSERT(decode_complex.get<int>(lua, 2) == 2);
 	auto decode_tab = decode_complex.get<lua_t::ref_t>(lua, "tab");
 	IRIS_ASSERT(decode_tab->get<double>(lua, 1) == 6.0);
