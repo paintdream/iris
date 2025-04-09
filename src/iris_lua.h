@@ -118,6 +118,12 @@ namespace iris {
 			iris_lua_t::systrap(state, category, format, std::forward<args_t>(args)...);
 		}
 
+		// raise error directly, must be called in protected mode
+		template <typename... args_t>
+		int syserror(const char* category, const char* format, args_t&&... args) const {
+			return iris_lua_t::syserror(state, category, format, std::forward<args_t>(args)...);
+		}
+
 		// systrap is a low level error-capturing machanism
 		// usually you can get errors from result_error_t<> when calling lua
 		// but in LuaJIT and Lua 5.1, it is impossible to retrieve errors from C-lua mixed coroutines
@@ -138,6 +144,12 @@ namespace iris {
 				IRIS_LOGERROR(format, std::forward<args_t>(args)...);
 				lua_pop(L, 1);
 			}
+		}
+
+		template <typename... args_t>
+		static int syserror(lua_State* L, const char* category, const char* format, args_t&&... args) {
+			systrap(L, category, format, std::forward<args_t>(args)...);
+			return luaL_error(L, format, std::forward<args_t>(args)...);
 		}
 
 		// any return value with not-null message will cause a lua error
@@ -829,7 +841,7 @@ namespace iris {
 			make_uniform_meta_internal<type_t, user_value_count>(L);
 
 			// hash code is to check types when passing as a argument to C++
-			push_variable(L, "__hash");
+			push_variable(L, "__typeid");
 			push_variable(L, reinterpret_cast<void*>(get_hash<type_t>()));
 			lua_rawset(L, -3);
 
@@ -929,7 +941,7 @@ namespace iris {
 
 			lua_State* L = state;
 			stack_guard_t guard(L);
-			IRIS_ASSERT(*meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<type_t>()));
+			IRIS_ASSERT(*meta.template get<const void*>(*this, "__typeid") == reinterpret_cast<const void*>(get_hash<type_t>()));
 
 			static_assert(sizeof(type_t*) == sizeof(void*), "Unrecognized architecture.");
 			size_t payload_size = 0;
@@ -1368,9 +1380,9 @@ namespace iris {
 			return call<ref_t, &iris_lua_t::decode_internal_entry<decoder_t>>(std::forward<value_t>(value), std::ref(decoder));
 		}
 
-		static const char* empty_decoder(lua_State* L, const char* from, const char* to, int type) {
+		static bool empty_decoder(lua_State* L, const char* from, const char* to, int type) {
 			lua_pushnil(L);
-			return from;
+			return true;
 		}
 
 		template <typename value_t>
@@ -1400,11 +1412,11 @@ namespace iris {
 			}
 		}
 
-		static constexpr uint8_t LUA_TYPE_TAG = 0x80;
+		static constexpr uint8_t spec_type_tag = 0x80;
 		template <typename encoder_t>
 		static void encode_internal(lua_State* L, luaL_Buffer* B, int index, int recursion, const encoder_t& encoder) {
 			if (recursion < 0) {
-				luaL_error(L, "Max recursion depth reached!");
+				syserror(L, "error.encode", "iris_lua_t::encode() -> max recursion depth reached!");
 			}
 
 			int type = lua_type(L, index);
@@ -1417,7 +1429,7 @@ namespace iris {
 				}
 				case LUA_TBOOLEAN:
 				{
-					luaL_addchar(B, uint8_t(LUA_TBOOLEAN | (lua_toboolean(L, index) ? LUA_TYPE_TAG : 0)));
+					luaL_addchar(B, uint8_t(LUA_TBOOLEAN | (lua_toboolean(L, index) ? spec_type_tag : 0)));
 					break;
 				}
 				case LUA_TNUMBER:
@@ -1425,7 +1437,7 @@ namespace iris {
 #if LUA_VERSION_NUM >= 503
 					bool isInteger = lua_isinteger(L, index);
 					if (isInteger) {
-						luaL_addchar(B, uint8_t(LUA_TNUMBER | LUA_TYPE_TAG));
+						luaL_addchar(B, uint8_t(LUA_TNUMBER | spec_type_tag));
 						lua_Integer value = lua_tointeger(L, index);
 						luaL_addlstring(B, reinterpret_cast<const char*>(&value), sizeof(value));
 					} else {
@@ -1471,7 +1483,7 @@ namespace iris {
 				{
 					luaL_addchar(B, type);
 					if (!encoder(iris_lua_t(L), B, index, type)) {
-						luaL_error(L, "Unable to encode type %s", lua_typename(L, type));
+						syserror(L, "error.encode", "iris_lua_t::encode() -> Unable to encode type %s", lua_typename(L, type));
 					}
 
 					break;
@@ -1493,7 +1505,7 @@ namespace iris {
 		template <typename value_t>
 		static value_t decode_variable(lua_State* L, const char*& from, const char* to) {
 			if (from + sizeof(value_t) > to) {
-				luaL_error(L, "Decode stream error!");
+				syserror(L, "error.decode", "iris_lua_t::decode() -> Decode stream error!");
 			}
 
 			value_t value;
@@ -1512,9 +1524,9 @@ namespace iris {
 					break;
 				}
 				case LUA_TBOOLEAN:
-				case LUA_TBOOLEAN | LUA_TYPE_TAG:
+				case LUA_TBOOLEAN | spec_type_tag:
 				{
-					lua_pushboolean(L, type & LUA_TYPE_TAG);
+					lua_pushboolean(L, type & spec_type_tag);
 					break;
 				}
 				case LUA_TNUMBER:
@@ -1522,7 +1534,7 @@ namespace iris {
 					lua_pushnumber(L, decode_variable<lua_Number>(L, from, to));
 					break;
 				}
-				case LUA_TNUMBER | LUA_TYPE_TAG:
+				case LUA_TNUMBER | spec_type_tag:
 				{
 					lua_pushinteger(L, decode_variable<lua_Integer>(L, from, to));
 					break;
@@ -1531,7 +1543,7 @@ namespace iris {
 				{
 					lua_Integer len = decode_variable<lua_Integer>(L, from, to);
 					if (len < 0 || len > to - from) {
-						luaL_error(L, "Decode stream error!");
+						syserror(L, "error.decode", "iris_lua_t::decode() -> Decode stream error!");
 					}
 
 					lua_pushlstring(L, from, static_cast<size_t>(len));
@@ -1560,7 +1572,7 @@ namespace iris {
 				case LUA_TTHREAD:
 				{
 					if (!decoder(iris_lua_t(L), from, to, type)) {
-						luaL_error(L, "Unable to decode type %s", lua_typename(L, type));
+						syserror(L, "error.decode", "iris_lua_t::decode() -> Unable to decode type %s", lua_typename(L, type));
 					}
 
 					break;
@@ -1580,7 +1592,7 @@ namespace iris {
 
 		template <typename type_t, typename meta_t, typename... args_t>
 		type_t* make_object_internal(lua_State* L, meta_t&& meta, args_t&&... args) {
-			IRIS_ASSERT(*meta.template get<const void*>(*this, "__hash") == reinterpret_cast<const void*>(get_hash<type_t>()));
+			IRIS_ASSERT(*meta.template get<const void*>(*this, "__typeid") == reinterpret_cast<const void*>(get_hash<type_t>()));
 
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
 			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), meta.template get<int>(*this, "__uservalue").value_or(0)));
@@ -2025,7 +2037,7 @@ namespace iris {
 				}
 			} while (false);
 
-			return luaL_error(L, "Failed to create object of type %s. %s\n", typeid(type_t).name(), luaL_optstring(L, -1, ""));
+			return syserror(L, "error.new", "iris_lua_t::new_object() -> Unable to create object of type %s. %s\n", typeid(type_t).name(), luaL_optstring(L, -1, ""));
 		}
 
 		// get multiple variables from a lua table and pack them into a tuple/pair 
@@ -2167,7 +2179,7 @@ namespace iris {
 					void* type_hash = reinterpret_cast<void*>(get_hash<remove_cvref_t<std::remove_pointer_t<value_t>>>());
 
 					while (true) {
-						lua_pushliteral(L, "__hash");
+						lua_pushliteral(L, "__typeid");
 #if LUA_VERSION_NUM <= 502
 						lua_rawget(L, -2);
 						if (lua_type(L, -1) == LUA_TNIL) {
@@ -2373,8 +2385,7 @@ namespace iris {
 			}
 
 			if (!check_result) {
-				iris_lua_t::systrap(L, "error.parameter", "Required %s parameter %d of type %s is invalid or inaccessable.\n", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
-				luaL_error(L, "Required %s parameter %d of type %s is invalid or inaccessable.\n", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
+				syserror(L, "error.parameter", "Required %s parameter %d of type %s is invalid or inaccessable.\n", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
 			}
 
 			check_required_parameters<env_count, up_base, use_this, index + (std::is_same_v<iris_lua_t, value_t> ? 0 : 1), args_t...>(L);
@@ -2386,8 +2397,7 @@ namespace iris {
 
 			int ret = function_invoke<function_t, 0, return_t, env_count, use_this, std::tuple<cast_arg_type_t<args_t>...>>(L, function, 1);
 			if (ret < 0) {
-				iris_lua_t::systrap(L, "error.exec", "C-function execution error: %s\n", luaL_optstring(L, -1, ""));
-				luaL_error(L, "C-function execution error: %s\n", luaL_optstring(L, -1, ""));
+				syserror(L, "error.exec", "C-function execution error: %s\n", luaL_optstring(L, -1, ""));
 			}
 
 			return ret;
@@ -2574,8 +2584,7 @@ namespace iris {
 		static int property_proxy_dispatch(lua_State* L, prop_t prop) {
 			type_t* object = get_variable<type_t*>(L, 1);
 			if (object == nullptr) {
-				iris_lua_t::systrap(L, "error.parameter", "The first parameter of a property must be a C++ instance of type %s.\n", typeid(type_t).name());
-				return luaL_error(L, "The first parameter of a property must be a C++ instance of type %s.\n", typeid(type_t).name());
+				return syserror(L, "error.parameter", "The first parameter of a property must be a C++ instance of type %s.\n", typeid(type_t).name());
 			}
 
 			using value_t = decltype(object->*prop);
@@ -2590,8 +2599,7 @@ namespace iris {
 					object->*prop = get_variable<std::remove_reference_t<value_t>>(L, 2);
 					return 0;
 				} else {
-					iris_lua_t::systrap(L, "error.exec", "Cannot modify const member of type %s.\n", typeid(type_t).name());
-					return luaL_error(L, "Cannot modify const member of type %s.\n", typeid(type_t).name());
+					return syserror(L, "error.exec", "Cannot modify const member of type %s.\n", typeid(type_t).name());
 				}
 			}
 		}
@@ -2945,7 +2953,7 @@ namespace iris {
 			lua_State* T = target.get_state();
 			stack_guard_t guard_target(T, 1);
 
-			lua_pushliteral(L, "__hash");
+			lua_pushliteral(L, "__typeid");
 #if LUA_VERSION_NUM <= 502
 			lua_rawget(L, -2);
 			if (lua_type(L, -1) != LUA_TNIL) {
