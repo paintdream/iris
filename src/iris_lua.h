@@ -1402,7 +1402,7 @@ namespace iris {
 
 		static constexpr uint8_t LUA_TYPE_TAG = 0x80;
 		template <typename encoder_t>
-		static bool encode_internal(lua_State* L, luaL_Buffer* B, int index, int recursion, const encoder_t& encoder) {
+		static void encode_internal(lua_State* L, luaL_Buffer* B, int index, int recursion, const encoder_t& encoder) {
 			if (recursion < 0) {
 				luaL_error(L, "Max recursion depth reached!");
 			}
@@ -1455,11 +1455,8 @@ namespace iris {
 					lua_pushnil(L);
 					while (lua_next(L, index) != 0) {
 						lua_pushvalue(L, -3);
-						// since we do not allow implicit lua_tostring conversion, so it's safe to extract key without duplicating it
-						if (!encode_internal(L, B, lua_absindex(L, -3), recursion - 1, encoder))
-							return false;
-						if (!encode_internal(L, B, lua_absindex(L, -2), recursion - 1, encoder))
-							return false;
+						encode_internal(L, B, lua_absindex(L, -3), recursion - 1, encoder);
+						encode_internal(L, B, lua_absindex(L, -2), recursion - 1, encoder);
 						lua_replace(L, -4);
 						lua_pop(L, 1);
 					}
