@@ -1477,8 +1477,6 @@ namespace iris {
 					break;
 				}
 			}
-
-			return true;
 		}
 
 		template <typename encoder_t>
