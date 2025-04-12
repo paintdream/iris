@@ -555,7 +555,7 @@ end\n\
 		assert(a.b.self == a) \n\
 	end\n").value());
 
-	auto encode_text = lua.encode(0, "haha");
+	auto encode_text = lua.encode("haha", 0);
 	auto decode_text = std::move(lua.decode(std::move(encode_text)).value());
 	auto decode_textview = decode_text.as<std::string_view>(lua);
 	IRIS_ASSERT(decode_textview == "haha");
@@ -569,27 +569,40 @@ end\n\
 			lua.set_current("key2", lua.make_table([](lua_t) {}));
 			lua.set_current(1, 6.0);
 			lua.set_current(2, &error_handler);
+			lua.set_current(3, lua.call<iris_lua_t::ref_t>(lua.load("local b = 1 return function () return tostring(b + 1) end")));
 		}));
 	});
 
-	auto encode_complex = lua.encode(5, std::move(complex), [](iris_lua_t lua, luaL_Buffer* B, int index, int type) {
+	auto encode_complex = lua.encode(std::move(complex), [](iris_lua_t lua, luaL_Buffer* B, int index, int type) {
 		if (type == LUA_TFUNCTION) {
-			void* p = (void*)&error_handler;
-			luaL_addlstring(B, reinterpret_cast<const char*>(&p), sizeof(p));
+			if (lua_iscfunction(lua.get_state(), index)) {
+				void* p = (void*)&error_handler;
+				luaL_addchar(B, 0);
+				luaL_addlstring(B, reinterpret_cast<const char*>(&p), sizeof(p));
+				return true;
+			} else {
+				luaL_addchar(B, 1);
+				return false;
+			}
 		}
 
-		return true;
-	});
+		return false;
+	}, 5);
 
 	auto decode_complex = std::move(lua.decode(std::move(encode_complex), [](iris_lua_t lua, const char*& from, const char* to, int type) {
 		if (type == LUA_TFUNCTION) {
-			void* p = nullptr;
-			memcpy(&p, from, sizeof(p));
-			lua_pushcclosure(lua.get_state(), (lua_CFunction)p, 0);
-			from += sizeof(p);
+			if (*from++ == 0) {
+				void* p = nullptr;
+				memcpy(&p, from, sizeof(p));
+				lua_pushcclosure(lua.get_state(), (lua_CFunction)p, 0);
+				from += sizeof(p);
+				return true;
+			} else {
+				return false;
+			}
+		} else {
+			return false;
 		}
-
-		return true;
 	}).value());
 
 	IRIS_ASSERT(decode_complex.get<std::string_view>(lua, "key") == "value");
@@ -604,6 +617,8 @@ end\n\
 	void* pfunc = (void*)lua_tocfunction(lua.get_state(), -1);
 	IRIS_ASSERT(pfunc == error_handler);
 	lua.native_pop_variable(1);
+
+	IRIS_ASSERT(lua.call<std::string_view>(decode_tab->get<lua_t::ref_t>(lua, 3)) == "2");
 
 	lua.deref(std::move(decode_tab2.value()));
 	lua.deref(std::move(decode_tab.value()));
