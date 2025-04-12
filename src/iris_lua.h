@@ -1365,14 +1365,14 @@ namespace iris {
 		}
 
 		template <typename value_t, typename encoder_t>
-		optional_result_t<refview_t<std::string_view>> encode(value_t&& value, const encoder_t& encoder, int recursion) {
-			return call<refview_t<std::string_view>, &iris_lua_t::encode_internal_entry<encoder_t>>(std::forward<value_t>(value), std::ref(encoder), recursion);
+		optional_result_t<refview_t<std::string_view>> encode(value_t&& value, const encoder_t& encoder) {
+			return call<refview_t<std::string_view>, &iris_lua_t::encode_internal_entry<encoder_t>>(std::forward<value_t>(value), std::ref(encoder));
 		}
 
 		static bool empty_encoder(lua_State* L, luaL_Buffer* B, int index, int type) { return true; }
 		template <typename value_t>
-		optional_result_t<refview_t<std::string_view>> encode(value_t&& value, int recursion) {
-			return encode(std::forward<value_t>(value), &empty_encoder, recursion);
+		optional_result_t<refview_t<std::string_view>> encode(value_t&& value) {
+			return encode(std::forward<value_t>(value), &empty_encoder);
 		}
 
 		template <typename value_t, typename decoder_t>
@@ -1429,18 +1429,34 @@ namespace iris {
 			return 0;
 		}
 
-		template <typename encoder_t>
-		static void encode_internal(lua_State* L, luaL_Buffer* B, int index, const encoder_t& encoder, int recursion) {
-			if (recursion < 0) {
-				syserror(L, "error.encode", "iris_lua_t::encode() -> max recursion depth reached!");
-			}
+		static bool encode_recursion(lua_State* L, luaL_Buffer* B, int index, int recursionTable) {
+			lua_pushvalue(L, index);
+			lua_rawget(L, recursionTable);
 
+			if (lua_isnil(L, -1)) {
+				lua_pop(L, 1);
+				lua_pushvalue(L, index);
+				lua_Integer offset = luaL_bufflen(B);
+				lua_pushinteger(L, offset);
+				lua_rawset(L, recursionTable);
+				return false;
+			} else {
+				lua_Integer offset = lua_tointeger(L, -1);
+				lua_pop(L, 1);
+				luaL_addchar(B, LUA_NUMTYPES);
+				luaL_addlstring(B, reinterpret_cast<const char*>(&offset), sizeof(offset));
+				return true;
+			}
+		}
+
+		template <typename encoder_t>
+		static void encode_internal(lua_State* L, luaL_Buffer* B, int index, const encoder_t& encoder, int recursionTable) {
 			int type = lua_type(L, index);
 			switch (type) {
 				case LUA_TNONE:
 				case LUA_TNIL:
 				{
-					luaL_addchar(B, LUA_TNIL);
+					luaL_addchar(B, (uint8_t)type);
 					break;
 				}
 				case LUA_TBOOLEAN:
@@ -1469,6 +1485,10 @@ namespace iris {
 				}
 				case LUA_TSTRING:
 				{
+					if (encode_recursion(L, B, index, recursionTable)) {
+						break;
+					}
+
 					size_t len;
 					luaL_addchar(B, LUA_TSTRING);
 					const char* s = lua_tolstring(L, index, &len);
@@ -1479,12 +1499,16 @@ namespace iris {
 				}
 				case LUA_TTABLE:
 				{
+					if (encode_recursion(L, B, index, recursionTable)) {
+						break;
+					}
+
 					luaL_addchar(B, LUA_TTABLE);
 					lua_pushnil(L);
 					while (lua_next(L, index) != 0) {
 						lua_pushvalue(L, -3);
-						encode_internal(L, B, lua_absindex(L, -3), encoder, recursion - 1);
-						encode_internal(L, B, lua_absindex(L, -2), encoder, recursion - 1);
+						encode_internal(L, B, lua_absindex(L, -3), encoder, recursionTable);
+						encode_internal(L, B, lua_absindex(L, -2), encoder, recursionTable);
 						lua_replace(L, -4);
 						lua_pop(L, 1);
 					}
@@ -1497,6 +1521,10 @@ namespace iris {
 				case LUA_TFUNCTION:
 				case LUA_TTHREAD:
 				{
+					if (encode_recursion(L, B, index, recursionTable)) {
+						break;
+					}
+
 					luaL_addchar(B, type);
 					if (!encoder(iris_lua_t(L), B, index, type)) {
 						if (type == LUA_TFUNCTION) {
@@ -1506,7 +1534,7 @@ namespace iris {
 								struct str_Writer state;
 								state.init = 0;
 								if (lua_dump(L, &encode_function_writer, &state, 1) != 0) {
-									syserror(L, "error.encode", "iris_lua_t::encode() -> unable to dump function!");
+									syserror(L, "error.encode", "iris_lua_t::encode() -> unable to dump function!\n");
 								}
 
 								luaL_pushresult(&state.B);
@@ -1528,10 +1556,10 @@ namespace iris {
 									IRIS_ASSERT(name != nullptr);
 									if (strcmp(name, "_ENV") == 0) {
 										lua_pop(L, 1);
-										luaL_addchar(B, LUA_NUMTYPES); // mark for global env
+										luaL_addchar(B, LUA_TNONE); // mark for global env
 									} else {
 										lua_pushvalue(L, -2);
-										encode_internal(L, B, lua_absindex(L, -2), encoder, recursion - 1);
+										encode_internal(L, B, lua_absindex(L, -2), encoder, recursionTable);
 										lua_pop(L, 2);
 									}
 								}
@@ -1540,7 +1568,7 @@ namespace iris {
 							}
 						}
 
-						syserror(L, "error.encode", "iris_lua_t::encode() -> Unable to encode type %s", lua_typename(L, type));
+						syserror(L, "error.encode", "iris_lua_t::encode() -> Unable to encode type %s.\n", lua_typename(L, type));
 					}
 
 					break;
@@ -1549,12 +1577,14 @@ namespace iris {
 		}
 
 		template <typename encoder_t>
-		static ref_t encode_internal_entry(iris_lua_t lua, context_stackvalue_t stack, std::reference_wrapper<const encoder_t> encoder, int recursion) {
+		static ref_t encode_internal_entry(iris_lua_t lua, context_stackvalue_t stack, std::reference_wrapper<const encoder_t> encoder) {
 			lua_State* L = lua.get_state();
+			lua_newtable(L);
 			luaL_Buffer B;
 			luaL_buffinit(L, &B);
-			encode_internal(L, &B, stack.index, encoder.get(), recursion);
+			encode_internal(L, &B, stack.index, encoder.get(), lua_absindex(L, -2));
 			luaL_pushresult(&B);
+			lua_replace(L, -2);
 
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
@@ -1562,7 +1592,7 @@ namespace iris {
 		template <typename value_t>
 		static value_t decode_variable(lua_State* L, const char*& from, const char* to) {
 			if (from + sizeof(value_t) > to) {
-				syserror(L, "error.decode", "iris_lua_t::decode() -> Decode stream error!");
+				syserror(L, "error.decode", "iris_lua_t::decode() -> Decode stream error!\n");
 			}
 
 			value_t value;
@@ -1571,8 +1601,15 @@ namespace iris {
 			return value;
 		}
 
+		static void mark_recursion(lua_State* L, lua_Integer offset, int recursionTable) {
+			lua_pushinteger(L, offset);
+			lua_pushvalue(L, -2);
+			lua_rawset(L, recursionTable);
+		}
+
 		template <typename decoder_t>
-		static int decode_internal(lua_State* L, const char*& from, const char* to, decoder_t&& decoder) {
+		static int decode_internal(lua_State* L, const char*& from, const char* to, decoder_t&& decoder, int recursion_index, const char* origin) {
+			lua_Integer offset = from - origin;
 			uint8_t type = decode_variable<uint8_t>(L, from, to);
 			switch (type) {
 				case LUA_TNIL:
@@ -1600,24 +1637,26 @@ namespace iris {
 				{
 					lua_Integer len = decode_variable<lua_Integer>(L, from, to);
 					if (len < 0 || len > to - from) {
-						syserror(L, "error.decode", "iris_lua_t::decode() -> Decode stream error!");
+						syserror(L, "error.decode", "iris_lua_t::decode() -> Decode stream error!\n");
 					}
 
 					lua_pushlstring(L, from, static_cast<size_t>(len));
+					mark_recursion(L, offset, recursion_index);
 					from += len;
 					break;
 				}
 				case LUA_TTABLE:
 				{
 					lua_newtable(L);
+					mark_recursion(L, offset, recursion_index);
 					while (true) {
 						// kv pair
-						if (decode_internal(L, from, to, decoder) == LUA_TNIL) {
+						if (decode_internal(L, from, to, decoder, recursion_index, origin) == LUA_TNIL) {
 							lua_pop(L, 1);
 							break;
 						}
 
-						decode_internal(L, from, to, decoder);
+						decode_internal(L, from, to, decoder, recursion_index, origin);
 						lua_rawset(L, -3);
 					}
 
@@ -1632,25 +1671,38 @@ namespace iris {
 						if (type == LUA_TFUNCTION) {
 							lua_Integer len = decode_variable<lua_Integer>(L, from, to);
 							if (luaL_loadbuffer(L, from, static_cast<size_t>(len), "=(decode)") != LUA_OK) {
-								syserror(L, "error.decode", "iris_lua_t::decode() -> Unable to decode function!");
+								syserror(L, "error.decode", "iris_lua_t::decode() -> Unable to decode function!\n");
 							}
 
 							from += len;
 							// decode lua functions
 							uint8_t upvalue_count = decode_variable<uint8_t>(L, from, to);
 							for (uint8_t i = 0; i < upvalue_count; i++) {
-								if (decode_internal(L, from, to, decoder) != LUA_NUMTYPES) {
+								if (decode_internal(L, from, to, decoder, recursion_index, origin) != LUA_TNONE) {
 									lua_setupvalue(L, -2, i + 1);
 								}
 							}
 
+							mark_recursion(L, offset, recursion_index);
 							break;
 						}
 
-						syserror(L, "error.decode", "iris_lua_t::decode() -> Unable to decode type %s", lua_typename(L, type));
+						syserror(L, "error.decode", "iris_lua_t::decode() -> Unable to decode type %s.\n", lua_typename(L, type));
+					} else {
+						mark_recursion(L, offset, recursion_index);
 					}
 
 					break;
+				}
+				case LUA_NUMTYPES:
+				{
+					// decode recursion values
+					lua_Integer offset = decode_variable<lua_Integer>(L, from, to);
+					lua_pushinteger(L, offset);
+					lua_rawget(L, recursion_index);
+					if (lua_isnil(L, -1)) {
+						syserror(L, "error.decode", "iris_lua_t::decode() -> Decode stream error!\n");
+					}
 				}
 			}
 
@@ -1661,7 +1713,10 @@ namespace iris {
 		static ref_t decode_internal_entry(iris_lua_t lua, std::string_view view, std::reference_wrapper<const decoder_t> decoder) {
 			lua_State* L = lua.get_state();
 			const char* from = view.data();
-			decode_internal(L, from, view.data() + view.size(), decoder.get());
+			lua_newtable(L);
+			decode_internal(L, from, view.data() + view.size(), decoder.get(), lua_absindex(L, -1), from);
+			lua_replace(L, -2);
+
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
