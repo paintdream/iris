@@ -33,7 +33,6 @@ SOFTWARE.
 #include <array>
 #include <optional>
 
-#define LUA_USE_APICHECK 1
 extern "C" {
 #if !USE_LUA_LIBRARY
 	#include "lua/src/lua.h"
