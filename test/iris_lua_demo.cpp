@@ -578,15 +578,15 @@ end\n\
 	recursive_tab->set(lua, "recursive", recursive_tab);
 	lua.deref(std::move(recursive_tab.value()));
 
-	auto encode_complex = lua.encode(std::move(complex), [](iris_lua_t lua, luaL_Buffer* B, int index, int type) {
+	auto encode_complex = lua.encode(std::move(complex), [](iris_lua_t lua, iris_queue_list_t<uint8_t>& bytes, int index, int type) {
 		if (type == LUA_TFUNCTION) {
 			if (lua_iscfunction(lua.get_state(), index)) {
 				void* p = (void*)&error_handler;
-				luaL_addchar(B, 0);
-				luaL_addlstring(B, reinterpret_cast<const char*>(&p), sizeof(p));
+				bytes.push(0);
+				bytes.push(reinterpret_cast<const char*>(&p), reinterpret_cast<const char*>(&p) + sizeof(p));
 				return true;
 			} else {
-				luaL_addchar(B, 1);
+				bytes.push(1);
 				return false;
 			}
 		}
@@ -623,7 +623,7 @@ end\n\
 	IRIS_ASSERT(pfunc == error_handler);
 	lua.native_pop_variable(1);
 
-	IRIS_ASSERT(lua.call<std::string_view>(decode_tab->get<lua_t::ref_t>(lua, 3)) == "2");
+	IRIS_ASSERT(lua.call<std::string>(decode_tab->get<lua_t::ref_t>(lua, 3)).value() == "2");
 	recursive_tab = decode_tab->get<lua_t::ref_t>(lua, "recursive");
 	IRIS_ASSERT(recursive_tab->get_type(lua) == LUA_TTABLE);
 	lua.native_push_variable(recursive_tab->get<lua_t::ref_t>(lua, "recursive"));
