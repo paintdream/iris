@@ -555,8 +555,8 @@ end\n\
 		assert(a.b.self == a) \n\
 	end\n").value());
 
-	auto encode_text = lua.encode("haha");
-	auto decode_text = std::move(lua.decode(std::move(encode_text)).value());
+	auto encode_text = lua.encode<std::string>("haha");
+	auto decode_text = lua.decode<iris_lua_t::ref_t>(std::move(encode_text)).value();
 	auto decode_textview = decode_text.as<std::string_view>(lua);
 	IRIS_ASSERT(decode_textview == "haha");
 	lua.deref(std::move(decode_text));
@@ -578,7 +578,7 @@ end\n\
 	recursive_tab->set(lua, "recursive", recursive_tab);
 	lua.deref(std::move(recursive_tab.value()));
 
-	auto encode_complex = lua.encode(std::move(complex), [](iris_lua_t lua, iris_queue_list_t<uint8_t>& bytes, int index, int type) {
+	auto encode_complex = lua.encode<std::string>(std::move(complex), [](iris_lua_t lua, iris_queue_list_t<uint8_t>& bytes, int index, int type) {
 		if (type == LUA_TFUNCTION) {
 			if (lua_iscfunction(lua.get_state(), index)) {
 				void* p = (void*)&error_handler;
@@ -592,9 +592,9 @@ end\n\
 		}
 
 		return false;
-	});
+	}, iris_queue_list_t<uint8_t>());
 
-	auto decode_complex = std::move(lua.decode(std::move(encode_complex), [](iris_lua_t lua, const char*& from, const char* to, int type) {
+	auto decode_complex = std::move(lua.decode<iris_lua_t::ref_t>(std::move(encode_complex), [](iris_lua_t lua, const char*& from, const char* to, int type) {
 		if (type == LUA_TFUNCTION) {
 			if (*from++ == 0) {
 				void* p = nullptr;

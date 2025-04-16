@@ -1365,31 +1365,32 @@ namespace iris {
 			return call_internal<return_t>(L, std::forward<args_t>(args)...);
 		}
 
-		template <typename value_t, typename encoder_t>
-		optional_result_t<refview_t<std::string_view>> encode(value_t&& value, const encoder_t& encoder) {
-			iris_queue_list_t<uint8_t> bytes;
-			return call<refview_t<std::string_view>, &iris_lua_t::encode_internal_entry<encoder_t>>(std::forward<value_t>(value), std::ref(encoder), std::ref(bytes));
+		template <typename return_t, typename value_t, typename encoder_t, typename stream_t>
+		optional_result_t<return_t> encode(value_t&& value, const encoder_t& encoder, stream_t&& bytes) {
+			return call<return_t, &iris_lua_t::encode_internal_entry<return_t, encoder_t, stream_t>>(std::forward<value_t>(value), std::ref(encoder), std::ref(bytes));
 		}
 
-		static bool empty_encoder(lua_State* L, iris_queue_list_t<uint8_t>& bytes, int index, int type) { return true; }
-		template <typename value_t>
-		optional_result_t<refview_t<std::string_view>> encode(value_t&& value) {
-			return encode(std::forward<value_t>(value), &empty_encoder);
+		template <typename stream_t>
+		static bool empty_encoder(lua_State* L, stream_t& bytes, int index, int type) { return false; }
+		template <typename return_t, typename value_t, typename stream_t>
+		optional_result_t<return_t> encode(value_t&& value, stream_t&& bytes) {
+			return encode<return_t>(std::forward<value_t>(value), &empty_encoder<stream_t>, std::forward<stream_t>(bytes));
 		}
 
-		template <typename value_t, typename decoder_t>
-		optional_result_t<ref_t> decode(value_t&& value, const decoder_t& decoder) {
-			return call<ref_t, &iris_lua_t::decode_internal_entry<decoder_t>>(std::forward<value_t>(value), std::ref(decoder));
+		template <typename return_t, typename value_t>
+		optional_result_t<return_t> encode(value_t&& value) {
+			return encode<return_t>(std::forward<value_t>(value), &empty_encoder<iris_queue_list_t<uint8_t>>, iris_queue_list_t<uint8_t>());
 		}
 
-		static bool empty_decoder(lua_State* L, const char* from, const char* to, int type) {
-			lua_pushnil(L);
-			return true;
+		template <typename return_t, typename value_t, typename decoder_t>
+		optional_result_t<return_t> decode(value_t&& value, const decoder_t& decoder) {
+			return call<return_t, &iris_lua_t::decode_internal_entry<return_t, decoder_t>>(std::forward<value_t>(value), std::ref(decoder));
 		}
 
-		template <typename value_t>
-		optional_result_t<ref_t> decode(value_t&& value) {
-			return decode(std::forward<value_t>(value), &empty_decoder);
+		static bool empty_decoder(lua_State* L, const char* from, const char* to, int type) { return false; }
+		template <typename return_t, typename value_t>
+		optional_result_t<return_t> decode(value_t&& value) {
+			return decode<return_t>(std::forward<value_t>(value), &empty_decoder);
 		}
 
 	protected:
@@ -1431,7 +1432,8 @@ namespace iris {
 			return 0;
 		}
 
-		static bool encode_recursion(lua_State* L, iris_queue_list_t<uint8_t>& bytes, int index, int recursionTable) {
+		template <typename stream_t>
+		static bool encode_recursion(lua_State* L, stream_t& bytes, int index, int recursionTable) {
 			lua_pushvalue(L, index);
 			lua_rawget(L, recursionTable);
 
@@ -1451,8 +1453,8 @@ namespace iris {
 			}
 		}
 
-		template <typename encoder_t>
-		static void encode_internal(lua_State* L, iris_queue_list_t<uint8_t>& bytes, int index, const encoder_t& encoder, int recursionTable) {
+		template <typename encoder_t, typename stream_t>
+		static void encode_internal(lua_State* L, stream_t& bytes, int index, const encoder_t& encoder, int recursionTable) {
 			int type = lua_type(L, index);
 			switch (type) {
 				case LUA_TNONE:
@@ -1506,14 +1508,17 @@ namespace iris {
 					}
 
 					bytes.push(LUA_TTABLE);
-					lua_pushnil(L);
-					while (lua_next(L, index) != 0) {
-						encode_internal(L, bytes, lua_absindex(L, -2), encoder, recursionTable);
-						encode_internal(L, bytes, lua_absindex(L, -1), encoder, recursionTable);
-						lua_pop(L, 1);
+					if (!encoder(iris_lua_t(L), bytes, index, type)) {
+						lua_pushnil(L);
+						while (lua_next(L, index) != 0) {
+							encode_internal(L, bytes, lua_absindex(L, -2), encoder, recursionTable);
+							encode_internal(L, bytes, lua_absindex(L, -1), encoder, recursionTable);
+							lua_pop(L, 1);
+						}
+
+						bytes.push(LUA_TNIL); // end
 					}
 
-					bytes.push(LUA_TNIL); // end
 					break;
 				}
 				case LUA_TLIGHTUSERDATA:
@@ -1578,19 +1583,24 @@ namespace iris {
 			}
 		}
 
-		template <typename encoder_t>
-		static ref_t encode_internal_entry(iris_lua_t lua, context_stackvalue_t stack, std::reference_wrapper<const encoder_t> encoder, std::reference_wrapper<iris_queue_list_t<uint8_t>> bytes_wrapper) {
-			iris_queue_list_t<uint8_t>& bytes = bytes_wrapper;
+		template <typename return_t, typename encoder_t, typename stream_t>
+		static ref_t encode_internal_entry(iris_lua_t lua, context_stackvalue_t stack, std::reference_wrapper<const encoder_t> encoder, std::reference_wrapper<stream_t> bytes_wrapper) {
+			stream_t& bytes = bytes_wrapper;
 			lua_State* L = lua.get_state();
 			lua_newtable(L);
 			encode_internal(L, bytes, stack.index, encoder.get(), lua_absindex(L, -1));
-			std::string buffer;
-			buffer.resize(bytes.size());
-			bytes.pop(buffer.data(), buffer.data() + buffer.size());
-			lua_pushlstring(L, buffer.data(), buffer.size());
-			lua_replace(L, -2);
 
-			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
+			if constexpr (!std::is_void_v<return_t>) {
+				std::string buffer;
+				buffer.resize(bytes.size());
+				bytes.pop(buffer.data(), buffer.data() + buffer.size());
+				lua_pushlstring(L, buffer.data(), buffer.size());
+				lua_replace(L, -2);
+				return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
+			} else {
+				lua_pop(L, 1);
+				return ref_t();
+			}
 		}
 
 		template <typename value_t>
@@ -1606,9 +1616,11 @@ namespace iris {
 		}
 
 		static void mark_recursion(lua_State* L, lua_Integer offset, int recursionTable) {
-			lua_pushinteger(L, offset);
-			lua_pushvalue(L, -2);
-			lua_rawset(L, recursionTable);
+			if (lua_type(L, -1) != LUA_TNIL) {
+				lua_pushinteger(L, offset);
+				lua_pushvalue(L, -2);
+				lua_rawset(L, recursionTable);
+			}
 		}
 
 		template <typename decoder_t>
@@ -1651,17 +1663,21 @@ namespace iris {
 				}
 				case LUA_TTABLE:
 				{
-					lua_newtable(L);
-					mark_recursion(L, offset, recursion_index);
-					while (true) {
-						// kv pair
-						if (decode_internal(L, from, to, decoder, recursion_index, origin) == LUA_TNIL) {
-							lua_pop(L, 1);
-							break;
-						}
+					if (!decoder(iris_lua_t(L), from, to, type)) {
+						lua_newtable(L);
+						mark_recursion(L, offset, recursion_index);
+						while (true) {
+							// kv pair
+							if (decode_internal(L, from, to, decoder, recursion_index, origin) == LUA_TNIL) {
+								lua_pop(L, 1);
+								break;
+							}
 
-						decode_internal(L, from, to, decoder, recursion_index, origin);
-						lua_rawset(L, -3);
+							decode_internal(L, from, to, decoder, recursion_index, origin);
+							lua_rawset(L, -3);
+						}
+					} else {
+						mark_recursion(L, offset, recursion_index);
 					}
 
 					break;
@@ -1714,15 +1730,20 @@ namespace iris {
 			return type;
 		}
 
-		template <typename decoder_t>
-		static ref_t decode_internal_entry(iris_lua_t lua, std::string_view view, std::reference_wrapper<const decoder_t> decoder) {
+		template <typename return_t, typename decoder_t>
+		static optional_result_t<return_t> decode_internal_entry(iris_lua_t lua, std::string_view view, std::reference_wrapper<const decoder_t> decoder) {
 			lua_State* L = lua.get_state();
 			const char* from = view.data();
 			lua_newtable(L);
 			decode_internal(L, from, view.data() + view.size(), decoder.get(), lua_absindex(L, -1), from);
-			lua_replace(L, -2);
-
-			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
+			if constexpr (!std::is_void_v<return_t>) {
+				return_t ret = get_variable<return_t>(L, -1);
+				lua_pop(L, 2);
+				return ret;
+			} else {
+				lua_pop(L, 2);
+				return optional_result_t<return_t>();
+			}
 		}
 
 		template <typename type_t, typename meta_t, typename... args_t>
