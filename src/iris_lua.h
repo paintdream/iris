@@ -73,6 +73,9 @@ namespace iris {
 	template <typename type_t, typename = void>
 	struct iris_lua_traits_t : std::false_type {
 		using type = type_t;
+		operator std::nullptr_t() const noexcept {
+			return nullptr;
+		}
 	};
 
 	// A simple lua binding with C++17
@@ -803,19 +806,10 @@ namespace iris {
 		}
 
 		template <typename type_t, typename = void>
-		struct has_lua_registar : std::false_type {
-			static void default_registar(iris_lua_t) {}
-			static constexpr auto get_registar() noexcept {
-				return &default_registar;
-			}
-		};
+		struct has_lua_registar : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_registar<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_registar)>> : std::true_type {
-			static constexpr auto get_registar() noexcept {
-				return &iris_lua_traits_t<type_t>::type::lua_registar;
-			}
-		};
+		struct has_lua_registar<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_registar(std::declval<iris_lua_t>(), std::declval<iris_lua_traits_t<type_t>>()))>> : std::true_type {};
 
 		template <typename type_t, typename = void>
 		struct is_functor : std::false_type {};
@@ -830,7 +824,7 @@ namespace iris {
 		}
 
 		// register a new type, taking registar from &type_t::lua_registar by default, and you could also specify your own registar.
-		template <typename type_t, int user_value_count = 0, auto registar = has_lua_registar<type_t>::get_registar(), typename... args_t, typename... envs_t>
+		template <typename type_t, int user_value_count = 0, typename... args_t, typename... envs_t>
 		reftype_t<type_t> make_type(std::string_view name, optional_result_t<type_t*> (*creator)(iris_lua_t, type_t*, args_t...) = &trivial_object_creator<type_t>, envs_t&&... envs) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = write_fence();
@@ -872,7 +866,10 @@ namespace iris {
 			lua_rawset(L, -3);
 
 			// call custom registar if needed
-			registar(iris_lua_t(L));
+			if constexpr (has_lua_registar<type_t>::value) {
+				iris_lua_traits_t<type_t>::type::lua_registar(iris_lua_t(L), iris_lua_traits_t<type_t>());
+			}
+
 			return reftype_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
@@ -2104,13 +2101,13 @@ namespace iris {
 		struct has_lua_finalize : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_finalize<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_finalize)>> : std::true_type {};
+		struct has_lua_finalize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_finalize(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
 
 		template <typename type_t, typename = void>
 		struct has_lua_view_finalize : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_view_finalize<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_view_finalize)>> : std::true_type {};
+		struct has_lua_view_finalize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_finalize(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
 
 		// will be called as __gc triggerred
 		template <typename type_t>
@@ -2146,7 +2143,7 @@ namespace iris {
 		struct has_lua_initialize : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_initialize<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_initialize)>> : std::true_type {};
+		struct has_lua_initialize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_initialize(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
 
 		template <typename type_t>
 		static void initialize_object(lua_State* L, int index, type_t* p) {
@@ -2160,25 +2157,25 @@ namespace iris {
 		struct has_lua_view_payload : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_view_payload<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_view_payload)>> : std::true_type {};
+		struct has_lua_view_payload<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_payload(std::declval<iris_lua_t>(), nullptr))>> : std::true_type {};
 
 		template <typename type_t, typename = void>
 		struct has_lua_view_extract : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_view_extract<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_view_extract)>> : std::true_type {};
+		struct has_lua_view_extract<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_extract(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
 
 		template <typename type_t, typename = void>
 		struct has_lua_view_initialize : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_view_initialize<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_view_initialize)>> : std::true_type {};
+		struct has_lua_view_initialize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_initialize(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
 
 		template <typename type_t, typename = void>
 		struct has_lua_check : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_check<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_check)>> : std::true_type {};
+		struct has_lua_check<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_check(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
 
 		template <typename type_t, int user_value_count, int env_count, typename... args_t>
 		static int new_object(lua_State* L) {

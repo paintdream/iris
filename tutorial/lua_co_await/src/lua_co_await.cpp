@@ -12,7 +12,7 @@
 #include "tutorial_readwrite.h"
 
 namespace iris {
-	void lua_co_await_t::lua_registar(lua_t&& lua) {
+	void lua_co_await_t::lua_registar(lua_t&& lua, std::nullptr_t) {
 		lua.set_current<&lua_co_await_t::get_version>("get_version");
 		lua.set_current<&lua_co_await_t::start>("start");
 		lua.set_current<&lua_co_await_t::terminate>("terminate");

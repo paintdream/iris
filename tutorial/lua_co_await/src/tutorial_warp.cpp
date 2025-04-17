@@ -1,7 +1,7 @@
 #include "tutorial_warp.h"
 
 namespace iris {
-	void tutorial_warp_t::lua_registar(lua_t&& lua) {
+	void tutorial_warp_t::lua_registar(lua_t&& lua, std::nullptr_t) {
 		lua.set_current<&tutorial_warp_t::pipeline>("pipeline");
 		lua.set_current<&tutorial_warp_t::warp_variable>("warp_variable");
 		lua.set_current<&tutorial_warp_t::free_variable>("free_variable");

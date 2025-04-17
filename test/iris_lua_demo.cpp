@@ -55,7 +55,8 @@ struct iris::iris_lua_traits_t<vector3> : std::true_type {
 };
 
 struct example_base_t {
-	static void lua_registar(lua_t lua) {
+	template <typename traits_t>
+	static void lua_registar(lua_t lua, traits_t) {
 		lua.set_current<&example_base_t::base_value>("base_value");
 		lua.set_current<&example_base_t::base_func>("base_func");
 		lua.set_current<&example_base_t::base_bind_static>("base_bind_static", 1.0);
@@ -101,7 +102,7 @@ struct example_base_t {
 
 static std::atomic<int> ref_count = 0;
 struct example_t : example_base_t {
-	static void lua_registar(lua_t lua) {
+	static void lua_registar(lua_t lua, std::nullptr_t) {
 		lua.set_current("lambda", [lua](int v) mutable {
 			IRIS_ASSERT(v == 4);
 			return 4;
@@ -335,7 +336,7 @@ static void env_test(std::string title, std::string hi) {
 }
 
 struct shared_object_example_t : lua_t::shared_object_t<shared_object_example_t> {
-	static void lua_registar(lua_t lua) {
+	static void lua_registar(lua_t lua, std::nullptr_t) {
 		lua.set_current<&shared_object_example_t::foo>("foo");
 		lua.set_current<&shared_object_example_t::other>("other");
 	}

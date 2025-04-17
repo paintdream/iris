@@ -1,7 +1,7 @@
 #include "tutorial_binding.h"
 
 namespace iris {
-	void tutorial_binding_t::lua_registar(lua_t&& lua) {
+	void tutorial_binding_t::lua_registar(lua_t&& lua, std::nullptr_t) {
 		lua.set_current<&tutorial_binding_t::init>("init");
 		lua.set_current<&tutorial_binding_t::save>("save");
 		lua.set_current<&tutorial_binding_t::load>("load");

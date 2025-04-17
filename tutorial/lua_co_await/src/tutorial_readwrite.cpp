@@ -1,7 +1,7 @@
 #include "tutorial_readwrite.h"
 
 namespace iris {
-	void tutorial_readwrite_t::lua_registar(lua_t&& lua) {
+	void tutorial_readwrite_t::lua_registar(lua_t&& lua, std::nullptr_t) {
 		lua.set_current<&tutorial_readwrite_t::pipeline>("pipeline");
 		lua.set_current("run", lua.load("local self = ...\n\
 print('[turorial_readwrite] begin pipeline')\n\

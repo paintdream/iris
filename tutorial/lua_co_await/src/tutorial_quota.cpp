@@ -1,7 +1,7 @@
 #include "tutorial_quota.h"
 
 namespace iris {
-	void tutorial_quota_t::lua_registar(lua_t&& lua) {
+	void tutorial_quota_t::lua_registar(lua_t&& lua, std::nullptr_t) {
 		lua.set_current<&tutorial_quota_t::pipeline>("pipeline");
 		lua.set_current<&tutorial_quota_t::get_remaining>("get_remaining");
 		lua.set_current("run", lua.load("local self = ...\n\
