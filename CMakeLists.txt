@@ -94,20 +94,6 @@ IF (NOT MSVC)
 	TARGET_LINK_LIBRARIES (iris_tree_demo m ${STDLIB} pthread)
 ENDIF (NOT MSVC)
 
-FILE (GLOB_RECURSE IRIS_BUFFER_DEMO_SRC
-	"${PROJECT_SOURCE_DIR}/src/iris_common.h"
-	"${PROJECT_SOURCE_DIR}/src/iris_common.inl"
-	"${PROJECT_SOURCE_DIR}/src/iris_buffer.h"
-	"${PROJECT_SOURCE_DIR}/test/iris_buffer_demo.cpp"
-)
-
-ADD_EXECUTABLE (iris_buffer_demo ${IRIS_BUFFER_DEMO_SRC})
-ADD_TEST (test_buffer iris_buffer_demo)
-
-IF (NOT MSVC)
-	TARGET_LINK_LIBRARIES (iris_buffer_demo m ${STDLIB} pthread)
-ENDIF (NOT MSVC)
-
 IF (ENABLE_COROUTINE)
 	FILE (GLOB_RECURSE IRIS_COROUTINE_DEMO_SRC
 		"${PROJECT_SOURCE_DIR}/src/iris_common.h"

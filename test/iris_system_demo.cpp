@@ -31,6 +31,7 @@ inline void int_interface::release_element<int*>(int*&& object) {
 }
 
 int main(void) {
+
 	iris::iris_quota_t<int, 2> quota({ 5, 3 });
 	bool u1 = quota.acquire({ 1,2 });
 	IRIS_ASSERT(u1);
@@ -179,6 +180,44 @@ int main(void) {
 	matrix_system.filter<iris_component_matrix_t>(&arr[0], &arr[0] + 2, [](iris_component_matrix_t& matrix) {
 		assert(false);
 	});
+
+	int union_set[10];
+	iris_union_set_init(union_set, (int)0u, (int)(sizeof(union_set) / sizeof(union_set[0])));
+	iris_union_set_join(union_set, 3u, 6u);
+	iris_union_set_join(union_set, 6u, 9u);
+	iris_union_set_join(union_set, 2u, 4u);
+	iris_union_set_join(union_set, 8u, 4u);
+	iris_union_set_join(union_set, 7u, 5u);
+	iris_union_set_join(union_set, 1u, 5u);
+
+	IRIS_ASSERT(iris_union_set_find(union_set, 1u) == iris_union_set_find(union_set, 7u));
+	IRIS_ASSERT(iris_union_set_find(union_set, 4u) != iris_union_set_find(union_set, 6u));
+	IRIS_ASSERT(iris_union_set_find(union_set, 2u) == iris_union_set_find(union_set, 8u));
+	IRIS_ASSERT(iris_union_set_find(union_set, 5u) != iris_union_set_find(union_set, 9u));
+	IRIS_ASSERT(iris_union_set_find(union_set, 0u) != iris_union_set_find(union_set, 3u));
+
+	iris_cache_t<uint8_t> cache;
+	iris_cache_allocator_t<double, uint8_t> cache_allocator(&cache);
+
+	// todo: more tests
+	std::vector<double, iris_cache_allocator_t<double, uint8_t>> vec(cache_allocator);
+	vec.push_back(1234.0f);
+	vec.resize(777);
+
+	std::vector<double> dbl_vec;
+	iris::iris_binary_insert(dbl_vec, 1234.0f);
+	auto it = iris::iris_binary_find(dbl_vec.begin(), dbl_vec.end(), 1234.0f);
+	IRIS_ASSERT(it != dbl_vec.end());
+	iris::iris_binary_erase(dbl_vec, 1234.0f);
+
+	std::vector<iris::iris_key_value_t<int, const char*>> str_vec;
+	iris::iris_binary_insert(str_vec, iris::iris_make_key_value(1234, "asdf"));
+	iris::iris_binary_insert(str_vec, iris::iris_make_key_value(2345, "defa"));
+	auto it2 = iris::iris_binary_find(str_vec.begin(), str_vec.end(), 1234);
+	IRIS_ASSERT(it2 != str_vec.end());
+	IRIS_ASSERT(iris::iris_binary_find(str_vec.begin(), str_vec.end(), 1236) == str_vec.end());
+	iris::iris_binary_erase(str_vec, 1234);
+	iris::iris_binary_erase(str_vec, iris::iris_make_key_value(1234, ""));
 
 	return 0;
 }

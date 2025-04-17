@@ -2568,4 +2568,161 @@ namespace iris {
 	protected:
 		std::array<std::atomic<quantity_t>, n> quantities;
 	};
+
+	template <typename element_t, size_t block_size = default_block_size, template <typename...> class base_allocator_t = iris_default_block_allocator_t>
+	struct iris_cache_t : protected iris_queue_list_t<element_t, base_allocator_t, false> {
+		using storage_t = iris_queue_list_t<element_t, base_allocator_t, false>;
+
+		iris_cache_t() {}
+		template <typename allocator_t>
+		iris_cache_t(allocator_t&& alloc) : storage_t(std::forward<allocator_t>(alloc)) {}
+
+		// only support const for_each
+		// count skipped elements
+		template <typename operation_t>
+		void for_each(operation_t&& op) const noexcept(noexcept(std::declval<storage_t::node_t>().for_each(op))) {
+			auto guard = storage_t::out_fence();
+			for (typename storage_t::node_t* p = storage_t::pop_head; p != storage_t::push_head->next; p = p->next) {
+				p->for_each([&op, p](element_t* t, size_t n) {
+					op(t, p == storage_t::push_head ? n : storage_t::element_count);
+				});
+			}
+		}
+
+		static constexpr size_t full_pack_size() {
+			return storage_t::full_pack_size();
+		}
+
+		void reset() noexcept {
+			storage_t::reset(~size_t(0));
+		}
+
+		void clear() noexcept {
+			storage_t::reset(0);
+		}
+
+		size_t offset() const noexcept {
+			return storage_t::offset();
+		}
+
+		size_t size() const noexcept {
+			return storage_t::size();
+		}
+
+		// allocate continuous array from queue_list
+		// may lead holes in low-level storage if current node is not enough
+		element_t* allocate_linear(size_t count, size_t alignment) {
+			auto guard = storage_t::in_fence();
+
+			element_t* address;
+			while ((address = storage_t::push_head->allocate(count, alignment)) == nullptr) {
+				if (storage_t::push_head->next == nullptr) {
+					auto* p = storage_t::node_allocator_t::allocate(1);
+					new (p) typename storage_t::node_t(static_cast<typename storage_t::node_allocator_t&>(*this), storage_t::iterator_counter);
+					storage_t::iterator_counter = storage_t::node_t::step_counter(storage_t::iterator_counter, storage_t::element_count);
+
+					address = p->allocate(count, alignment); // must success
+					IRIS_ASSERT(address != nullptr);
+
+					storage_t::push_head->next = p;
+					// no memory fence
+					storage_t::push_head = p;
+					break;
+				}
+
+				storage_t::push_head = storage_t::push_head->next;
+			}
+
+			return address;
+		}
+	};
+
+	using bytes_cache_t = iris_cache_t<uint8_t>;
+
+	template <typename element_t, typename base_t = uint8_t, size_t block_size = default_block_size, template <typename...> class large_allocator_t = std::allocator>
+	struct iris_cache_allocator_t : private large_allocator_t<element_t> {
+		using value_type = element_t;
+		using pointer = element_t*;
+		using const_pointer = const element_t*;
+		using reference = element_t&;
+		using const_reference = const element_t&;
+		using size_type = size_t;
+		using difference_type = ptrdiff_t;
+		using propagate_on_container_move_assignment = std::true_type;
+		using is_always_equal = std::false_type;
+
+		template <typename morph_t>
+		struct rebind { using other = iris_cache_allocator_t<morph_t, base_t>; };
+		using allocator_t = iris_cache_t<base_t>;
+		allocator_t* allocator;
+
+		iris_cache_allocator_t(allocator_t* alloc) noexcept : allocator(alloc) {}
+		iris_cache_allocator_t(const iris_cache_allocator_t& al) noexcept : allocator(al.allocator) {}
+
+#ifdef _MSC_VER
+		// maybe a bug of vc (debug), just add these lines to make compiler happy
+		template <typename morph_t>
+		iris_cache_allocator_t(const iris_cache_allocator_t<morph_t, base_t>& rhs) noexcept : allocator(rhs.allocator) {}
+#endif
+
+		template <typename morph_t>
+		bool operator == (const morph_t& rhs) const noexcept {
+			return allocator == rhs.allocator;
+		}
+
+		template <typename morph_t>
+		bool operator != (const morph_t& rhs) const noexcept {
+			return allocator != rhs.allocator;
+		}
+
+		pointer address(reference x) const noexcept {
+			return &x;
+		};
+
+		const_pointer address(const_reference x) const noexcept {
+			return &x;
+		}
+
+		size_type max_size() const {
+			return ~(size_type)0 / sizeof(element_t);
+		}
+
+		void construct(pointer p) {
+			new (static_cast<void*>(p)) element_t();
+		}
+
+		void construct(pointer p, const_reference val) {
+			new (static_cast<void*>(p)) element_t(val);
+		}
+
+		template <typename morph_t, typename... args_t>
+		void construct(morph_t* p, args_t&&... args) {
+			new (static_cast<void*>(p)) morph_t(std::forward<args_t>(args)...);
+		}
+
+		template <typename morph_t>
+		void destroy(morph_t* p) noexcept {
+			p->~morph_t();
+		}
+
+		pointer allocate(size_type n, const void* hint = nullptr) {
+			IRIS_ASSERT(allocator != nullptr);
+			static_assert(sizeof(element_t) % sizeof(base_t) == 0, "must be aligned.");
+			size_t count = n * sizeof(element_t) / sizeof(base_t);
+			if (count <= allocator_t::full_pack_size()) {
+				return reinterpret_cast<pointer>(allocator->allocate_linear(count, alignof(element_t)));
+			} else {
+				return reinterpret_cast<pointer>(large_allocator_t<element_t>::allocate(n));
+			}
+		}
+
+		void deallocate(element_t* p, size_t n) noexcept {
+			size_t count = n * sizeof(element_t) / sizeof(base_t);
+			if (count <= allocator_t::full_pack_size()) {
+				// do not deallocate in cache allocator.
+			} else {
+				large_allocator_t<element_t>::deallocate(p, n);
+			}
+		}
+	};
 }

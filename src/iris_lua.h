@@ -1251,6 +1251,16 @@ namespace iris {
 			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
+		ref_t make_table() {
+			auto guard = write_fence();
+
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+			lua_newtable(L);
+
+			return ref_t(luaL_ref(L, LUA_REGISTRYINDEX));
+		}
+
 		template <typename func_t>
 		ref_t make_thread(func_t&& func) {
 			auto guard = write_fence();
