@@ -130,7 +130,6 @@ coroutine_t example_barrier(warp_t::async_worker_t& async_worker, barrier_type_t
 	}
 }
 
-
 struct dispatcher_t : iris_dispatcher_t<dispatcher_t, warp_t> {
 	dispatcher_t(iris_async_worker_t<>& w) : iris_dispatcher_t<dispatcher_t, warp_t>(w) {}
 	void dispatcher_complete() {
@@ -139,16 +138,49 @@ struct dispatcher_t : iris_dispatcher_t<dispatcher_t, warp_t> {
 
 	void dispatcher_resurrect() {}
 	void dispatcher_cleanup() {}
-	void dispatcher_enter_execute(routine_t*) {}
-	void dispatcher_leave_execute(routine_t*) {}
+	void dispatcher_enter_execute(const routine_handle_t&) {}
+	void dispatcher_leave_execute(const routine_handle_t&) {}
 };
 
+static void example_dispatch_coroutine(worker_t& worker) {
+	std::atomic<bool> finished = false;
+	dispatcher_t dispatcher(worker);
+	std::atomic<bool> finished2 = false;
+
+	auto preNode = dispatcher.allocate(warp_t::get_current_warp(), [](const auto& handle) {
+		printf("example_from_coroutine 0000!\n");
+	});
+
+	auto postNode = dispatcher.allocate(warp_t::get_current_warp(), [&finished2, &finished](const auto& handle) {
+		IRIS_ASSERT(finished.load(std::memory_order_acquire));
+		printf("example_from_coroutine 2222!\n");
+
+		finished2.store(true, std::memory_order_release);
+	});
+
+	auto coroNode = iris_dispatch_coroutine(dispatcher, [](dispatcher_t& dispatcher, std::atomic<bool>& finished) -> coroutine_t {
+		printf("example_from_coroutine 1111!\n");
+		co_await iris_awaitable(warp_t::get_current_warp(), []() {});
+		finished.store(true, std::memory_order_release);
+		co_return;
+	}(dispatcher, finished));
+	dispatcher.order(preNode, coroNode);
+	dispatcher.order(coroNode, postNode);
+	dispatcher.dispatch(std::move(coroNode));
+	dispatcher.dispatch(std::move(postNode));
+	dispatcher.dispatch(std::move(preNode));
+
+	while (!finished2.load(std::memory_order_acquire)) {
+		worker.poll_delay(0, std::chrono::milliseconds(50));
+	}
+}
+
 static coroutine_t example_listen(dispatcher_t& dispatcher) {
-	auto prev = dispatcher.allocate(nullptr, []() {
+	auto prev = dispatcher.allocate(nullptr, [](const auto& handle) {
 		printf("prev task!");
 	});
 
-	co_await iris_listen_dispatch(dispatcher, std::move(prev));
+	co_await iris_coroutine_dispatch(dispatcher, std::move(prev));
 	printf("next task!");
 
 	if (pending_count.fetch_sub(1, std::memory_order_release) == 1) {
@@ -190,8 +222,9 @@ int main(void) {
 	size_t main_thread_index = worker.append(std::thread());
 	worker.start();
 	pending_count.fetch_add(1, std::memory_order_release);
-
 	pending_count.fetch_add(1, std::memory_order_release);
+
+	example_dispatch_coroutine(worker);
 
 	dispatcher_t dispatcher(worker);
 	example_listen(dispatcher).run();

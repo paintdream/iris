@@ -13,7 +13,6 @@ static void simple_explosion();
 static void garbage_collection();
 static void acquire_release();
 static void graph_dispatch();
-static void graph_dispatch_exception();
 
 int main(void) {
 	external_poll();
@@ -24,7 +23,6 @@ int main(void) {
 	garbage_collection();
 	acquire_release();
 	graph_dispatch();
-	graph_dispatch_exception();
 
 	return 0;
 }
@@ -455,10 +453,8 @@ void graph_dispatch() {
 			async_worker.terminate();
 		}
 
-		void dispatcher_resurrect() {}
-		void dispatcher_cleanup() {}
-		void dispatcher_enter_execute(routine_t*) {}
-		void dispatcher_leave_execute(routine_t*) {}
+		void dispatcher_enter_execute(const routine_handle_t&) {}
+		void dispatcher_leave_execute(const routine_handle_t&) {}
 	};
 
 	dispatcher_t dispatcher(worker);
@@ -466,17 +462,17 @@ void graph_dispatch() {
 	using routine_handle_t = dispatcher_t::routine_handle_t;
 	routine_handle_t last = dispatcher.allocate(nullptr);
 	for (size_t k = 0; k < total_pass; k++) {
-		routine_handle_t d = dispatcher.allocate(&warps[2], [&task_count]() {
+		routine_handle_t d = dispatcher.allocate(&warps[2], [&task_count](const auto& handle) {
 			task_count.fetch_sub(1, std::memory_order_release);
 			printf("Warp 2 task [4]\n");
 		});
 
-		routine_handle_t a = dispatcher.allocate(&warps[0], [&task_count]() {
+		routine_handle_t a = dispatcher.allocate(&warps[0], [&task_count](const auto& handle) {
 			task_count.fetch_sub(1, std::memory_order_release);
 			printf("Warp 0 task [1]\n");
 		});
 
-		routine_handle_t b = dispatcher.allocate(&warps[1], [&dispatcher, dd = dispatcher.defer(d).move(), &task_count]() {
+		routine_handle_t b = dispatcher.allocate(&warps[1], [&dispatcher, dd = dispatcher.defer(d).move(), &task_count](const auto& handle) {
 			routine_handle_t d(dd);
 			task_count.fetch_sub(1, std::memory_order_release);
 			printf("Warp 1 task [2]\n");
@@ -486,7 +482,7 @@ void graph_dispatch() {
 		dispatcher.order(a, b);
 		// dispatcher.order(b, a); // trigger validate assertion
 
-		auto c = dispatcher.allocate(nullptr, [&task_count]() {
+		auto c = dispatcher.allocate(nullptr, [&task_count](const auto& handle) {
 			task_count.fetch_sub(1, std::memory_order_release);
 			printf("Warp nil task [3]\n");
 		});
@@ -511,7 +507,7 @@ void graph_dispatch() {
 
 	for (size_t n = 0; n < max_task_count; n++) {
 		warp_t* warp = &warps[0];
-		tasks[n] = dispatcher.allocate(nullptr, [&dispatcher, n, warp, &executed, &sum_factors]() {
+		tasks[n] = dispatcher.allocate(nullptr, [&dispatcher, n, warp, &executed, &sum_factors](const auto& handle) {
 			size_t sum = 0;
 			for (size_t m = 2; m < n; m++) {
 				if (n % m == 0) {
@@ -521,7 +517,7 @@ void graph_dispatch() {
 			}
 
 			executed[n]++;
-			dispatcher.dispatch(dispatcher.allocate(warp, [sum, &sum_factors]() {
+			dispatcher.dispatch(dispatcher.allocate(warp, [sum, &sum_factors](const auto& handle) {
 				// it's thread safe because we are in warp 0
 				sum_factors += sum;
 			}));
@@ -548,72 +544,6 @@ void graph_dispatch() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		return false;
 	})) {}
-}
-
-void graph_dispatch_exception() {
-	static constexpr size_t thread_count = 8;
-	static constexpr size_t warp_count = 16;
-
-	iris_async_worker_t<> worker(0);
-	using warp_t = iris_warp_t<iris_async_worker_t<>>;
-	std::function<void()> exception_handler;
-
-	for (size_t i = 0; i < thread_count; i++) {
-		worker.append([&worker, i, &exception_handler]() {
-			while (true) {
-				try {
-					worker.thread_loop(i);
-					break;
-				} catch (int) {
-					exception_handler();
-				}
-			}
-		});
-	}
-
-	worker.start();
-
-	struct dispatcher_t : iris_dispatcher_t<dispatcher_t, warp_t> {
-		dispatcher_t(iris_async_worker_t<>& w) : iris_dispatcher_t<dispatcher_t, warp_t>(w) {}
-		void dispatcher_complete() {
-			async_worker.terminate();
-		}
-
-		void dispatcher_resurrect() {}
-		void dispatcher_cleanup() {}
-		void dispatcher_enter_execute(routine_t*) {}
-		void dispatcher_leave_execute(routine_t*) {}
-	};
-
-	dispatcher_t dispatcher(worker);
-
-	// try with exception
-	int exception_counter = 0;
-	auto excepted = dispatcher.allocate(nullptr, [&exception_counter]() {
-		if (exception_counter++ < 1) {
-			throw 1;
-		}
-	});
-
-	auto next = dispatcher.allocate(nullptr, []() {
-		printf("execute once after exception!\n");
-	});
-
-	dispatcher.order(excepted, next);
-
-	exception_handler = [&dispatcher]() {
-		IRIS_ASSERT(dispatcher.has_exception());
-		dispatcher.resurrect();
-	};
-
-	try {
-		dispatcher.dispatch(std::move(next));
-		dispatcher.dispatch(std::move(excepted));
-		worker.finalize();
-	} catch (int) {
-		exception_handler();
-		worker.finalize();
-	}
 }
 
 void acquire_release() {

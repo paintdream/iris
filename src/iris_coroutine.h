@@ -106,6 +106,7 @@ namespace iris {
 		template <typename func_t>
 		iris_coroutine_t& complete(func_t&& func) noexcept {
 			IRIS_ASSERT(handle);
+			IRIS_ASSERT(!handle.promise().completion);
 			handle.promise().completion = std::forward<func_t>(func);
 
 			return *this;
@@ -149,8 +150,20 @@ namespace iris {
 			}
 		}
 
+		operator std::coroutine_handle<promise_type>() noexcept {
+			return handle;
+		}
+
+		operator std::coroutine_handle<>() noexcept {
+			return std::coroutine_handle<>(handle);
+		}
+
 		std::coroutine_handle<promise_type>& get_handle() noexcept {
 			return handle;
+		}
+
+		std::coroutine_handle<promise_type> move_handle() noexcept {
+			return std::exchange(handle, std::coroutine_handle<promise_type>());
 		}
 
 		const std::coroutine_handle<promise_type>& get_handle() const noexcept {
@@ -303,7 +316,7 @@ namespace iris {
 			if (caller != nullptr) {
 				// notice that the condition `caller != target` holds
 				// so we can use `post` to skip self-queueing check
-				caller->queue_routine_post([handle = std::exchange(resume_handle, std::coroutine_handle())]() mutable noexcept(noexcept(resume_handle.resume())) {\
+				caller->queue_routine_post([handle = std::exchange(resume_handle, std::coroutine_handle())]() mutable noexcept(noexcept(resume_handle.resume())) {
 					handle.resume();
 				});
 			} else {
@@ -870,27 +883,27 @@ namespace iris {
 
 	// listen specified task completes
 	template <typename async_dispatcher_t>
-	struct iris_listen_dispatch_t : iris_sync_t<typename async_dispatcher_t::warp_t, typename async_dispatcher_t::async_worker_t> {
+	struct iris_coroutine_dispatch_t : iris_sync_t<typename async_dispatcher_t::warp_t, typename async_dispatcher_t::async_worker_t> {
 		using warp_t = typename async_dispatcher_t::warp_t;
 		using async_worker_t = typename async_dispatcher_t::async_worker_t;
 		using routine_handle_t = typename async_dispatcher_t::routine_handle_t;
 
-		explicit iris_listen_dispatch_t(async_dispatcher_t& disp) : iris_sync_t<warp_t, async_worker_t>(disp.get_async_worker()), dispatcher(disp) {
+		explicit iris_coroutine_dispatch_t(async_dispatcher_t& disp) : iris_sync_t<warp_t, async_worker_t>(disp.get_async_worker()), dispatcher(disp) {
 			warp_t* warp = nullptr;
 			if constexpr (!std::is_same_v<warp_t, void>) {
 				warp = warp_t::get_current_warp();
 			}
 
 			info.warp = warp;
-			routine = dispatcher.allocate(warp, [this]() {
+			routine = dispatcher.allocate(warp, [this](const async_dispatcher_t::routine_handle_t& routine) {
 				iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(info));
 			});
 		}
 
-		~iris_listen_dispatch_t() noexcept {}
+		~iris_coroutine_dispatch_t() noexcept {}
 
 		template <typename... args_t>
-		iris_listen_dispatch_t(async_dispatcher_t& disp, routine_handle_t&& first, args_t&&... args) : iris_listen_dispatch_t(disp, std::forward<args_t>(args)...) {
+		iris_coroutine_dispatch_t(async_dispatcher_t& disp, routine_handle_t&& first, args_t&&... args) : iris_coroutine_dispatch_t(disp, std::forward<args_t>(args)...) {
 			dispatcher.order(first, routine);
 			dispatcher.dispatch(std::move(first));
 		}
@@ -921,10 +934,37 @@ namespace iris {
 		info_t info;
 	};
 
-	// specify warp_t = void for warp-ignored dispatch
+	// coroutine -> dispatcher, to schedule a coroutine as a dispatcher task
+	template <typename async_dispatcher_t, typename coroutine_t>
+	auto iris_dispatch_coroutine(async_dispatcher_t& dispatcher, coroutine_t&& coroutine) {
+		static_assert(std::is_rvalue_reference_v<coroutine_t&&>, "Coroutine must be rvalue.");
+		using warp_t = typename async_dispatcher_t::warp_t;
+		warp_t* warp = nullptr;
+		if constexpr (!std::is_same_v<warp_t, void>) {
+			warp = warp_t::get_current_warp();
+		}
+
+		return dispatcher.allocate(warp, [&dispatcher, handle = coroutine.move_handle()](const typename async_dispatcher_t::routine_handle_t& post) mutable {
+			coroutine_t coroutine(std::move(handle)); // reconstruct
+			if constexpr (std::is_void_v<typename coroutine_t::return_type_t>) {
+				coroutine.complete([&dispatcher, p = dispatcher.defer(post).move()](void* address) {
+					dispatcher.dispatch(typename async_dispatcher_t::routine_handle_t(p));
+				});
+			} else {
+				coroutine.complete([&dispatcher, p = dispatcher.defer(post).move()](void* address, typename coroutine_t::return_type_t&& value) {
+					// return value is discarded
+					dispatcher.dispatch(typename async_dispatcher_t::routine_handle_t(p));
+				});
+			}
+
+			coroutine.run();
+		});
+	}
+
+	// dispatcher -> coroutine, to co_await multiple dispatcher tasks
 	template <typename async_dispatcher_t, typename... args_t>
-	auto iris_listen_dispatch(async_dispatcher_t& dispatcher, args_t&&... args) {
-		return iris_listen_dispatch_t<async_dispatcher_t>(dispatcher, std::forward<args_t>(args)...);
+	auto iris_coroutine_dispatch(async_dispatcher_t& dispatcher, args_t&&... args) {
+		return iris_coroutine_dispatch_t<async_dispatcher_t>(dispatcher, std::forward<args_t>(args)...);
 	}
 
 	// get quota in coroutine
