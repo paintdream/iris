@@ -86,14 +86,6 @@ SOFTWARE.
 #define IRIS_ASSERT assert
 #endif
 
-#ifndef IRIS_LOGERROR
-#define IRIS_LOGERROR(...) fprintf(stderr, __VA_ARGS__)
-#endif
-
-#ifndef IRIS_LOGINFO
-#define IRIS_LOGINFO(...) printf(__VA_ARGS__)
-#endif
-
 namespace iris {
 	static constexpr size_t default_block_size = IRIS_DEFAULT_BLOCK_SIZE;
 	static constexpr size_t default_page_size = IRIS_DEFAULT_PAGE_SIZE;
@@ -341,6 +333,16 @@ namespace iris {
 	template <typename value_t>
 	constexpr value_t iris_get_alignment(value_t a) noexcept {
 		return a & (~a + 1); // the same as a & -a, but no compiler warnings.
+	}
+
+	template <typename value_t>
+	constexpr value_t iris_upper_size(value_t a, value_t c) noexcept {
+		return (a + c - 1) / c;
+	}
+
+	template <typename value_t>
+	constexpr value_t iris_lower_size(value_t a, value_t c) noexcept {
+		return a / c;
 	}
 
 	template <typename value_t>

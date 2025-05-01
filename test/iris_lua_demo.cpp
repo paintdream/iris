@@ -535,12 +535,12 @@ end\n\
 	lua.native_cross_transfer_variable<true>(target, -3);
 	lua.native_cross_transfer_variable<true>(target, -2);
 	lua.native_cross_transfer_variable<false>(target, -1);
-	auto* g = target.native_get_variable<example_t*>(-1);
+	auto* g = target.native_get_variable<example_t*>(-1).value();
 	lua.native_pop_variable(3);
 
 	int result = target.native_call(std::move(test), 3).value();
 	IRIS_ASSERT(existing_object.value == 3333);
-	int ret_val = target.native_get_variable<int>(-1);
+	int ret_val = target.native_get_variable<int>(-1).value();
 	IRIS_ASSERT(ret_val == 1234);
 	target.native_pop_variable(1);
 
@@ -640,7 +640,7 @@ end\n\
 	lua.native_call(std::move(print2), 1);
 
 	lua.native_push_variable(1234);
-	int v = lua.native_get_variable<int>(-1);
+	int v = lua.native_get_variable<int>(-1).value();
 	lua_pop(L, 1);
 	IRIS_ASSERT(v == 1234);
 
