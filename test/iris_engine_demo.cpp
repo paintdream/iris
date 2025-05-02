@@ -15,12 +15,13 @@ struct engine_t {
 	using pipe_t = iris_pipe_t<int, warp_t, worker_t>;
 	using coroutine_t = iris_coroutine_t<>;
 
-	engine_t() : worker(std::thread::hardware_concurrency()), frame(worker, 3u), pipe(worker), sync_event(worker),
+	engine_t() : worker(std::thread::hardware_concurrency()), frame(worker, 4u), pipe(worker), sync_event(worker),
 		warp_audio(worker), warp_script(worker), warp_network(worker), warp_render(worker) {
 		worker.start();
 
 		coroutine_async().run();
 		coroutine_tick().run();
+		coroutine_once().run();
 	}
 
 	~engine_t() noexcept {
@@ -34,6 +35,13 @@ struct engine_t {
 
 		while (!worker.join() || !warp_audio.join(waiter) || !warp_script.join(waiter) || !warp_network.join(waiter) || !warp_render.join(waiter)) {
 			printf("finalizing ...\n");
+		}
+	}
+
+	coroutine_t coroutine_once() {
+		if (co_await frame) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+			frame.release();
 		}
 	}
 

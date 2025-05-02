@@ -789,7 +789,8 @@ namespace iris {
 	struct iris_barrier_t : iris_sync_t<warp_t, async_worker_t> {
 		iris_barrier_t(async_worker_t& worker, size_t yield_max_count, value_t init_value = value_t()) : iris_sync_t<warp_t, async_worker_t>(worker), yield_max(yield_max_count), value(init_value) {
 			handles.resize(yield_max);
-			yield_count.store(0, std::memory_order_release);
+			yield_count.store(0, std::memory_order_relaxed);
+			release_count.store(0, std::memory_order_release);
 		}
 
 		~iris_barrier_t() noexcept {
@@ -811,6 +812,15 @@ namespace iris {
 			await_suspend(std::coroutine_handle<>());
 		}
 
+		void release(size_t count = 1) noexcept {
+			release_count.fetch_add(count, std::memory_order_relaxed);
+			IRIS_ASSERT(yield_max >= release_count.load(std::memory_order_relaxed));
+			size_t index = yield_count.fetch_add(count, std::memory_order_acquire);
+			if (index + count == yield_max) {
+				complete();
+			}
+		}
+
 		void await_suspend(std::coroutine_handle<> handle) {
 			size_t index = yield_count.fetch_add(1, std::memory_order_acquire);
 			IRIS_ASSERT(index < yield_max);
@@ -823,33 +833,7 @@ namespace iris {
 
 			// all finished?
 			if (index + 1 == yield_max) {
-				size_t old = yield_count.exchange(0, std::memory_order_release);
-				IRIS_ASSERT(old == yield_max);
-
-				// notify all coroutines
-				for (size_t i = 1; i < handles.size(); i++) {
-					if (handles[i].handle == std::coroutine_handle<>()) {
-						std::swap(handles[i], handles[0]);
-						break;
-					}
-				}
-
-				if (callback) {
-					callback(*this);
-				}
-
-				for (size_t i = 0; i < handles.size(); i++) {
-					auto info = std::move(handles[i]);
-#if IRIS_DEBUG
-					handles[i].handle = std::coroutine_handle<>();
-					if constexpr (!std::is_same_v<warp_t, void>) {
-						handles[i].warp = nullptr;
-					}
-#endif
-					if (info.handle != std::coroutine_handle<>()) {
-						iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(info));
-					}
-				}
+				complete();
 			}
 		}
 
@@ -867,12 +851,41 @@ namespace iris {
 		}
 
 	protected:
+		void complete() {
+			size_t old = yield_count.exchange(0, std::memory_order_release);
+			IRIS_ASSERT(old == yield_max);
+
+			// update yield_max
+			IRIS_ASSERT(yield_max >= release_count.load(std::memory_order_relaxed));
+			size_t last_yield_max = yield_max;
+			yield_max -= release_count.exchange(0, std::memory_order_relaxed);
+
+			// notify all coroutines
+			if (callback) {
+				callback(*this);
+			}
+
+			for (size_t i = 0; i < last_yield_max; i++) {
+				auto info = std::move(handles[i]);
+				handles[i].handle = std::coroutine_handle<>();
+				if constexpr (!std::is_same_v<warp_t, void>) {
+					handles[i].warp = nullptr;
+				}
+
+				if (info.handle != std::coroutine_handle<>()) {
+					iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(info));
+				}
+			}
+		}
+
+	protected:
 		using info_t = typename iris_sync_t<warp_t, async_worker_t>::info_t;
 		size_t yield_max;
 		value_t value;
 		std::atomic<size_t> yield_count;
 		std::vector<info_t> handles;
 		std::function<void(iris_barrier_t&)> callback;
+		std::atomic<size_t> release_count;
 	};
 
 	// specify warp_t = void for warp-ignored dispatch
