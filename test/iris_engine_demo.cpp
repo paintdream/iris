@@ -15,8 +15,9 @@ struct engine_t {
 	using pipe_t = iris_pipe_t<int, warp_t, worker_t>;
 	using coroutine_t = iris_coroutine_t<>;
 
-	engine_t() : worker(std::thread::hardware_concurrency()), frame(worker, 4u), pipe(worker), sync_event(worker),
+	engine_t() : worker(std::thread::hardware_concurrency()), frame(worker, 3u), pipe(worker), sync_event(worker),
 		warp_audio(worker), warp_script(worker), warp_network(worker), warp_render(worker) {
+		frame.reset(4u, true);
 		worker.start();
 
 		coroutine_async().run();

@@ -71,7 +71,7 @@ namespace iris {
 	//     1. from warp to warp. (queue_routine/queue_routine_post).
 	//     2. from warp to external in parallel (queue_routine_parallel).
 	// you can select implemention from warp/strand via 'strand' template parameter.
-	template <typename worker_t, bool strand = true, typename base_t = void, template <typename...> class func_t = std::function, template <typename...> class allocator_t = iris_default_block_allocator_t>
+	template <typename worker_t, bool strand = true, typename base_t = void, template <typename...> class allocator_t = iris_default_block_allocator_t>
 	struct iris_warp_t {
 		// for exception safe!
 		struct suspend_guard_t {
@@ -148,12 +148,24 @@ namespace iris {
 			bool state;
 		};
 
-		using function_t = func_t<void()>;
-		template <typename proto_t>
-		using function_template_t = func_t<proto_t>;
-		using queue_buffer_t = iris_queue_list_t<function_t, allocator_t>;
 		using async_worker_t = worker_t;
 		using task_t = typename async_worker_t::task_base_t;
+		using normal_task_t = typename async_worker_t::normal_task_t;
+
+		struct alignas(alignof(normal_task_t)) function_t {
+			template <typename initializer_t>
+			function_t(initializer_t&& initializer) {
+				initializer(get());
+			}
+
+			normal_task_t* get() noexcept {
+				return reinterpret_cast<normal_task_t*>(storage);
+			}
+
+			uint8_t storage[sizeof(normal_task_t)];
+		};
+
+		using queue_buffer_t = iris_queue_list_t<function_t, allocator_t>;
 
 		static constexpr size_t block_size = iris_extract_block_size<function_t, allocator_t>::value;
 		enum class queue_state_t : size_t {
@@ -177,7 +189,7 @@ namespace iris {
 			template <typename proc_t>
 			external_t(iris_warp_t& w, proc_t&& c) noexcept : warp(w), callable(std::forward<proc_t>(c)) {}
 			void operator () () {
-				warp.queue_routine_post(std::move(callable));
+				warp.queue_routine(std::move(callable));
 			}
 
 			iris_warp_t& warp;
@@ -651,7 +663,7 @@ namespace iris {
 		}
 
 		template <bool s, bool force>
-		typename std::enable_if<!s>::type execute_internal() noexcept(noexcept(std::declval<function_t>()())) {
+		typename std::enable_if<!s>::type execute_internal() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			// mark for queueing, avoiding flush me more than once.
@@ -678,7 +690,7 @@ namespace iris {
 						typename queue_buffer_t::element_t func = std::move(buffer.top());
 						buffer.pop(); // pop up before calling
 
-						func(); // may throws exceptions
+						async_worker.execute_task(func.get()); // may throws exceptions
 						execute_counter++;
 						counter = next_version;
 
@@ -748,7 +760,7 @@ namespace iris {
 		}
 
 		// commit execute request to specified worker.
-		void flush() noexcept(noexcept(std::declval<iris_warp_t>().async_worker.queue(std::declval<function_t>(), 0))) {
+		void flush() {
 			// if current state is executing, the executing routine will reinvoke flush() if it detected pending state while exiting
 			// so we just need to queue a flush routine as soon as current state is idle
 			if (queueing.load(std::memory_order_acquire) != queue_state_t::pending) {
@@ -775,22 +787,28 @@ namespace iris {
 		}
 
 		template <bool s, typename callable_t>
-		typename std::enable_if<!s>::type push(callable_t&& func) noexcept(
-			noexcept(std::declval<queue_buffer_t>().push(std::forward<callable_t>(func))) &&
-			noexcept(std::declval<iris_warp_t>().flush())) {
+		typename std::enable_if<!s>::type push(callable_t&& func) {
 			size_t thread_index = async_worker.get_current_thread_index();
+			auto initializer = [this, &func](normal_task_t* storage) {
+				if /* constexpr */ (std::is_rvalue_reference<callable_t&&>::value) {
+					async_worker.construct_task_at(storage, std::move(func));
+				} else {
+					async_worker.construct_task_at(storage, func);
+				}
+			};
+
 			if (thread_index != ~size_t(0)) {
 				std::vector<queue_buffer_t>& queue_buffers = storage.queue_buffers;
 				IRIS_ASSERT(thread_index < queue_buffers.size());
 				queue_buffer_t& buffer = queue_buffers[thread_index];
-				buffer.push(std::forward<callable_t>(func));
+				buffer.push(std::move(initializer));
 
 				// flush the task immediately
 				flush();
 			} else {
 				IRIS_ASSERT(async_worker.is_terminated());
 				IRIS_ASSERT(!storage.queue_buffers.empty());
-				storage.queue_buffers[0].push(std::forward<callable_t>(func));
+				storage.queue_buffers[0].push(std::move(initializer));
 			}
 		}
 
@@ -806,13 +824,13 @@ namespace iris {
 	};
 
 	// dispatcher based-on directed-acyclic graph
-	template <typename base_t, typename base_warp_t>
+	template <typename base_t, typename base_warp_t, template <typename...> typename function_template_t = std::function>
 	struct iris_dispatcher_t {
 		using warp_t = base_warp_t;
 		// wraps task data
 		struct routine_t;
 		struct routine_handle_t;
-		using function_t = typename warp_t::template function_template_t<void(const routine_handle_t&)>;
+		using function_t = function_template_t<void(const routine_handle_t&)>;
 
 		struct routine_t {
 		protected:
@@ -1114,8 +1132,10 @@ namespace iris {
 
 		template <typename element_t>
 		using general_allocator_t = allocator_t<element_t>;
-		using task_allocator_t = allocator_t<task_t<void (*)()>>;
-		using large_task_allocator_t = allocator_t<task_t<large_callable_t>>;
+		using normal_task_t = task_t<void (*)()>;
+		using large_task_t = task_t<large_callable_t>;
+		using task_allocator_t = allocator_t<normal_task_t>;
+		using large_task_allocator_t = allocator_t<large_task_t>;
 
 		iris_async_worker_t() : waiting_thread_count(0), limit_count(0), internal_thread_count(0) {
 			task_allocator_index.store(0, std::memory_order_relaxed);
@@ -1272,13 +1292,13 @@ namespace iris {
 		// queue a task to worker with given priority [0, thread_count - 1], which 0 is the highest priority
 		template <typename callable_t>
 		struct is_large_task {
-			static constexpr bool value = sizeof(task_t<callable_t>) > sizeof(task_t<void (*)()>);
+			static constexpr bool value = sizeof(task_t<callable_t>) > sizeof(normal_task_t);
 		};
 
 		template <typename callable_t>
 		typename std::enable_if<is_large_task<typename std::remove_reference<callable_t>::type>::value, task_base_t*>::type new_task(callable_t&& func) {
-			task_t<large_callable_t>* task = large_task_allocator.allocate(1);
-			new (task) task_t<large_callable_t>(std::forward<callable_t>(func), nullptr, ~(size_t)0);
+			large_task_t* task = large_task_allocator.allocate(1);
+			new (task) large_task_t(std::forward<callable_t>(func), nullptr, 0);
 			task_count.fetch_add(1, std::memory_order_relaxed);
 
 			return task;
@@ -1289,11 +1309,27 @@ namespace iris {
 			size_t index = task_allocator_index.fetch_add(1, std::memory_order_relaxed) % sub_allocator_count;
 			task_allocator_t& current_allocator = task_allocators[index];
 			task_t<callable_t>* task = reinterpret_cast<task_t<callable_t>*>(current_allocator.allocate(1));
-			static_assert(sizeof(task_t<callable_t>) == sizeof(task_t<void (*)()>), "Task size mismatch!");
-			new (task) task_t<callable_t>(std::forward<callable_t>(func), nullptr, index);
+			static_assert(sizeof(task_t<callable_t>) == sizeof(normal_task_t), "Task size mismatch!");
+			new (task) task_t<callable_t>(std::forward<callable_t>(func), nullptr, index + 1);
 			task_count.fetch_add(1, std::memory_order_relaxed);
 
 			return task;
+		}
+
+		template <typename callable_t>
+		typename std::enable_if<is_large_task<typename std::remove_reference<callable_t>::type>::value, task_base_t*>::type construct_task_at(normal_task_t* task, callable_t&& func) {
+			task_base_t* p = new_task(std::forward<callable_t>(func));
+			auto adapter = [this, p]() {
+				execute_task(p);
+			};
+
+			static_assert(!is_large_task<decltype(adapter)>::value, "Incompatible platform, please increase the size of normal_task_t!");
+			return construct_task_at(task, std::move(adapter));
+		}
+
+		template <typename callable_t>
+		typename std::enable_if<!is_large_task<typename std::remove_reference<callable_t>::type>::value, task_base_t*>::type construct_task_at(normal_task_t* task, callable_t&& func) {
+			return new (task) task_t<callable_t>(std::forward<callable_t>(func), nullptr, ~(size_t)0);
 		}
 
 		// guard for exceptions on polling
@@ -1303,13 +1339,15 @@ namespace iris {
 				// do cleanup work
 				size_t index = task->alloc_index;
 
-				if (index == ~(size_t)0) {
-					worker.large_task_allocator.deallocate(static_cast<task_t<large_callable_t>*>(task), 1);
-				} else {
-					worker.task_allocators[index].deallocate(static_cast<task_t<void (*)()>*>(task), 1);
+				if (index != ~size_t(0)) {
+					if (index == 0) {
+						worker.large_task_allocator.deallocate(static_cast<large_task_t*>(task), 1);
+					} else {
+						worker.task_allocators[index - 1].deallocate(static_cast<normal_task_t*>(task), 1);
+					}
+					
+					worker.task_count.fetch_sub(1, std::memory_order_release);
 				}
-
-				worker.task_count.fetch_sub(1, std::memory_order_release);
 			}
 
 			iris_async_worker_t& worker;

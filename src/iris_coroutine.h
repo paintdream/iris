@@ -793,6 +793,17 @@ namespace iris {
 			release_count.store(0, std::memory_order_release);
 		}
 
+		void reset(size_t yield_max_count, value_t init_value = value_t()) {
+			IRIS_ASSERT(yield_count.load(std::memory_order_acquire) == 0);
+			IRIS_ASSERT(release_count.load(std::memory_order_acquire) == 0);
+
+			yield_max = yield_max_count;
+			value = init_value;
+			handles.resize(yield_max);
+			yield_count.store(0, std::memory_order_relaxed);
+			release_count.store(0, std::memory_order_release);
+		}
+
 		~iris_barrier_t() noexcept {
 #if IRIS_DEBUG
 			// no more suspended coroutines
