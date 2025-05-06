@@ -787,21 +787,21 @@ namespace iris {
 	// barrier-like multiple coroutine sychronization
 	template <typename warp_t, typename value_t = bool, typename async_worker_t = typename warp_t::async_worker_t>
 	struct iris_barrier_t : iris_sync_t<warp_t, async_worker_t> {
-		iris_barrier_t(async_worker_t& worker, size_t yield_max_count, value_t init_value = value_t()) : iris_sync_t<warp_t, async_worker_t>(worker), yield_max(yield_max_count), value(init_value) {
-			handles.resize(yield_max);
-			yield_count.store(0, std::memory_order_relaxed);
-			release_count.store(0, std::memory_order_release);
+		iris_barrier_t(async_worker_t& worker, size_t max_await_count_count, value_t init_value = value_t()) : iris_sync_t<warp_t, async_worker_t>(worker), max_await_count(max_await_count_count), value(init_value) {
+			handles.resize(max_await_count);
+			await_count.store(0, std::memory_order_relaxed);
+			release_await_count.store(0, std::memory_order_release);
 		}
 
-		void reset(size_t yield_max_count, value_t init_value = value_t()) {
-			IRIS_ASSERT(yield_count.load(std::memory_order_acquire) == 0);
-			IRIS_ASSERT(release_count.load(std::memory_order_acquire) == 0);
+		void reset(size_t max_await_count_count, value_t init_value = value_t()) {
+			IRIS_ASSERT(await_count.load(std::memory_order_acquire) == 0);
+			IRIS_ASSERT(release_await_count.load(std::memory_order_acquire) == 0);
 
-			yield_max = yield_max_count;
+			max_await_count = max_await_count_count;
 			value = init_value;
-			handles.resize(yield_max);
-			yield_count.store(0, std::memory_order_relaxed);
-			release_count.store(0, std::memory_order_release);
+			handles.resize(max_await_count);
+			await_count.store(0, std::memory_order_relaxed);
+			release_await_count.store(0, std::memory_order_release);
 		}
 
 		~iris_barrier_t() noexcept {
@@ -824,17 +824,17 @@ namespace iris {
 		}
 
 		void release(size_t count = 1) noexcept {
-			release_count.fetch_add(count, std::memory_order_relaxed);
-			IRIS_ASSERT(yield_max >= release_count.load(std::memory_order_relaxed));
-			size_t index = yield_count.fetch_add(count, std::memory_order_acquire);
-			if (index + count == yield_max) {
+			release_await_count.fetch_add(count, std::memory_order_relaxed);
+			IRIS_ASSERT(max_await_count >= release_await_count.load(std::memory_order_relaxed));
+			size_t index = await_count.fetch_add(count, std::memory_order_acquire);
+			if (index + count == max_await_count) {
 				complete();
 			}
 		}
 
 		void await_suspend(std::coroutine_handle<> handle) {
-			size_t index = yield_count.fetch_add(1, std::memory_order_acquire);
-			IRIS_ASSERT(index < yield_max);
+			size_t index = await_count.fetch_add(1, std::memory_order_acquire);
+			IRIS_ASSERT(index < max_await_count);
 			auto& info = handles[index];
 			info.handle = std::move(handle);
 
@@ -843,7 +843,7 @@ namespace iris {
 			}
 
 			// all finished?
-			if (index + 1 == yield_max) {
+			if (index + 1 == max_await_count) {
 				complete();
 			}
 		}
@@ -861,22 +861,30 @@ namespace iris {
 			return get_value();
 		}
 
+		size_t get_max_await_count() const noexcept {
+			return max_await_count;
+		}
+
+		size_t get_await_count() const noexcept {
+			return await_count.load(std::memory_order_acquire);
+		}
+
 	protected:
 		void complete() {
-			size_t old = yield_count.exchange(0, std::memory_order_release);
-			IRIS_ASSERT(old == yield_max);
+			size_t old = await_count.exchange(0, std::memory_order_release);
+			IRIS_ASSERT(old == max_await_count);
 
-			// update yield_max
-			IRIS_ASSERT(yield_max >= release_count.load(std::memory_order_relaxed));
-			size_t last_yield_max = yield_max;
-			yield_max -= release_count.exchange(0, std::memory_order_relaxed);
+			// update max_await_count
+			IRIS_ASSERT(max_await_count >= release_await_count.load(std::memory_order_relaxed));
+			size_t last_max_await_count = max_await_count;
+			max_await_count -= release_await_count.exchange(0, std::memory_order_relaxed);
 
 			// notify all coroutines
 			if (callback) {
 				callback(*this);
 			}
 
-			for (size_t i = 0; i < last_yield_max; i++) {
+			for (size_t i = 0; i < last_max_await_count; i++) {
 				auto info = std::move(handles[i]);
 				handles[i].handle = std::coroutine_handle<>();
 				if constexpr (!std::is_same_v<warp_t, void>) {
@@ -891,18 +899,18 @@ namespace iris {
 
 	protected:
 		using info_t = typename iris_sync_t<warp_t, async_worker_t>::info_t;
-		size_t yield_max;
+		size_t max_await_count;
 		value_t value;
-		std::atomic<size_t> yield_count;
+		std::atomic<size_t> await_count;
 		std::vector<info_t> handles;
 		std::function<void(iris_barrier_t&)> callback;
-		std::atomic<size_t> release_count;
+		std::atomic<size_t> release_await_count;
 	};
 
 	// specify warp_t = void for warp-ignored dispatch
 	template <typename warp_t, typename async_worker_t>
-	auto iris_barrier(async_worker_t& worker, size_t yield_max_count) {
-		return iris_barrier_t<warp_t, async_worker_t>(worker, yield_max_count);
+	auto iris_barrier(async_worker_t& worker, size_t max_await_count_count) {
+		return iris_barrier_t<warp_t, async_worker_t>(worker, max_await_count_count);
 	}
 
 	// listen specified task completes
