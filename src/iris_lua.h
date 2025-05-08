@@ -2557,7 +2557,10 @@ namespace iris {
 			}
 
 			if (!check_result) {
-				syserror(L, "error.parameter", "Required %s parameter %d of type %s is invalid or inaccessable.\n", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
+				if constexpr (throw_error) {
+					syserror(L, "error.parameter", "Required %s parameter %d of type %s is invalid or inaccessable.\n", index <= env_count ? "Env" : "Stack", offset_index, typeid(type_t).name());
+				}
+
 				return false;
 			}
 
