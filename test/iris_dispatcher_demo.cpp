@@ -447,8 +447,8 @@ void graph_dispatch() {
 	static constexpr size_t total_pass = 716;
 	task_count.store(0, std::memory_order_relaxed);
 
-	struct dispatcher_t : iris_dispatcher_t<dispatcher_t, warp_t> {
-		dispatcher_t(iris_async_worker_t<>& w) : iris_dispatcher_t<dispatcher_t, warp_t>(w) {}
+	struct dispatcher_t : iris_dispatcher_t<warp_t, dispatcher_t> {
+		dispatcher_t(iris_async_worker_t<>& w) : iris_dispatcher_t<warp_t, dispatcher_t>(w) {}
 		void dispatcher_complete() {
 			async_worker.terminate();
 		}

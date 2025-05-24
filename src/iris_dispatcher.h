@@ -824,7 +824,7 @@ namespace iris {
 	};
 
 	// dispatcher based-on directed-acyclic graph
-	template <typename base_t, typename base_warp_t, template <typename...> typename function_template_t = std::function>
+	template <typename base_warp_t, typename base_t = void, template <typename...> typename function_template_t = std::function>
 	struct iris_dispatcher_t {
 		using warp_t = base_warp_t;
 		// wraps task data
@@ -840,7 +840,7 @@ namespace iris {
 				std::memset(next_tasks, 0, sizeof(next_tasks));
 			}
 
-			friend struct iris_dispatcher_t<base_t, warp_t>;
+			friend struct iris_dispatcher_t;
 			function_t routine;
 			std::atomic<size_t> lock_count;
 			size_t priority;
@@ -896,19 +896,6 @@ namespace iris {
 
 		~iris_dispatcher_t() noexcept {
 			IRIS_ASSERT(get_pending_count() == 0);
-		}
-
-		template <typename waiter_t>
-		bool join(waiter_t&& waiter, size_t priority = 0) {
-			while (get_pending_count() != 0) {
-				if (async_worker.poll(priority)) {
-					if (!waiter()) {
-						return false;
-					}
-				}
-			}
-
-			return true;
 		}
 
 		async_worker_t& get_async_worker() noexcept {

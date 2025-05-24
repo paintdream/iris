@@ -130,8 +130,8 @@ coroutine_t example_barrier(warp_t::async_worker_t& async_worker, barrier_type_t
 	}
 }
 
-struct dispatcher_t : iris_dispatcher_t<dispatcher_t, warp_t> {
-	dispatcher_t(iris_async_worker_t<>& w) : iris_dispatcher_t<dispatcher_t, warp_t>(w) {}
+struct dispatcher_t : iris_dispatcher_t<warp_t, dispatcher_t> {
+	dispatcher_t(iris_async_worker_t<>& w) : iris_dispatcher_t<warp_t, dispatcher_t>(w) {}
 	void dispatcher_complete() {
 		async_worker.terminate();
 	}
