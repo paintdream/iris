@@ -98,7 +98,7 @@ void stack_op() {
 	for (size_t i = 0; i < warp_count; i++) {
 		warps[i].queue_routine_post([&, i]() {
 			for (size_t k = 0; k < warp_count; k++) {
-				IRIS_ASSERT(i == warp_t::get_current_warp() - &warps[0]);
+				IRIS_ASSERT(i == warp_t::get_current() - &warps[0]);
 				warp_t::preempt_guard_t guard(warps[k], 0);
 				printf("take warp %d based on %d %s\n", int(k), int(i), guard ? "success!" : "failed!");
 			}
@@ -227,7 +227,7 @@ void simple_explosion(void) {
 		if (worker.is_terminated())
 			return;
 
-		warp_t& current_warp = *warp_t::get_current_warp();
+		warp_t& current_warp = *warp_t::get_current();
 		size_t warp_index = &current_warp - &warps[0];
 		do {
 			auto write_guard = fences[warp_index].write_fence();
@@ -376,7 +376,7 @@ void garbage_collection() {
 		collecting_count.store(0, std::memory_order_release);
 
 		collector = [&warps, &collector, &worker, &graph, &collecting_count](size_t node_index) {
-			count_warp_t& current_warp = *static_cast<count_warp_t*>(warp_t::get_current_warp());
+			count_warp_t& current_warp = *static_cast<count_warp_t*>(warp_t::get_current());
 			size_t warp_index = &current_warp - &warps[0];
 
 			node_t& node = graph.nodes[node_index];

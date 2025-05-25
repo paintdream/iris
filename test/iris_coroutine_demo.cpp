@@ -36,11 +36,11 @@ coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, warp_t* 
 		co_await iris_switch(warp);
 		printf("Attached\n");
 		co_await iris_switch(current);
-		IRIS_ASSERT(current == warp_t::get_current_warp());
+		IRIS_ASSERT(current == warp_t::get_current());
 
 		// randomly select warp
 		IRIS_ASSERT(warp_end != nullptr);
-		co_await iris_switch<warp_t>(nullptr); // iris_select requires warp_t::get_current_warp() == nullptr
+		co_await iris_switch<warp_t>(nullptr); // iris_select requires warp_t::get_current() == nullptr
 		warp_t* selected = co_await iris_select(warp, warp_end);
 		printf("Select warp: %d\n", iris_verify_cast<int>(selected - warp));
 
@@ -63,8 +63,8 @@ coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, warp_t* 
 	// Step 1: test single await
 	co_await iris_awaitable(warp, []() {});
 	int v = co_await iris_awaitable(warp, [value]() { return value; });
-	warp_t* current = warp_t::get_current_warp();
-	printf("Value: %d %p\n", v, warp_t::get_current_warp());
+	warp_t* current = warp_t::get_current();
+	printf("Value: %d %p\n", v, warp_t::get_current());
 
 	// Step 2: test multiple await by incrementally construction
 	std::function<void()> v1 = [value]() {};
@@ -98,7 +98,7 @@ coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, warp_t* 
 		warp_t* current = co_await iris_switch(warp);
 		printf("Another switch to warp %p\n", warp);
 		co_await iris_switch(current);
-		IRIS_ASSERT(current == warp_t::get_current_warp());
+		IRIS_ASSERT(current == warp_t::get_current());
 		printf("I'm back %d\n", (int)pending_count.load(std::memory_order_acquire));
 	}
 
@@ -147,11 +147,11 @@ static void example_dispatch_coroutine(worker_t& worker) {
 	dispatcher_t dispatcher(worker);
 	std::atomic<bool> finished2 = false;
 
-	auto preNode = dispatcher.allocate(warp_t::get_current_warp(), [](const auto& handle) {
+	auto preNode = dispatcher.allocate(warp_t::get_current(), [](const auto& handle) {
 		printf("example_from_coroutine 0000!\n");
 	});
 
-	auto postNode = dispatcher.allocate(warp_t::get_current_warp(), [&finished2, &finished](const auto& handle) {
+	auto postNode = dispatcher.allocate(warp_t::get_current(), [&finished2, &finished](const auto& handle) {
 		IRIS_ASSERT(finished.load(std::memory_order_acquire));
 		printf("example_from_coroutine 2222!\n");
 
@@ -160,7 +160,7 @@ static void example_dispatch_coroutine(worker_t& worker) {
 
 	auto coroNode = iris_dispatch_coroutine(dispatcher, [](dispatcher_t& dispatcher, std::atomic<bool>& finished) -> coroutine_t {
 		printf("example_from_coroutine 1111!\n");
-		co_await iris_awaitable(warp_t::get_current_warp(), []() {});
+		co_await iris_awaitable(warp_t::get_current(), []() {});
 		finished.store(true, std::memory_order_release);
 		co_return;
 	}(dispatcher, finished));

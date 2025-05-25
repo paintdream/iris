@@ -216,7 +216,7 @@ namespace iris {
 				return false;
 			}
 
-			caller = warp_t::get_current_warp();
+			caller = warp_t::get_current();
 
 			// the same warp, execute at once!
 			// even they are both null
@@ -356,7 +356,7 @@ namespace iris {
 	template <typename warp_t>
 	struct iris_switch_t {
 		using async_worker_t = typename warp_t::async_worker_t;
-		iris_switch_t(warp_t* target_warp, warp_t* other_warp, bool parallel_target_warp, bool parallel_other_warp) noexcept : source(warp_t::get_current_warp()), target(target_warp), other(other_warp), parallel_target(parallel_target_warp), parallel_other(parallel_other_warp) {}
+		iris_switch_t(warp_t* target_warp, warp_t* other_warp, bool parallel_target_warp, bool parallel_other_warp) noexcept : source(warp_t::get_current()), target(target_warp), other(other_warp), parallel_target(parallel_target_warp), parallel_other(parallel_other_warp) {}
 
 		bool await_ready() const noexcept {
 			if (parallel_target || parallel_other)
@@ -457,7 +457,7 @@ namespace iris {
 
 		iris_select_t(iterator_t from, iterator_t to) noexcept : begin(from), end(to), selected(nullptr) {
 			IRIS_ASSERT(from != to);
-			IRIS_ASSERT(warp_t::get_current_warp() == nullptr);
+			IRIS_ASSERT(warp_t::get_current() == nullptr);
 		}
 
 		constexpr bool await_ready() const noexcept {
@@ -562,7 +562,7 @@ namespace iris {
 			info.handle = std::move(handle);
 
 			if constexpr (!std::is_same_v<warp_t, void>) {
-				info.warp = warp_t::get_current_warp();
+				info.warp = warp_t::get_current();
 			}
 
 			// already signaled?
@@ -623,7 +623,7 @@ namespace iris {
 			info.handle = std::move(handle);
 
 			if constexpr (!std::is_same_v<warp_t, void>) {
-				info.warp = warp_t::get_current_warp();
+				info.warp = warp_t::get_current();
 			}
 
 			std::atomic_thread_fence(std::memory_order_acquire);
@@ -683,7 +683,7 @@ namespace iris {
 			info.handle = std::move(handle);
 
 			if constexpr (!std::is_same_v<warp_t, void>) {
-				info.warp = warp_t::get_current_warp();
+				info.warp = warp_t::get_current();
 			}
 
 			// fast path
@@ -839,7 +839,7 @@ namespace iris {
 			info.handle = std::move(handle);
 
 			if constexpr (!std::is_same_v<warp_t, void>) {
-				info.warp = warp_t::get_current_warp();
+				info.warp = warp_t::get_current();
 			}
 
 			// all finished?
@@ -923,7 +923,7 @@ namespace iris {
 		explicit iris_coroutine_dispatch_t(async_dispatcher_t& disp) : iris_sync_t<warp_t, async_worker_t>(disp.get_async_worker()), dispatcher(disp) {
 			warp_t* warp = nullptr;
 			if constexpr (!std::is_same_v<warp_t, void>) {
-				warp = warp_t::get_current_warp();
+				warp = warp_t::get_current();
 			}
 
 			info.warp = warp;
@@ -949,7 +949,7 @@ namespace iris {
 			info.handle = std::move(handle);
 
 			if constexpr (!std::is_same_v<warp_t, void>) {
-				IRIS_ASSERT(info.warp == warp_t::get_current_warp());
+				IRIS_ASSERT(info.warp == warp_t::get_current());
 			} else {
 				IRIS_ASSERT(info.warp == nullptr);
 			}
@@ -973,7 +973,7 @@ namespace iris {
 		using warp_t = typename async_dispatcher_t::warp_t;
 		warp_t* warp = nullptr;
 		if constexpr (!std::is_same_v<warp_t, void>) {
-			warp = warp_t::get_current_warp();
+			warp = warp_t::get_current();
 		}
 
 		return dispatcher.allocate(warp, [&dispatcher, handle = coroutine.move_handle()](const typename async_dispatcher_t::routine_handle_t& post) mutable {
@@ -1103,7 +1103,7 @@ namespace iris {
 				info.handle = std::move(handle);
 
 				if constexpr (!std::is_same_v<warp_t, void>) {
-					info.warp = warp_t::get_current_warp();
+					info.warp = warp_t::get_current();
 				}
 
 				host.acquire_queued(std::move(info), amount);

@@ -32,7 +32,7 @@ print('[turorial_readwrite] end pipeline')\n"));
 
 	lua_coroutine_t<void> tutorial_readwrite_t::pipeline() {
 		// read phase
-		lua_warp_t* current = lua_warp_t::get_current_warp();
+		lua_warp_t* current = lua_warp_t::get_current();
 
 		for (int i = 0; i < 4; i++) {
 			co_await iris_switch(&stage_warp, static_cast<lua_warp_t*>(nullptr), true);

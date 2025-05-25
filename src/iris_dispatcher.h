@@ -93,11 +93,11 @@ namespace iris {
 		struct preempt_guard_t {
 			explicit preempt_guard_t(iris_warp_t& warp_instance, size_t level) noexcept : warp(warp_instance), suspend_level(level) {
 #if IRIS_DEBUG
-				current = iris_warp_t::get_current_warp();
+				current = iris_warp_t::get_current();
 #endif
 				state = warp.suspend_count.load(std::memory_order_acquire) <= suspend_level;
 				if (state) {
-					if (iris_warp_t::get_current_warp() == &warp) {
+					if (iris_warp_t::get_current() == &warp) {
 						preempted = false;
 					} else {
 						preempted = warp.preempt();
@@ -115,7 +115,7 @@ namespace iris {
 
 			~preempt_guard_t() noexcept {
 #if IRIS_DEBUG
-				iris_warp_t* m = iris_warp_t::get_current_warp();
+				iris_warp_t* m = iris_warp_t::get_current();
 				if (state) {
 					IRIS_ASSERT(m == &warp);
 				}
@@ -124,7 +124,7 @@ namespace iris {
 				if (preempted) {
 					warp.yield();
 #if IRIS_DEBUG
-					iris_warp_t* n = iris_warp_t::get_current_warp();
+					iris_warp_t* n = iris_warp_t::get_current();
 					IRIS_ASSERT(current == n);
 #endif
 				}
@@ -302,7 +302,7 @@ namespace iris {
 
 		~iris_warp_t() noexcept {
 			// a warp cannot be destructed in its context
-			IRIS_ASSERT(get_current_warp_internal() != this);
+			IRIS_ASSERT(get_current_internal() != this);
 
 			// must join manually before destruction!
 			IRIS_ASSERT(storage.empty());
@@ -321,7 +321,7 @@ namespace iris {
 
 		// assert that current warp is just this
 		void validate() const noexcept {
-			IRIS_ASSERT(this == get_current_warp_internal());
+			IRIS_ASSERT(this == get_current_internal());
 		}
 
 		bool is_suspended() const noexcept {
@@ -335,11 +335,11 @@ namespace iris {
 
 		// yield execution atomically, returns true on success.
 		bool yield() noexcept(noexcept(std::declval<iris_warp_t>().flush())) {
-			iris_warp_t** exp = &get_current_warp_internal();
+			iris_warp_t** exp = &get_current_internal();
 			if (thread_warp.load(std::memory_order_acquire) == exp) {
 				invoke_leave_warp<iris_warp_t>();
 
-				get_current_warp_internal() = stack_next_warp;
+				get_current_internal() = stack_next_warp;
 				stack_next_warp = nullptr;
 				thread_warp.store(nullptr, std::memory_order_release);
 
@@ -349,7 +349,7 @@ namespace iris {
 
 				return true;
 			} else {
-				IRIS_ASSERT(get_current_warp_internal() == nullptr || exp == nullptr || *exp == nullptr);
+				IRIS_ASSERT(get_current_internal() == nullptr || exp == nullptr || *exp == nullptr);
 				return false;
 			}
 		}
@@ -484,8 +484,8 @@ namespace iris {
 		}
 
 		// get current thread's warp binding instance
-		static iris_warp_t* get_current_warp() noexcept {
-			return get_current_warp_internal();
+		static iris_warp_t* get_current() noexcept {
+			return get_current_internal();
 		}
 
 		async_worker_t& get_async_worker() noexcept {
@@ -559,15 +559,15 @@ namespace iris {
 		// take execution atomically, returns true on success.
 		bool preempt() noexcept {
 			iris_warp_t** expected = nullptr;
-			iris_warp_t* current = get_current_warp_internal();
-			if (thread_warp.compare_exchange_strong(expected, &get_current_warp_internal(), std::memory_order_acquire)) {
-				get_current_warp_internal() = this;
+			iris_warp_t* current = get_current_internal();
+			if (thread_warp.compare_exchange_strong(expected, &get_current_internal(), std::memory_order_acquire)) {
+				get_current_internal() = this;
 				stack_next_warp = current;
 				invoke_enter_warp<iris_warp_t>();
 
 				return true;
 			} else {
-				IRIS_ASSERT(get_current_warp_internal() != this);
+				IRIS_ASSERT(get_current_internal() != this);
 				return false;
 			}
 		}
@@ -603,7 +603,7 @@ namespace iris {
 		}
 
 		// get current warp index (saved in thread_local storage)
-		static iris_warp_t*& get_current_warp_internal() noexcept {
+		static iris_warp_t*& get_current_internal() noexcept {
 			return iris_static_instance_t<iris_warp_t*>::get_thread_local();
 		}
 
@@ -625,7 +625,7 @@ namespace iris {
 
 			// mark for queueing, avoiding flush me more than once.
 			queueing.store(queue_state_t::executing, std::memory_order_release);
-			iris_warp_t** warp_ptr = &get_current_warp_internal();
+			iris_warp_t** warp_ptr = &get_current_internal();
 			IRIS_ASSERT(*warp_ptr == this);
 
 			size_t execute_counter;
@@ -668,7 +668,7 @@ namespace iris {
 
 			// mark for queueing, avoiding flush me more than once.
 			queueing.store(queue_state_t::executing, std::memory_order_release);
-			iris_warp_t** warp_ptr = &get_current_warp_internal();
+			iris_warp_t** warp_ptr = &get_current_internal();
 			IRIS_ASSERT(*warp_ptr == this);
 
 			// execute tasks in queue_buffer until suspended 
