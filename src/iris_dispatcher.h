@@ -1433,38 +1433,17 @@ namespace iris {
 		bool join() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
-			bool empty = true;
 			for (size_t i = 0; i < task_heads.size(); i++) {
 				std::atomic<task_base_t*>& task_head = task_heads[i];
 				task_base_t* task = task_head.exchange(nullptr, std::memory_order_acquire);
-				empty = empty && (task == nullptr);
-
 				while (task != nullptr) {
 					task_base_t* p = task;
-					task_base_t* org = task_head.exchange(task->next, std::memory_order_release);
-
-					// return the remaining
-					if (org != nullptr) {
-						do {
-							task_base_t* next = org->next;
-
-							// avoid legacy compiler bugs
-							// see https://en.cppreference.com/w/cpp/atomic/atomic/compare_exchange
-							task_base_t* node = task_head.load(std::memory_order_relaxed);
-							do {
-								org->next = node;
-							} while (!task_head.compare_exchange_weak(node, org, std::memory_order_relaxed, std::memory_order_relaxed));
-
-							org = next;
-						} while (org != nullptr);
-					}
-
+					task = task->next;
 					execute_task(p);
-					task = task_head.exchange(nullptr, std::memory_order_acquire);
 				}
 			}
 
-			return empty;
+			return get_task_count() == 0;
 		}
 
 		// notify threads in thread pool, usually used for customized threads
