@@ -73,6 +73,18 @@ extern "C" {
 #define IRIS_LUA_LOGERROR(...) std::invoke(fprintf, stderr, __VA_ARGS__)
 #endif
 
+#ifndef IRIS_LUA_RESUME
+#define IRIS_LUA_RESUME lua_resume
+#endif
+
+#ifndef IRIS_LUA_YIELD
+#define IRIS_LUA_YIELD lua_yield
+#endif
+
+#ifndef IRIS_LUA_YIELDK
+#define IRIS_LUA_YIELDK lua_yieldk
+#endif
+
 namespace iris {
 	template <typename type_t, typename = void>
 	struct iris_lua_traits_t : std::false_type {
@@ -2691,12 +2703,12 @@ namespace iris {
 					count++;
 				}
 #if LUA_VERSION_NUM <= 501
-				int ret = lua_resume(L, count);
+				int ret = IRIS_LUA_RESUME(L, count);
 #elif LUA_VERSION_NUM <= 503
-				int ret = lua_resume(L, nullptr, count);
+				int ret = IRIS_LUA_RESUME(L, nullptr, count);
 #else
 				int nres = 0;
-				int ret = lua_resume(L, nullptr, count, &nres);
+				int ret = IRIS_LUA_RESUME(L, nullptr, count, &nres);
 #endif
 				if (ret != LUA_OK && ret != LUA_YIELD) {
 					// error!
@@ -2737,12 +2749,12 @@ namespace iris {
 #if LUA_ENABLE_YIELDK
 					// after Lua 5.3, we can throw errors on C-coroutine via lua_yieldk directly
 					// so it can be captured within current pcall() context
-					return lua_yieldk(L, 0, lua_gettop(L), &iris_lua_t::function_coroutine_continuation);
+					return IRIS_LUA_YIELDK(L, 0, lua_gettop(L), &iris_lua_t::function_coroutine_continuation);
 #else
 					// however if you use a lower version (including LuaJIT),
 					// since C-continuation from yielding point is not possible, we cannot resume the coroutine anymore as C-error happends,
 					// try using __iris_systrap__ to capture it
-					return lua_yield(L, 0);
+					return IRIS_LUA_YIELD(L, 0);
 #endif
 				}
 			}
