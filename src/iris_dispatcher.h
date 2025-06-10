@@ -148,6 +148,7 @@ namespace iris {
 			bool state;
 		};
 
+		static constexpr bool is_strand = strand;
 		using async_worker_t = worker_t;
 		using task_t = typename async_worker_t::task_base_t;
 		using normal_task_t = typename async_worker_t::normal_task_t;
@@ -1388,6 +1389,9 @@ namespace iris {
 
 				// dispatch immediately
 				wakeup_one_with_priority(priority);
+			} else if (task_heads.empty()) {
+				// not started
+				execute_task(task); // execute immediately
 			} else {
 				// terminate requested, chain to default task_head at 0
 				std::atomic<task_base_t*>& task_head = task_heads[0];
@@ -1427,6 +1431,9 @@ namespace iris {
 			IRIS_ASSERT(running_count.load(std::memory_order_acquire) == 0);
 			IRIS_ASSERT(waiting_thread_count == 0);
 			while (!join()) {}
+
+			task_heads.clear();
+			threads.clear();
 		}
 
 		// cleanup all pending tasks
@@ -1490,14 +1497,17 @@ namespace iris {
 		// try fetching a task with given priority
 		std::pair<size_t, size_t> fetch(size_t priority_size) const noexcept {
 			size_t thread_count = threads.size();
-			size_t current_thread_index = get_current_thread_index();
-			current_thread_index = current_thread_index == ~size_t(0) ? 0 : current_thread_index;
+			if (thread_count != 0) {
+				size_t current_thread_index = get_current_thread_index();
+				current_thread_index = current_thread_index == ~size_t(0) ? 0 : current_thread_index;
 
-			for (size_t k = 0; k < task_head_duplicate_count; k++) {
-				for (size_t n = 0; n < priority_size; n++) {
-					size_t i = ((k + current_thread_index) % task_head_duplicate_count) * thread_count + n;
-					if (task_heads[i].load(std::memory_order_acquire) != nullptr) {
-						return std::make_pair(i, n);
+				for (size_t k = 0; k < task_head_duplicate_count; k++) {
+					size_t m = (k + current_thread_index) % task_head_duplicate_count;
+					for (size_t n = 0; n < priority_size; n++) {
+						size_t i = m * thread_count + n;
+						if (task_heads[i].load(std::memory_order_acquire) != nullptr) {
+							return std::make_pair(i, n);
+						}
 					}
 				}
 			}
