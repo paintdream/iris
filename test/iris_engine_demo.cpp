@@ -40,7 +40,8 @@ struct engine_t {
 	}
 
 	coroutine_t coroutine_once() {
-		if (co_await frame) {
+		auto res = co_await frame; // bypass gcc bug: if (co_await ...) never success.
+		if (res) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(500));
 			frame.release();
 		}
