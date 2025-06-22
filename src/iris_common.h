@@ -70,8 +70,8 @@ SOFTWARE.
 #define IRIS_PROFILE_POP()
 #endif
 
-#ifndef IRIS_SHARED_LIBRARY_DECORATOR
-#define IRIS_SHARED_LIBRARY_DECORATOR
+#ifndef IRIS_SHARED_LIBRARY_INTERFACE
+#define IRIS_SHARED_LIBRARY_INTERFACE
 #endif
 
 #ifndef IRIS_DEBUG
@@ -286,9 +286,9 @@ namespace iris {
 #define declare_shared_static_instance(type) \
 	template <> \
 	struct iris_static_instance_t<type> { \
-		IRIS_SHARED_LIBRARY_DECORATOR static type& get_thread_local() noexcept; \
-		IRIS_SHARED_LIBRARY_DECORATOR static type& get_global() noexcept; \
-		IRIS_SHARED_LIBRARY_DECORATOR static size_t get_unique_hash() noexcept; \
+		IRIS_SHARED_LIBRARY_INTERFACE static type& get_thread_local() noexcept; \
+		IRIS_SHARED_LIBRARY_INTERFACE static type& get_global() noexcept; \
+		IRIS_SHARED_LIBRARY_INTERFACE static size_t get_unique_hash() noexcept; \
 	} \
 
 #define implement_shared_static_instance(type) \
@@ -574,8 +574,8 @@ namespace iris {
 		vec[iris_union_set_find(vec, to)] = iris_union_set_find(vec, from);
 	}
 
-	extern IRIS_SHARED_LIBRARY_DECORATOR void* iris_alloc_aligned(size_t size, size_t alignment);
-	extern IRIS_SHARED_LIBRARY_DECORATOR void iris_free_aligned(void* data, size_t size) noexcept;
+	extern IRIS_SHARED_LIBRARY_INTERFACE void* iris_alloc_aligned(size_t size, size_t alignment);
+	extern IRIS_SHARED_LIBRARY_INTERFACE void iris_free_aligned(void* data, size_t size) noexcept;
 
 	// global allocator that allocates memory blocks to local allocators.
 	template <size_t alloc_size, size_t total_count>
@@ -663,7 +663,6 @@ namespace iris {
 			}
 		}
 
-		// we are not dll-friendly, as always.
 		static iris_root_allocator_t& get() {
 			return iris_static_instance_t<iris_root_allocator_t>::get_global();
 		}
@@ -708,13 +707,14 @@ namespace iris {
 			recycled_head.store(nullptr, std::memory_order_release);
 		}
 
-		static iris_root_allocator_t<m, s>& get_root_allocator() {
-			return iris_root_allocator_t<m, s>::get();
+		using root_allocator_t = iris_root_allocator_t<m, s>;
+		static root_allocator_t& get_root_allocator() {
+			return root_allocator_t::get();
 		}
 
 		~iris_allocator_t() noexcept {
 			// deallocate all caches
-			iris_root_allocator_t<m, s>& allocator = get_root_allocator();
+			root_allocator_t& allocator = get_root_allocator();
 
 			for (size_t n = 0; n < sizeof(control_blocks) / sizeof(control_blocks[0]); n++) {
 				control_block_t* p = control_blocks[n].load(std::memory_order_acquire);

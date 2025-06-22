@@ -1434,7 +1434,7 @@ namespace iris {
 					return {};
 				}
 			} else {
-				iris_lua_t::systrap(L, "error.resume", "iris_lua_t::call() -> call function failed! %s\n", luaL_optstring(L, -1, ""));
+				// iris_lua_t::systrap(L, "error.resume", "iris_lua_t::call() -> call function failed! %s\n", luaL_optstring(L, -1, ""));
 				result_error_t ret(luaL_optstring(L, -1, ""));
 				lua_pop(L, 1);
 

@@ -1124,6 +1124,7 @@ namespace iris {
 		using large_task_t = task_t<large_callable_t>;
 		using task_allocator_t = allocator_t<normal_task_t>;
 		using large_task_allocator_t = allocator_t<large_task_t>;
+		using root_allocator_t = typename task_allocator_t::root_allocator_t;
 
 		iris_async_worker_t() : waiting_thread_count(0), limit_count(0), internal_thread_count(0) {
 			task_allocator_index.store(0, std::memory_order_relaxed);
@@ -1260,7 +1261,7 @@ namespace iris {
 		}
 
 		// get current thread index
-		static size_t get_current_thread_index() noexcept { return get_current_thread_index_internal(); }
+		size_t get_current_thread_index() const noexcept { return get_current_thread_index_internal(); }
 
 		// get the count of threads in worker, including customized threads
 		size_t get_thread_count() const noexcept {

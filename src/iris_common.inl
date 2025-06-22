@@ -57,7 +57,7 @@ SOFTWARE.
 
 namespace iris {
 	static constexpr size_t large_page = 64 * 1024;
-	IRIS_SHARED_LIBRARY_DECORATOR void* iris_alloc_aligned(size_t size, size_t alignment) {
+	IRIS_SHARED_LIBRARY_INTERFACE void* iris_alloc_aligned(size_t size, size_t alignment) {
 #ifdef _WIN32
 		// 64k page, use low-level allocation
 		if (size >= large_page && ((size & (large_page - 1)) == 0)) {
@@ -78,7 +78,7 @@ namespace iris {
 #endif
 	}
 
-	IRIS_SHARED_LIBRARY_DECORATOR void iris_free_aligned(void* data, size_t size) noexcept {
+	IRIS_SHARED_LIBRARY_INTERFACE void iris_free_aligned(void* data, size_t size) noexcept {
 #ifdef _WIN32
 		if (size >= large_page && ((size & (large_page - 1)) == 0)) {
 			::VirtualFree(data, 0, MEM_RELEASE);
