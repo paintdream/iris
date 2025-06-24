@@ -696,8 +696,10 @@ namespace iris {
 		};
 
 		static constexpr size_t offset = (sizeof(control_block_t) + k - 1) / k;
+		using root_allocator_t = iris_root_allocator_t<m, s>;
 
 		iris_allocator_t() noexcept {
+			proxy_get_root_allocator = &iris_allocator_t::get_root_allocator_internal;
 			static_assert(item_count / 2 * k > sizeof(control_block_t), "item_count is too small");
 			recycle_count.store(0, std::memory_order_relaxed);
 			for (size_t n = 0; n < sizeof(control_blocks) / sizeof(control_blocks[0]); n++) {
@@ -707,9 +709,8 @@ namespace iris {
 			recycled_head.store(nullptr, std::memory_order_release);
 		}
 
-		using root_allocator_t = iris_root_allocator_t<m, s>;
-		static root_allocator_t& get_root_allocator() {
-			return root_allocator_t::get();
+		root_allocator_t& get_root_allocator() {
+			return proxy_get_root_allocator();
 		}
 
 		~iris_allocator_t() noexcept {
@@ -890,6 +891,10 @@ namespace iris {
 		}
 
 	protected:
+		static root_allocator_t& get_root_allocator_internal() {
+			return root_allocator_t::get();
+		}
+
 		void try_free_safe(control_block_t* p) {
 			IRIS_ASSERT(p->ref_count.load(std::memory_order_acquire) != 0);
 			if (p->ref_count.fetch_sub(1, std::memory_order_release) == 1) {
@@ -964,6 +969,7 @@ namespace iris {
 		}
 
 	protected:
+		root_allocator_t& (*proxy_get_root_allocator)();
 		std::atomic<control_block_t*> recycled_head;
 		std::atomic<size_t> recycle_count;
 		std::atomic<control_block_t*> control_blocks[w];

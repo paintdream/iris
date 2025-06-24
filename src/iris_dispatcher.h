@@ -1127,6 +1127,7 @@ namespace iris {
 		using root_allocator_t = typename task_allocator_t::root_allocator_t;
 
 		iris_async_worker_t() : waiting_thread_count(0), limit_count(0), internal_thread_count(0) {
+			proxy_get_current_thread_index = &iris_async_worker_t::get_current_thread_index_internal;
 			task_allocator_index.store(0, std::memory_order_relaxed);
 			running_count.store(0, std::memory_order_relaxed);
 			task_count.store(0, std::memory_order_relaxed);
@@ -1165,7 +1166,7 @@ namespace iris {
 		}
 
 		void make_current(size_t i) noexcept {
-			get_current_thread_index_internal() = i;
+			proxy_get_current_thread_index() = i;
 		}
 
 		void thread_loop(size_t i) {
@@ -1261,7 +1262,7 @@ namespace iris {
 		}
 
 		// get current thread index
-		size_t get_current_thread_index() const noexcept { return get_current_thread_index_internal(); }
+		size_t get_current_thread_index() const noexcept { return proxy_get_current_thread_index(); }
 
 		// get the count of threads in worker, including customized threads
 		size_t get_thread_count() const noexcept {
@@ -1563,6 +1564,7 @@ namespace iris {
 		}
 
 	protected:
+		size_t& (*proxy_get_current_thread_index)();
 		large_task_allocator_t large_task_allocator;
 		task_allocator_t task_allocators[sub_allocator_count]; // default task allocator
 		std::vector<thread_t> threads; // worker
