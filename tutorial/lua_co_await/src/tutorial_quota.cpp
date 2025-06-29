@@ -1,7 +1,7 @@
 #include "tutorial_quota.h"
 
 namespace iris {
-	void tutorial_quota_t::lua_registar(lua_t&& lua, std::nullptr_t) {
+	void tutorial_quota_t::lua_registar(iris_lua_t&& lua, std::nullptr_t) {
 		lua.set_current<&tutorial_quota_t::pipeline>("pipeline");
 		lua.set_current<&tutorial_quota_t::get_remaining>("get_remaining");
 		lua.set_current("run", lua.load("local self = ...\n\
@@ -29,7 +29,7 @@ end \n\
 print('[tutorial_quota] end pipeline')\n"));
 	}
 
-	tutorial_quota_t::tutorial_quota_t(lua_async_worker_t& async_worker, size_t capacity) : quota({ capacity }), quota_queue(async_worker, quota) {}
+	tutorial_quota_t::tutorial_quota_t(iris_async_worker_t<>& async_worker, size_t capacity) : quota({ capacity }), quota_queue(async_worker, quota) {}
 	tutorial_quota_t::~tutorial_quota_t() noexcept {
 	}
 
@@ -37,9 +37,9 @@ print('[tutorial_quota] end pipeline')\n"));
 		return quota.get()[0];
 	}
 
-	lua_coroutine_t<void> tutorial_quota_t::pipeline(size_t cost) {
+	iris_coroutine_t<void> tutorial_quota_t::pipeline(size_t cost) {
 		// first, switch to any worker in thread poll
-		lua_warp_t* current = co_await iris_switch(static_cast<lua_warp_t*>(nullptr));
+		iris_warp_t<iris_async_worker_t<>>* current = co_await iris_switch(static_cast<iris_warp_t<iris_async_worker_t<>>*>(nullptr));
 		// acquire quota from quota_queue
 		// co_await will not return until quota is availble and acquired successfully
 		auto occupy = co_await quota_queue.guard({ cost });

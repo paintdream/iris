@@ -1,7 +1,7 @@
 #include "tutorial_warp.h"
 
 namespace iris {
-	void tutorial_warp_t::lua_registar(lua_t&& lua, std::nullptr_t) {
+	void tutorial_warp_t::lua_registar(iris_lua_t&& lua, std::nullptr_t) {
 		lua.set_current<&tutorial_warp_t::pipeline>("pipeline");
 		lua.set_current<&tutorial_warp_t::warp_variable>("warp_variable");
 		lua.set_current<&tutorial_warp_t::free_variable>("free_variable");
@@ -31,13 +31,13 @@ print('[tutorial_warp] final free_variable = ' .. tostring(self:free_variable())
 print('[tutorial_warp] end pipeline')\n"));
 	}
 
-	tutorial_warp_t::tutorial_warp_t(lua_async_worker_t& async_worker) : stage_warp(async_worker) {}
+	tutorial_warp_t::tutorial_warp_t(iris_async_worker_t<>& async_worker) : stage_warp(async_worker) {}
 	tutorial_warp_t::~tutorial_warp_t() noexcept {
 	}
 
-	lua_coroutine_t<void> tutorial_warp_t::pipeline() {
+	iris_coroutine_t<void> tutorial_warp_t::pipeline() {
 		// switch to stage_warp
-		lua_warp_t* current = co_await iris_switch(&stage_warp);
+		iris_warp_t<iris_async_worker_t<>>* current = co_await iris_switch(&stage_warp);
 
 		// operations on `warp_variable` will be executed on only one thread at the same time!
 		int warp_value = warp_variable;
@@ -48,7 +48,7 @@ print('[tutorial_warp] end pipeline')\n"));
 		warp_variable = warp_value - 1;
 
 		// switch to any worker of thread poll
-		co_await iris_switch(static_cast<lua_warp_t*>(nullptr));
+		co_await iris_switch(static_cast<iris_warp_t<iris_async_worker_t<>>*>(nullptr));
 
 		// operations on `free` may be executed on multiple threads at the same time!
 		int free_value = free_variable;

@@ -1,7 +1,7 @@
 #include "tutorial_readwrite.h"
 
 namespace iris {
-	void tutorial_readwrite_t::lua_registar(lua_t&& lua, std::nullptr_t) {
+	void tutorial_readwrite_t::lua_registar(iris_lua_t&& lua, std::nullptr_t) {
 		lua.set_current<&tutorial_readwrite_t::pipeline>("pipeline");
 		lua.set_current("run", lua.load("local self = ...\n\
 print('[turorial_readwrite] begin pipeline')\n\
@@ -27,15 +27,15 @@ end \n\
 print('[turorial_readwrite] end pipeline')\n"));
 	}
 
-	tutorial_readwrite_t::tutorial_readwrite_t(lua_async_worker_t& async_worker) : stage_warp(async_worker) {}
+	tutorial_readwrite_t::tutorial_readwrite_t(iris_async_worker_t<>& async_worker) : stage_warp(async_worker) {}
 	tutorial_readwrite_t::~tutorial_readwrite_t() noexcept {}
 
-	lua_coroutine_t<void> tutorial_readwrite_t::pipeline() {
+	iris_coroutine_t<void> tutorial_readwrite_t::pipeline() {
 		// read phase
-		lua_warp_t* current = lua_warp_t::get_current();
+		iris_warp_t<iris_async_worker_t<>>* current = iris_warp_t<iris_async_worker_t<>>::get_current();
 
 		for (int i = 0; i < 4; i++) {
-			co_await iris_switch(&stage_warp, static_cast<lua_warp_t*>(nullptr), true);
+			co_await iris_switch(&stage_warp, static_cast<iris_warp_t<iris_async_worker_t<>>*>(nullptr), true);
 			{
 				auto guard = read_fence();
 				printf("Read begin ... \n");

@@ -31,22 +31,4 @@ SOFTWARE.
 #include <iris_coroutine.h>
 #include <iris_dispatcher.h>
 #include <iris_lua.h>
-#include <chrono>
-
-namespace iris {
-	using lua_async_worker_t = iris_async_worker_t<>;
-	using lua_warp_t = iris_warp_t<lua_async_worker_t>;
-	using lua_warp_preempt_guard_t = lua_warp_t::preempt_guard_t;
-	using lua_t = iris_lua_t;
-	using lua_ref_t = iris_lua_t::ref_t;
-	template <typename type_t>
-	using lua_result_t = iris_lua_t::optional_result_t<type_t>;
-	using lua_error_t = iris_lua_t::result_error_t;
-	template <typename type_t>
-	using lua_refptr_t = iris_lua_t::template refptr_t<type_t>;
-	template <typename type_t>
-	using lua_coroutine_t = iris_coroutine_t<type_t>;
-	using lua_quota_t = iris_quota_t<size_t, 1>;
-	using lua_quota_queue_t = iris_quota_queue_t<lua_quota_t, lua_warp_t>;
-}
 

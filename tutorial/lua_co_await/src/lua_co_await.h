@@ -8,13 +8,13 @@
 namespace iris {
 	class lua_co_await_t : enable_read_write_fence_t<> {
 	public:
-		static void lua_registar(lua_t&& lua, std::nullptr_t);
+		static void lua_registar(iris_lua_t&& lua, std::nullptr_t);
 
 		lua_co_await_t();
 		~lua_co_await_t() noexcept;
 
 		// inspect internal functions
-		lua_result_t<lua_ref_t> __inspect__(lua_t&& lua);
+		iris_lua_t::optional_result_t<iris_lua_t::ref_t> __inspect__(iris_lua_t&& lua);
 
 		// public functions
 		std::string_view get_version() const noexcept;
@@ -25,21 +25,21 @@ namespace iris {
 		void reset();
 
 		// examples
-		lua_ref_t tutorial_binding(lua_t&& lua);
-		lua_ref_t tutorial_async(lua_t&& lua);
-		lua_ref_t tutorial_warp(lua_t&& lua);
-		lua_ref_t tutorial_quota(lua_t&& lua, size_t capacity);
-		lua_ref_t tutorial_readwrite(lua_t&& lua);
-		static void run_tutorials(lua_refptr_t<lua_co_await_t>&& self, lua_t&& lua);
+		iris_lua_t::ref_t tutorial_binding(iris_lua_t&& lua);
+		iris_lua_t::ref_t tutorial_async(iris_lua_t&& lua);
+		iris_lua_t::ref_t tutorial_warp(iris_lua_t&& lua);
+		iris_lua_t::ref_t tutorial_quota(iris_lua_t&& lua, size_t capacity);
+		iris_lua_t::ref_t tutorial_readwrite(iris_lua_t&& lua);
+		static void run_tutorials(iris_lua_t::refptr_t<lua_co_await_t>&& self, iris_lua_t&& lua);
 
 	protected:
-		bool set_async_worker(std::shared_ptr<lua_async_worker_t> worker);
-		static void native_post_main(void* context, lua_async_worker_t::task_base_t* task);
+		bool set_async_worker(std::shared_ptr<iris_async_worker_t<>> worker);
+		static void native_post_main(void* context, iris_async_worker_t<>::task_base_t* task);
 		static void native_set_async_worker(void* context, void* async_worker_ptr);
 
 	protected:
-		std::shared_ptr<lua_async_worker_t> async_worker;
-		std::unique_ptr<lua_warp_t> main_warp;
-		std::unique_ptr<lua_warp_preempt_guard_t> main_warp_guard;
+		std::shared_ptr<iris_async_worker_t<>> async_worker;
+		std::unique_ptr<iris_warp_t<iris_async_worker_t<>>> main_warp;
+		std::unique_ptr<iris_warp_t<iris_async_worker_t<>>::preempt_guard_t> main_warp_guard;
 	};
 }

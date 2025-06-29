@@ -1,7 +1,7 @@
 #include "tutorial_binding.h"
 
 namespace iris {
-	void tutorial_binding_t::lua_registar(lua_t&& lua, std::nullptr_t) {
+	void tutorial_binding_t::lua_registar(iris_lua_t&& lua, std::nullptr_t) {
 		lua.set_current<&tutorial_binding_t::init>("init");
 		lua.set_current<&tutorial_binding_t::save>("save");
 		lua.set_current<&tutorial_binding_t::load>("load");
@@ -68,7 +68,7 @@ print('[tutorial_binding] complete!')\n"));
 	}
 
 	// you can use refptr_t<T> to acquire a struct/class instance and holding its lifetime by a reference at the same time
-	void tutorial_binding_t::copy(lua_t&& lua, lua_refptr_t<tutorial_binding_t>&& rhs) {
+	void tutorial_binding_t::copy(iris_lua_t&& lua, iris_lua_t::refptr_t<tutorial_binding_t>&& rhs) {
 		if (rhs) {
 			int_value = rhs->int_value;
 			float_value = rhs->float_value;
@@ -77,7 +77,7 @@ print('[tutorial_binding] complete!')\n"));
 			string_vector_value = rhs->string_vector_value;
 			string_int_map_value = rhs->string_int_map_value;
 
-			// we should deref lua_refptr_t<T> manually
+			// we should deref iris_lua_t::refptr_t<T> manually
 			lua.deref(std::move(rhs));
 
 			// if you want to save it somewhere, just try:
@@ -87,7 +87,7 @@ print('[tutorial_binding] complete!')\n"));
 	}
 
 	// or you can use T* to take it temporarily
-	void tutorial_binding_t::copy_static(lua_t&& lua, lua_refptr_t<tutorial_binding_t>&& lhs, tutorial_binding_t* rhs) {
+	void tutorial_binding_t::copy_static(iris_lua_t&& lua, iris_lua_t::refptr_t<tutorial_binding_t>&& lhs, tutorial_binding_t* rhs) {
 		if (lhs && rhs != nullptr) {
 			tutorial_binding_t& self = *lhs.get();
 			tutorial_binding_t& other = *rhs;
@@ -103,7 +103,7 @@ print('[tutorial_binding] complete!')\n"));
 		}
 	}
 
-	void tutorial_binding_t::load(lua_t&& lua, lua_t::ref_t&& param) {
+	void tutorial_binding_t::load(iris_lua_t&& lua, iris_lua_t::ref_t&& param) {
 		// ref_t::get returns a std::optional<> value
 		if (auto value = param.get<int>(lua, "int_value")) {
 			int_value = *value;
@@ -133,8 +133,8 @@ print('[tutorial_binding] complete!')\n"));
 		lua.deref(std::move(param));
 	}
 
-	lua_t::ref_t tutorial_binding_t::save(lua_t&& lua) {
-		return lua.make_table([this](lua_t&& lua) {
+	iris_lua_t::ref_t tutorial_binding_t::save(iris_lua_t&& lua) {
+		return lua.make_table([this](iris_lua_t&& lua) {
 			lua.set_current("int_value", int_value);
 			lua.set_current("float_value", float_value);
 			lua.set_current("double_value", double_value);
