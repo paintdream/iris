@@ -12,11 +12,17 @@ namespace iris {
 
 		lua_co_await_t();
 		~lua_co_await_t() noexcept;
+
+		// inspect internal functions
+		lua_result_t<lua_ref_t> __inspect__(lua_t&& lua);
+
+		// public functions
 		std::string_view get_version() const noexcept;
 		bool is_running() const noexcept;
 		bool start(size_t thread_count);
 		bool terminate() noexcept;
 		bool poll(size_t delay_in_milliseconds);
+		void reset();
 
 		// examples
 		lua_ref_t tutorial_binding(lua_t&& lua);
@@ -27,8 +33,13 @@ namespace iris {
 		static void run_tutorials(lua_refptr_t<lua_co_await_t>&& self, lua_t&& lua);
 
 	protected:
-		std::unique_ptr<lua_async_worker_t> async_worker;
+		bool set_async_worker(std::shared_ptr<lua_async_worker_t> worker);
+		static void native_post_main(void* context, lua_async_worker_t::task_base_t* task);
+		static void native_set_async_worker(void* context, void* async_worker_ptr);
+
+	protected:
+		std::shared_ptr<lua_async_worker_t> async_worker;
 		std::unique_ptr<lua_warp_t> main_warp;
-		std::unique_ptr<lua_warp_preempt_guard_t> main_guard;
+		std::unique_ptr<lua_warp_preempt_guard_t> main_warp_guard;
 	};
 }

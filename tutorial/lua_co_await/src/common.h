@@ -40,6 +40,9 @@ namespace iris {
 	using lua_t = iris_lua_t;
 	using lua_ref_t = iris_lua_t::ref_t;
 	template <typename type_t>
+	using lua_result_t = iris_lua_t::optional_result_t<type_t>;
+	using lua_error_t = iris_lua_t::result_error_t;
+	template <typename type_t>
 	using lua_refptr_t = iris_lua_t::template refptr_t<type_t>;
 	template <typename type_t>
 	using lua_coroutine_t = iris_coroutine_t<type_t>;

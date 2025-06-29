@@ -23,12 +23,66 @@ namespace iris {
 		lua.set_current<&lua_co_await_t::tutorial_quota>("tutorial_quota");
 		lua.set_current<&lua_co_await_t::tutorial_readwrite>("tutorial_readwrite");
 		lua.set_current<&lua_co_await_t::run_tutorials>("run_tutorials");
+
+		// shared-library crossing
+		lua.set_current<&lua_co_await_t::__inspect__>("__inspect__");
 	}
 
-	lua_co_await_t::lua_co_await_t() {}
+	lua_co_await_t::lua_co_await_t() : async_worker(std::make_shared<lua_async_worker_t>()) {
+		reset();
+	}
+
 	lua_co_await_t::~lua_co_await_t() noexcept {
 		// force terminate on destructing
 		terminate();
+	}
+
+	lua_result_t<lua_ref_t> lua_co_await_t::__inspect__(lua_t&& lua) {
+		if (is_running()) {
+			return lua_error_t("__inspect__ can't be called while running!");
+		}
+
+		return lua.make_table([this](lua_t&& lua) {
+			lua.set_current("context", reinterpret_cast<void*>(this));
+			lua.set_current("async_worker", reinterpret_cast<void*>(&async_worker));
+			lua.set_current("main_warp", reinterpret_cast<void*>(&main_warp));
+			lua.set_current("native_post_main", reinterpret_cast<void*>(&lua_co_await_t::native_post_main));
+			lua.set_current("native_set_async_worker", reinterpret_cast<void*>(&lua_co_await_t::native_set_async_worker));
+		});
+	}
+
+	void lua_co_await_t::native_post_main(void* context, lua_async_worker_t::task_base_t* task) {
+		lua_co_await_t* self = reinterpret_cast<lua_co_await_t*>(context);
+		if (self != nullptr) {
+			self->main_warp->queue_routine([self, task]() {
+				self->async_worker->execute_task(task);
+			});
+		}
+	}
+
+	void lua_co_await_t::native_set_async_worker(void* context, void* async_worker_ptr) {
+		lua_co_await_t* self = reinterpret_cast<lua_co_await_t*>(context);
+		if (self != nullptr && !self->is_running()) {
+			self->set_async_worker(*reinterpret_cast<std::shared_ptr<lua_async_worker_t>*>(async_worker_ptr));
+		}
+	}
+
+	bool lua_co_await_t::set_async_worker(std::shared_ptr<lua_async_worker_t> worker) {
+		if (is_running())
+			return false;
+
+		std::swap(async_worker, worker);
+		reset();
+		return true;
+	}
+
+	void lua_co_await_t::reset() {
+		if (main_warp_guard) {
+			main_warp_guard.reset();
+		}
+
+		main_warp = std::make_unique<lua_warp_t>(*async_worker);
+		main_warp_guard = std::make_unique<lua_warp_t::preempt_guard_t>(*main_warp, 0);
 	}
 
 	std::string_view lua_co_await_t::get_version() const noexcept {
@@ -36,45 +90,39 @@ namespace iris {
 	}
 
 	bool lua_co_await_t::is_running() const noexcept {
-		return async_worker != nullptr;
+		return async_worker->get_thread_count() != 0;
 	}
 
 	bool lua_co_await_t::start(size_t thread_count) {
-		if (async_worker == nullptr) {
-			async_worker = std::make_unique<lua_async_worker_t>();
+		if (!is_running()) {
 			async_worker->resize(thread_count);
 			// add current thread as an external worker
 			size_t thread_index = async_worker->append(std::thread());
 			async_worker->make_current(thread_index);
 			async_worker->start();
-			// attach current warp
-			main_warp = std::make_unique<lua_warp_t>(std::ref(*async_worker));
-			main_guard = std::make_unique<lua_warp_preempt_guard_t>(*main_warp, 0);
-			assert(*main_guard); // must success
-			return !!*main_guard;
+			reset();
+
+			return true;
 		} else {
 			return false;
 		}
 	}
 
 	bool lua_co_await_t::terminate() noexcept {
-		if (async_worker != nullptr) {
-			// cleanup threadlocal worker state
+		if (is_running()) {
+			async_worker->terminate();
+
+			// manually polling events
 			async_worker->make_current(~(size_t)0);
 
-			// notify terminate and wait all threads to exit
-			async_worker->terminate();
+			while (!async_worker->join() || !main_warp->join([]() {
+				std::this_thread::sleep_for(std::chrono::milliseconds(50));
+				return false;
+			})) {}
+
+			async_worker->make_current(~(size_t)0);
+			reset();
 			async_worker->finalize();
-
-			// join with finalize, executing remaining warp tasks (if any)
-			while (!async_worker->join() || !main_warp->join<true, true>([] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); return false; })) {}
-
-			// cleanup warp data
-			main_guard->cleanup();
-			main_guard = nullptr; // yield
-			main_warp->yield();
-			main_warp = nullptr;
-			async_worker = nullptr;
 
 			return true;
 		} else {
@@ -85,7 +133,6 @@ namespace iris {
 	bool lua_co_await_t::poll(size_t delay_in_milliseconds) {
 		auto guard = write_fence();
 		// try to poll tasks of main_warp, also poll other tasks in given time if there is no task in main_warp.
-
 		if (async_worker != nullptr && main_warp != nullptr) {
 			// try poll
 			auto waiter = [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); return false; };
@@ -162,6 +209,10 @@ while complete_count < 4 do \n\
 	co_await:poll(1000) \n\
 end \n\
 co_await:terminate() \n\
+print('inspect:') \n\
+for k, v in pairs(co_await:__inspect__()) do \n\
+	print(k .. ' = ' .. tostring(v)) \n\
+end \n\
 collectgarbage() \n\
 print('all completed')\n\
 "), std::move(self));
