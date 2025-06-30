@@ -13,8 +13,8 @@ namespace iris {
 		lua_co_await_t();
 		~lua_co_await_t() noexcept;
 
-		// inspect internal functions
-		iris_lua_t::optional_result_t<iris_lua_t::ref_t> __inspect__(iris_lua_t&& lua);
+		// inspect internal async worker
+		void* __async_worker__(void* new_async_worker_ptr);
 
 		// public functions
 		std::string_view get_version() const noexcept;

@@ -25,11 +25,19 @@ namespace iris {
 		lua.set_current<&lua_co_await_t::run_tutorials>("run_tutorials");
 
 		// shared-library crossing
-		lua.set_current<&lua_co_await_t::__inspect__>("__inspect__");
+		lua.set_current<&lua_co_await_t::__async_worker__>("__async_worker__");
 	}
 
 	lua_co_await_t::lua_co_await_t() : async_worker(std::make_shared<iris_async_worker_t<>>()) {
 		reset();
+
+		async_worker->set_priority_task_handler([this](iris_async_worker_t<>::task_base_t* task, size_t& priority) {
+			main_warp->queue_routine([this, task]() {
+				async_worker->execute_task(task);
+			});
+
+			return true;
+		});
 	}
 
 	lua_co_await_t::~lua_co_await_t() noexcept {
@@ -37,33 +45,11 @@ namespace iris {
 		terminate();
 	}
 
-	iris_lua_t::optional_result_t<iris_lua_t::ref_t> lua_co_await_t::__inspect__(iris_lua_t&& lua) {
-		if (is_running()) {
-			return iris_lua_t::result_error_t("__inspect__ can't be called while running!");
-		}
-
-		return lua.make_table([this](iris_lua_t&& lua) {
-			lua.set_current("context", reinterpret_cast<void*>(this));
-			lua.set_current("async_worker", reinterpret_cast<void*>(&async_worker));
-			lua.set_current("main_warp", reinterpret_cast<void*>(&main_warp));
-			lua.set_current("native_post_main", reinterpret_cast<void*>(&lua_co_await_t::native_post_main));
-			lua.set_current("native_set_async_worker", reinterpret_cast<void*>(&lua_co_await_t::native_set_async_worker));
-		});
-	}
-
-	void lua_co_await_t::native_post_main(void* context, iris_async_worker_t<>::task_base_t* task) {
-		lua_co_await_t* self = reinterpret_cast<lua_co_await_t*>(context);
-		if (self != nullptr) {
-			self->main_warp->queue_routine([self, task]() {
-				self->async_worker->execute_task(task);
-			});
-		}
-	}
-
-	void lua_co_await_t::native_set_async_worker(void* context, void* async_worker_ptr) {
-		lua_co_await_t* self = reinterpret_cast<lua_co_await_t*>(context);
-		if (self != nullptr && !self->is_running()) {
-			self->set_async_worker(*reinterpret_cast<std::shared_ptr<iris_async_worker_t<>>*>(async_worker_ptr));
+	void* lua_co_await_t::__async_worker__(void* new_async_worker_ptr) {
+		if (new_async_worker_ptr != nullptr && set_async_worker(*reinterpret_cast<std::shared_ptr<iris_async_worker_t<>>*>(new_async_worker_ptr))) {
+			return new_async_worker_ptr;
+		} else {
+			return reinterpret_cast<void*>(&async_worker);
 		}
 	}
 
