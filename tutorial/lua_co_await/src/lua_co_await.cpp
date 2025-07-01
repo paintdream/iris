@@ -104,7 +104,7 @@ namespace iris {
 			while (!async_worker->join() || !main_warp->join([]() {
 				std::this_thread::sleep_for(std::chrono::milliseconds(50));
 				return false;
-			})) {}
+			}) || !async_worker->empty()) {}
 
 			async_worker->make_current(~(size_t)0);
 			reset();

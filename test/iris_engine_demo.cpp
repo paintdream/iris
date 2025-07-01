@@ -34,7 +34,7 @@ struct engine_t {
 			return false;
 		};
 
-		while (!worker.join() || !warp_audio.join(waiter) || !warp_script.join(waiter) || !warp_network.join(waiter) || !warp_render.join(waiter)) {
+		while (!worker.join() || !warp_audio.join(waiter) || !warp_script.join(waiter) || !warp_network.join(waiter) || !warp_render.join(waiter) || !worker.empty()) {
 			printf("finalizing ...\n");
 		}
 	}

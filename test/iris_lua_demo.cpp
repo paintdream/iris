@@ -773,7 +773,7 @@ end\n\
 		return false;
 	};
 
-	while (!worker.join() || !warp.join(waiter) || !warp2.join(waiter)) {}
+	while (!worker.join() || !warp.join(waiter) || !warp2.join(waiter) || !worker.empty()) {}
 	preempt_guard.cleanup();
 #endif
 	lua_close(L);

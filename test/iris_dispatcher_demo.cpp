@@ -281,7 +281,7 @@ void simple_explosion(void) {
 	worker.finalize();
 
 	// finished!
-	while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); return true; })) {}
+	while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); return true; }) || !worker.empty()) {}
 
 	printf("after: \n");
 	for (size_t k = 0; k < warp_count; k++) {
@@ -424,7 +424,7 @@ void garbage_collection() {
 		while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), []() {
 			std::this_thread::sleep_for(std::chrono::milliseconds(50));
 			return false;
-		})) {}
+		}) || !worker.empty()) {}
 	}
 }
 
@@ -543,7 +543,7 @@ void graph_dispatch() {
 	while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), []() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		return false;
-	})) {}
+	}) || !worker.empty()) {}
 }
 
 void acquire_release() {

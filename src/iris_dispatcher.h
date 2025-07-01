@@ -1444,13 +1444,20 @@ namespace iris {
 			threads.clear();
 		}
 
+		bool empty() const noexcept {
+			return get_task_count() == 0;
+		}
+
 		// cleanup all pending tasks
 		bool join() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
+			bool empty = true;
 			for (size_t i = 0; i < task_heads.size(); i++) {
 				std::atomic<task_base_t*>& task_head = task_heads[i];
 				task_base_t* task = task_head.exchange(nullptr, std::memory_order_acquire);
+				empty = empty && (task == nullptr);
+
 				while (task != nullptr) {
 					task_base_t* p = task;
 					task = task->next;
@@ -1458,7 +1465,7 @@ namespace iris {
 				}
 			}
 
-			return get_task_count() == 0;
+			return empty;
 		}
 
 		// notify threads in thread pool, usually used for customized threads
