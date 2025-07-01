@@ -1353,7 +1353,7 @@ namespace iris {
 		// task with priority == ~(size_t)0 will be filterred
 		void queue_task(task_base_t* task, size_t priority = 0) {
 			IRIS_ASSERT(task != nullptr && task->next == nullptr);
-			if (static_cast<ptrdiff_t>(priority) < 0 && !priority_task_handler(task, priority)) {
+			if (static_cast<ptrdiff_t>(priority) < 0 && priority_task_handler(task, priority)) {
 				return;
 			}
 
