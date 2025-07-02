@@ -429,7 +429,8 @@ namespace iris {
 			if /* constexpr */ (!finalize) {
 				// suspend all warps so we can take over tasks
 				for (iterator_t p = begin; p != end; ++p) {
-					(*p).suspend();
+					iris_warp_t& warp = *p;
+					warp.suspend();
 				}
 			}
 
@@ -437,22 +438,24 @@ namespace iris {
 			size_t executing_count = 0;
 
 			for (iterator_t p = begin; p != end; ++p) {
-				pending_count += (*p).template invoke_enter_join_warp<iris_warp_t>(execute_remaining, finalize);
+				iris_warp_t& warp = *p;
+				pending_count += warp.template invoke_enter_join_warp<iris_warp_t>(execute_remaining, finalize);
 			}
 
 			for (iterator_t p = begin; p != end; ++p) {
-				if (!(*p).empty() || (*p).has_parallel_task()) {
+				iris_warp_t& warp = *p;
+				if (!warp.empty() || warp.has_parallel_task()) {
 					pending_count++;
 					preempt_guard_t preempt_guard(*p, ~size_t(0));
 					if (preempt_guard) {
 						executing_count++;
 
 						if /* constexpr */ (execute_remaining) {
-							(*p).execute_parallel();
+							warp.execute_parallel();
 							// nobody else suspend this warp
-							if ((*p).suspend_count.load(std::memory_order_acquire) == (finalize ? 0 : 1)) {
+							if (warp.suspend_count.load(std::memory_order_acquire) == (finalize ? 0 : 1)) {
 								// execute remaining
-								(*p).template execute_internal<strand, true>();
+								warp.template execute_internal<strand, true>();
 							}
 						}
 
@@ -462,13 +465,15 @@ namespace iris {
 			}
 
 			for (iterator_t p = begin; p != end; ++p) {
-				pending_count += (*p).template invoke_leave_join_warp<iris_warp_t>(execute_remaining, finalize);
+				iris_warp_t& warp = *p;
+				pending_count += warp.template invoke_leave_join_warp<iris_warp_t>(execute_remaining, finalize);
 			}
 
 			// resume warps if not finalizing
 			if /* constexpr */ (!finalize) {
 				for (iterator_t p = begin; p != end; ++p) {
-					(*p).resume();
+					iris_warp_t& warp = *p;
+					warp.resume();
 				}
 			}
 
@@ -480,8 +485,13 @@ namespace iris {
 		}
 
 		template <bool execute_remaining = true, bool finalize = false, typename waiter_t>
+		static bool join(std::initializer_list<std::reference_wrapper<iris_warp_t>>&& container, waiter_t&& waiter) {
+			return join<execute_remaining, finalize>(std::begin(container), std::end(container), std::forward<waiter_t>(waiter));
+		}
+
+		template <bool execute_remaining = true, bool finalize = false, typename waiter_t>
 		bool join(waiter_t&& waiter) {
-			return join<execute_remaining, finalize>(this, this + 1, std::forward<waiter_t>(waiter));
+			return join<execute_remaining, finalize>({ std::ref(*this) }, std::forward<waiter_t>(waiter));
 		}
 
 		// get current thread's warp binding instance

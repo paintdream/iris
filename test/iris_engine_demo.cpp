@@ -29,12 +29,10 @@ struct engine_t {
 		worker.terminate();
 		worker.finalize();
 
-		auto waiter = [] {
+		while (!worker.join() || !warp_t::join({ std::ref(warp_audio), std::ref(warp_script), std::ref(warp_network), std::ref(warp_render) }, []() {
 			std::this_thread::sleep_for(std::chrono::milliseconds(50));
 			return false;
-		};
-
-		while (!worker.join() || !warp_audio.join(waiter) || !warp_script.join(waiter) || !warp_network.join(waiter) || !warp_render.join(waiter) || !worker.empty()) {
+		}) || !worker.empty()) {
 			printf("finalizing ...\n");
 		}
 	}

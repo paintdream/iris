@@ -773,7 +773,11 @@ end\n\
 		return false;
 	};
 
-	while (!worker.join() || !warp.join(waiter) || !warp2.join(waiter) || !worker.empty()) {}
+	while (!worker.join() || !warp_t::join({ std::ref(warp), std::ref(warp2) }, []() {
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		return false;
+	}) || !worker.empty()) {}
+
 	preempt_guard.cleanup();
 #endif
 	lua_close(L);
