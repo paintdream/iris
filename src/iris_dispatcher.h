@@ -1184,7 +1184,7 @@ namespace iris {
 			make_current(i);
 
 			while (!is_terminated()) {
-				if (poll()) {
+				if (!poll()) {
 					delay();
 				}
 			}
@@ -1242,20 +1242,15 @@ namespace iris {
 		// usually used in your customized thread procedures
 		template <typename duration_t>
 		bool poll_delay(size_t priority, duration_t&& delay) {
-			if (poll(priority)) {
+			if (!poll(priority)) {
 				std::unique_lock<std::mutex> lock(mutex);
 				condition.wait_for(lock, std::forward<duration_t>(delay));
 				lock.unlock();
 
-				if (poll(priority)) {
-					// priority restriction not satisfied, wake up anther thread to solve it
-					wakeup_one_with_priority(0);
-
-					return true;
-				}
+				return poll(priority);
+			} else {
+				return true;
 			}
-
-			return false;
 		}
 
 		// guard for exception on running
