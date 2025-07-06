@@ -526,8 +526,9 @@ namespace iris {
 		struct shared_object_t {
 			static void lua_shared_acquire(shared_object_t* base_object, lua_State* L, int index) {
 				type_t* object = static_cast<type_t*>(base_object);
-				object->ref_count.fetch_add(1, std::memory_order_relaxed);
-				if (L != nullptr && !object->ref) {
+				IRIS_ASSERT(object != nullptr);
+				if (object->ref_count.fetch_add(1, std::memory_order_relaxed) == 0) {
+					IRIS_ASSERT(L != nullptr && !object->ref);
 					object->ref = iris_lua_t(L).get_context<ref_t>(context_stackvalue_t(index));
 				}
 			}
@@ -535,18 +536,9 @@ namespace iris {
 			static void lua_shared_release(shared_object_t* base_object, lua_State* L) {
 				type_t* object = static_cast<type_t*>(base_object);
 				if (object->ref_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
-					if (L != nullptr && object->ref) {
-						deref(L, std::move(object->ref));
-					} else {
-						IRIS_ASSERT(!object->ref); // last reference must be released with lua
-						static_cast<type_t*>(object)->release(); // not managed by script, call release directly
-					}
+					IRIS_ASSERT(L != nullptr && object->ref);
+					deref(L, std::move(object->ref));
 				}
-			}
-
-			static void lua_finalize(iris_lua_t lua, int index, void* p) {
-				type_t* object = reinterpret_cast<type_t*>(p);
-				IRIS_ASSERT(!object->ref);
 			}
 
 			static void lua_view_initialize(iris_lua_t lua, int index, void* p) {
@@ -567,9 +559,7 @@ namespace iris {
 				return *p;
 			}
 
-			const ref_t& get_ref() const noexcept { return ref; }
-			bool get_ref_count() const noexcept { return ref_count.load(std::memory_order_relaxed); }
-			void release() { delete static_cast<type_t*>(this); }
+			const ref_t& lua_get_ref() const noexcept { return ref; }
 
 		protected:
 			ref_t ref;
@@ -587,10 +577,9 @@ namespace iris {
 					type_t::lua_shared_acquire(ptr, L, index);
 				}
 			}
-
-			explicit shared_ref_t(type_t* p) : ptr(p) {
+			explicit shared_ref_t(type_t* p) noexcept : ptr(p) {
 				if (ptr != nullptr) {
-					type_t::lua_shared_acquire(ptr, nullptr, 0); // not managed by script
+					type_t::lua_shared_acquire(ptr, nullptr, 0);
 				}
 			}
 
@@ -601,11 +590,6 @@ namespace iris {
 			template <typename cast_type_t>
 			shared_ref_t<cast_type_t> cast() {
 				return shared_ref_t<cast_type_t>(static_cast<cast_type_t*>(ptr));
-			}
-
-			template <typename... args_t>
-			static shared_ref_t make(args_t&&... args) {
-				return shared_ref_t(new type_t(std::forward<args_t>(args)...));
 			}
 
 			void deref(lua_State* L) {
@@ -857,7 +841,7 @@ namespace iris {
 			lua_rawset(L, -3);
 
 			push_variable(L, "__eq");
-			push_variable(L, &equal_stub);
+			push_variable(L, &equal_stub<type_t>);
 			lua_rawset(L, -3);
 
 			// readable name
@@ -1855,8 +1839,9 @@ namespace iris {
 			}
 		}
 
+		template <typename type_t>
 		static int equal_stub(lua_State* L) noexcept {
-			lua_pushboolean(L, extract_object_ptr<>(L, 1) == extract_object_ptr<>(L, 2));
+			lua_pushboolean(L, extract_object_ptr<type_t>(L, 1) == extract_object_ptr<type_t>(L, 2));
 			return 1;
 		}
 
@@ -2880,10 +2865,10 @@ namespace iris {
 				}
 			} else if constexpr (is_shared_ref_t<value_t>::value) {
 				auto* ptr = variable.get();
-				if (ptr == nullptr || !ptr->get_ref()) {
+				if (ptr == nullptr || !ptr->lua_get_ref()) {
 					push_variable(L, nullptr);
 				} else {
-					push_variable(L, ptr->get_ref());
+					push_variable(L, ptr->lua_get_ref());
 				}
 
 				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
@@ -2954,9 +2939,9 @@ namespace iris {
 					push_variable(L, variable.get());
 				}
 			} else if constexpr (is_shared_object_t<value_t>::value) {
-				push_variable(L, variable.get_ref());
+				push_variable(L, variable.lua_get_ref());
 			} else if constexpr (std::is_pointer_v<value_t> && is_shared_object_t<std::remove_pointer_t<value_t>>::value) {
-				push_variable(L, variable->get_ref());
+				push_variable(L, variable->lua_get_ref());
 			} else if constexpr (is_functor<value_t>::value) {
 				push_method<&type_t::operator ()>(L, std::forward<type_t>(variable), &type_t::operator ());
 			} else {
