@@ -1184,7 +1184,7 @@ namespace iris {
 			make_current(i);
 
 			while (!is_terminated()) {
-				if (!poll()) {
+				if (join_one()) {
 					delay();
 				}
 			}
@@ -1225,31 +1225,31 @@ namespace iris {
 		}
 
 		// poll any task from thread pool manually
-		bool poll() {
+		bool join_one() {
 			size_t inv_priority = running_count.fetch_add(1, std::memory_order_acquire);
 			running_guard_t guard(running_count);
-			return poll_internal(threads.size() + 1 - std::min(inv_priority + 1, threads.size()));
+			return join_one_internal(threads.size() + 1 - std::min(inv_priority + 1, threads.size()));
 		}
 
 		// poll any task from thread poll manually with given priority
-		bool poll(size_t priority) {
+		bool join_one(size_t priority) {
 			running_count.fetch_add(1, std::memory_order_acquire);
 			running_guard_t guard(running_count);
-			return poll_internal(std::min(priority + 1, threads.size()));
+			return join_one_internal(std::min(priority + 1, threads.size()));
 		}
 
 		// poll any task from thread poll manually with given priority in specified duration
 		// usually used in your customized thread procedures
 		template <typename duration_t>
-		bool poll_delay(size_t priority, duration_t&& delay) {
-			if (!poll(priority)) {
+		bool join_one(size_t priority, duration_t&& delay) {
+			if (join_one(priority)) {
 				std::unique_lock<std::mutex> lock(mutex);
 				condition.wait_for(lock, std::forward<duration_t>(delay));
 				lock.unlock();
 
-				return poll(priority);
+				return join_one(priority);
 			} else {
-				return true;
+				return false;
 			}
 		}
 
@@ -1540,7 +1540,7 @@ namespace iris {
 		}
 
 		// poll with given priority
-		bool poll_internal(size_t priority_size) {
+		bool join_one_internal(size_t priority_size) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			std::pair<size_t, size_t> slot = fetch(priority_size);

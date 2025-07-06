@@ -50,7 +50,7 @@ void external_poll() {
 			printf("[[ external thread running ... ]]\n");
 
 			while (!worker.is_terminated()) {
-				if (worker.poll_delay(0, std::chrono::milliseconds(20))) {
+				if (!worker.join_one(0, std::chrono::milliseconds(20))) {
 					// there is no 0 priority task, assert it
 					IRIS_ASSERT(false);
 				}
@@ -188,7 +188,7 @@ void simple_explosion(void) {
 			printf("[[ external thread running ... ]]\n");
 
 			while (!worker.is_terminated()) {
-				if (worker.poll_delay(0, std::chrono::milliseconds(20))) {
+				if (!worker.join_one(0, std::chrono::milliseconds(20))) {
 					printf("[[ external thread has polled a task ... ]]\n");
 				}
 			}

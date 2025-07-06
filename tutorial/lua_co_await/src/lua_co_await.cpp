@@ -127,7 +127,7 @@ namespace iris {
 			} else if (delay_in_milliseconds == 0) {
 				return false;
 			} else {
-				async_worker->poll_delay(0, std::chrono::milliseconds(delay_in_milliseconds));
+				async_worker->join_one(0, std::chrono::milliseconds(delay_in_milliseconds));
 				// try poll again
 				return main_warp->join(waiter);
 			}

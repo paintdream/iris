@@ -171,7 +171,7 @@ static void example_dispatch_coroutine(worker_t& worker) {
 	dispatcher.dispatch(std::move(preNode));
 
 	while (!finished2.load(std::memory_order_acquire)) {
-		worker.poll_delay(0, std::chrono::milliseconds(50));
+		worker.join_one(0, std::chrono::milliseconds(50));
 	}
 }
 
