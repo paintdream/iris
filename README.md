@@ -361,8 +361,7 @@ It is a common case that a thread has to be blocked to wait for some signals arr
 ```C++
 while (some_variable.load(std::memory_order_acquire) != expected_value) {
 	// delay at most 20ms or poll tasks with priority 0 if possible 
-	// join*-series functions return true if there is NO actual works to do, and waits at most 20 milliseconds before return
-	worker.join_one(0, std::chrono::milliseconds(20));
+	worker.poll_one(0, std::chrono::milliseconds(20));
 }
 ```
 

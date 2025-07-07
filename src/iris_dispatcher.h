@@ -305,7 +305,7 @@ namespace iris {
 			// a warp cannot be destructed in its context
 			IRIS_ASSERT(get_current_internal() != this);
 
-			// must join manually before destruction!
+			// must poll manually before destruction!
 			IRIS_ASSERT(storage.empty());
 			IRIS_ASSERT(!has_parallel_task());
 		}
@@ -422,16 +422,14 @@ namespace iris {
 		}
 
 		// cleanup the dispatcher, pass true to 'execute_remaining' to make sure all tasks are executed finally.
-		template <bool execute_remaining = true, bool finalize = false, typename iterator_t = iris_warp_t*, typename waiter_t>
-		static bool join(iterator_t begin, iterator_t end, waiter_t&& waiter) {
+		template <typename iterator_t = iris_warp_t*, typename waiter_t>
+		static bool poll(iterator_t begin, iterator_t end, waiter_t&& waiter) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
-			if /* constexpr */ (!finalize) {
-				// suspend all warps so we can take over tasks
-				for (iterator_t p = begin; p != end; ++p) {
-					iris_warp_t& warp = *p;
-					warp.suspend();
-				}
+			// suspend all warps so we can take over tasks
+			for (iterator_t p = begin; p != end; ++p) {
+				iris_warp_t& warp = *p;
+				warp.suspend();
 			}
 
 			size_t pending_count = 0;
@@ -439,7 +437,7 @@ namespace iris {
 
 			for (iterator_t p = begin; p != end; ++p) {
 				iris_warp_t& warp = *p;
-				pending_count += warp.template invoke_enter_join_warp<iris_warp_t>(execute_remaining, finalize);
+				pending_count += warp.template invoke_enter_join_warp<iris_warp_t>();
 			}
 
 			for (iterator_t p = begin; p != end; ++p) {
@@ -449,16 +447,9 @@ namespace iris {
 					preempt_guard_t preempt_guard(*p, ~size_t(0));
 					if (preempt_guard) {
 						executing_count++;
-
-						if /* constexpr */ (execute_remaining) {
-							warp.execute_parallel();
-							// nobody else suspend this warp
-							if (warp.suspend_count.load(std::memory_order_acquire) == (finalize ? 0 : 1)) {
-								// execute remaining
-								warp.template execute_internal<strand, true>();
-							}
-						}
-
+						warp.execute_parallel();
+						// execute remaining
+						warp.template execute_internal<strand, true>();
 						break;
 					}
 				}
@@ -466,32 +457,29 @@ namespace iris {
 
 			for (iterator_t p = begin; p != end; ++p) {
 				iris_warp_t& warp = *p;
-				pending_count += warp.template invoke_leave_join_warp<iris_warp_t>(execute_remaining, finalize);
+				pending_count += warp.template invoke_leave_join_warp<iris_warp_t>();
 			}
 
-			// resume warps if not finalizing
-			if /* constexpr */ (!finalize) {
-				for (iterator_t p = begin; p != end; ++p) {
-					iris_warp_t& warp = *p;
-					warp.resume();
-				}
+			for (iterator_t p = begin; p != end; ++p) {
+				iris_warp_t& warp = *p;
+				warp.resume();
 			}
 
 			if (executing_count != pending_count) {
 				return waiter();
 			} else {
-				return pending_count == 0;
+				return pending_count != 0;
 			}
 		}
 
-		template <bool execute_remaining = true, bool finalize = false, typename waiter_t>
-		static bool join(std::initializer_list<std::reference_wrapper<iris_warp_t>>&& container, waiter_t&& waiter) {
-			return join<execute_remaining, finalize>(std::begin(container), std::end(container), std::forward<waiter_t>(waiter));
+		template <typename waiter_t>
+		static bool poll(std::initializer_list<std::reference_wrapper<iris_warp_t>>&& container, waiter_t&& waiter) {
+			return poll(std::begin(container), std::end(container), std::forward<waiter_t>(waiter));
 		}
 
-		template <bool execute_remaining = true, bool finalize = false, typename waiter_t>
-		bool join(waiter_t&& waiter) {
-			return join<execute_remaining, finalize>({ std::ref(*this) }, std::forward<waiter_t>(waiter));
+		template <typename waiter_t>
+		bool poll(waiter_t&& waiter) {
+			return poll({ std::ref(*this) }, std::forward<waiter_t>(waiter));
 		}
 
 		// get current thread's warp binding instance
@@ -548,23 +536,23 @@ namespace iris {
 		}
 
 		template <typename type_t>
-		typename std::enable_if<!std::is_base_of<type_t, base_t>::value, size_t>::type invoke_enter_join_warp(bool execute_remaining, bool finalize) {
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value, size_t>::type invoke_enter_join_warp() {
 			return 0;
 		}
 
 		template <typename type_t>
-		typename std::enable_if<std::is_base_of<type_t, base_t>::value, size_t>::type invoke_enter_join_warp(bool execute_remaining, bool finalize) {
-			return static_cast<base_t*>(this)->enter_join_warp(execute_remaining, finalize);
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value, size_t>::type invoke_enter_join_warp() {
+			return static_cast<base_t*>(this)->enter_join_warp();
 		}
 
 		template <typename type_t>
-		typename std::enable_if<!std::is_base_of<type_t, base_t>::value, size_t>::type invoke_leave_join_warp(bool execute_remaining, bool finalize) {
+		typename std::enable_if<!std::is_base_of<type_t, base_t>::value, size_t>::type invoke_leave_join_warp() {
 			return 0;
 		}
 
 		template <typename type_t>
-		typename std::enable_if<std::is_base_of<type_t, base_t>::value, size_t>::type invoke_leave_join_warp(bool execute_remaining, bool finalize) {
-			return static_cast<base_t*>(this)->leave_join_warp(execute_remaining, finalize);
+		typename std::enable_if<std::is_base_of<type_t, base_t>::value, size_t>::type invoke_leave_join_warp() {
+			return static_cast<base_t*>(this)->leave_join_warp();
 		}
 
 		// take execution atomically, returns true on success.
@@ -1184,7 +1172,7 @@ namespace iris {
 			make_current(i);
 
 			while (!is_terminated()) {
-				if (join_one()) {
+				if (!poll_one()) {
 					delay();
 				}
 			}
@@ -1225,31 +1213,31 @@ namespace iris {
 		}
 
 		// poll any task from thread pool manually
-		bool join_one() {
+		bool poll_one() {
 			size_t inv_priority = running_count.fetch_add(1, std::memory_order_acquire);
 			running_guard_t guard(running_count);
-			return join_one_internal(threads.size() + 1 - std::min(inv_priority + 1, threads.size()));
+			return poll_one_internal(threads.size() + 1 - std::min(inv_priority + 1, threads.size()));
 		}
 
 		// poll any task from thread poll manually with given priority
-		bool join_one(size_t priority) {
+		bool poll_one(size_t priority) {
 			running_count.fetch_add(1, std::memory_order_acquire);
 			running_guard_t guard(running_count);
-			return join_one_internal(std::min(priority + 1, threads.size()));
+			return poll_one_internal(std::min(priority + 1, threads.size()));
 		}
 
 		// poll any task from thread poll manually with given priority in specified duration
 		// usually used in your customized thread procedures
 		template <typename duration_t>
-		bool join_one(size_t priority, duration_t&& delay) {
-			if (join_one(priority)) {
+		bool poll_one(size_t priority, duration_t&& delay) {
+			if (!poll_one(priority)) {
 				std::unique_lock<std::mutex> lock(mutex);
 				condition.wait_for(lock, std::forward<duration_t>(delay));
 				lock.unlock();
 
-				return join_one(priority);
+				return poll_one(priority);
 			} else {
-				return false;
+				return true;
 			}
 		}
 
@@ -1262,7 +1250,7 @@ namespace iris {
 
 		~iris_async_worker_t() noexcept {
 			terminate();
-			finalize();
+			join();
 
 			IRIS_ASSERT(task_count.load(std::memory_order_acquire) == 0);
 		}
@@ -1432,7 +1420,7 @@ namespace iris {
 		}
 
 		// wait for all threads in worker to be finished.
-		void finalize() {
+		void join() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			for (size_t i = 0; i < threads.size(); i++) {
@@ -1443,7 +1431,7 @@ namespace iris {
 
 			IRIS_ASSERT(running_count.load(std::memory_order_acquire) == 0);
 			IRIS_ASSERT(waiting_thread_count == 0);
-			while (!join()) {}
+			while (poll()) {}
 
 			task_heads.clear();
 			threads.clear();
@@ -1454,7 +1442,7 @@ namespace iris {
 		}
 
 		// cleanup all pending tasks
-		bool join() {
+		bool poll() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			bool empty = true;
@@ -1470,7 +1458,7 @@ namespace iris {
 				}
 			}
 
-			return empty;
+			return !empty;
 		}
 
 		// notify threads in thread pool, usually used for customized threads
@@ -1540,7 +1528,7 @@ namespace iris {
 		}
 
 		// poll with given priority
-		bool join_one_internal(size_t priority_size) {
+		bool poll_one_internal(size_t priority_size) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			std::pair<size_t, size_t> slot = fetch(priority_size);
@@ -1579,9 +1567,9 @@ namespace iris {
 					}
 				}
 
-				return false;
-			} else {
 				return true;
+			} else {
+				return false;
 			}
 		}
 

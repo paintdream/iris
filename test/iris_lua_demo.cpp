@@ -83,7 +83,7 @@ struct example_base_t {
 	}
 
 	static void lua_view_finalize(lua_t lua, int index, void* p) {
-		printf("view finalize\n");
+		printf("view join\n");
 	}
 
 	static size_t lua_view_payload(lua_t lua, void* p) {
@@ -171,7 +171,7 @@ struct example_t : example_base_t {
 	}
 
 	static void lua_finalize(lua_State* L, int index, example_t* p) noexcept {
-		printf("finalize!\n");
+		printf("join!\n");
 		ref_count.fetch_sub(1, std::memory_order_release);
 	}
 
@@ -755,16 +755,16 @@ end\n\
 #endif
 
 	warp.yield();
-	worker.finalize();
+	worker.join();
 
 	auto waiter = []() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		return false;
 	};
 
-	while (!worker.join() || !warp_t::join({ std::ref(warp), std::ref(warp2) }, []() {
+	while (worker.poll() || warp_t::poll({ std::ref(warp), std::ref(warp2) }, []() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
-		return false;
+		return true;
 	}) || !worker.empty()) {}
 
 	preempt_guard.cleanup();

@@ -99,7 +99,7 @@ namespace iris {
 		}
 
 		~iris_coroutine_t() noexcept {
-			IRIS_ASSERT(!handle); // must call run() or join() before destruction
+			IRIS_ASSERT(!handle); // must call run() before destruction
 		}
 
 		// set a unique, optional completion handler

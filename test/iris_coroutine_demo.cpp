@@ -72,7 +72,7 @@ coroutine_t example(warp_t::async_worker_t& async_worker, warp_t* warp, warp_t* 
 	std::function<void()> v3 = [value]() {};
 	pending_count.fetch_sub(1, std::memory_order_release);
 
-	// Step 3: test multiple await by join-like construction
+	// Step 3: test multiple await by poll-like construction
 	if (warp == nullptr) {
 		auto w2 = iris_awaitable(warp, std::move(v2));
 		auto w3 = iris_awaitable(warp, std::move(v3));
@@ -171,7 +171,7 @@ static void example_dispatch_coroutine(worker_t& worker) {
 	dispatcher.dispatch(std::move(preNode));
 
 	while (!finished2.load(std::memory_order_acquire)) {
-		worker.join_one(0, std::chrono::milliseconds(50));
+		worker.poll_one(0, std::chrono::milliseconds(50));
 	}
 }
 
@@ -290,12 +290,12 @@ int main(void) {
 	}
 
 	worker.thread_loop(main_thread_index);
-	worker.finalize();
+	worker.join();
 
 	// finished!
-	while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), []() {
+	while (worker.poll() || warp_t::poll(warps.begin(), warps.end(), []() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
-		return false;
+		return true;
 	}) || !worker.empty()) {}
 
 	return 0;

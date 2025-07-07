@@ -50,7 +50,7 @@ void external_poll() {
 			printf("[[ external thread running ... ]]\n");
 
 			while (!worker.is_terminated()) {
-				if (!worker.join_one(0, std::chrono::milliseconds(20))) {
+				if (worker.poll_one(0, std::chrono::milliseconds(20))) {
 					// there is no 0 priority task, assert it
 					IRIS_ASSERT(false);
 				}
@@ -76,7 +76,7 @@ void external_poll() {
 	warps[0].queue_routine_post([&worker]() {
 		worker.terminate();
 	});
-	worker.finalize();
+	worker.join();
 }
 
 void stack_op() {
@@ -109,7 +109,7 @@ void stack_op() {
 		});
 	}
 
-	worker.finalize();
+	worker.join();
 }
 
 void not_pow_two() {
@@ -188,7 +188,7 @@ void simple_explosion(void) {
 			printf("[[ external thread running ... ]]\n");
 
 			while (!worker.is_terminated()) {
-				if (!worker.join_one(0, std::chrono::milliseconds(20))) {
+				if (worker.poll_one(0, std::chrono::milliseconds(20))) {
 					printf("[[ external thread has polled a task ... ]]\n");
 				}
 			}
@@ -278,10 +278,13 @@ void simple_explosion(void) {
 
 	// invoke explosion from external thread (current thread is external to the threads in thread pool)
 	warps[0].queue_routine_post(explosion);
-	worker.finalize();
+	worker.join();
 
 	// finished!
-	while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), []() { std::this_thread::sleep_for(std::chrono::milliseconds(50)); return true; }) || !worker.empty()) {}
+	while (worker.poll() || warp_t::poll(warps.begin(), warps.end(), []() {
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		return true;
+	}) || !worker.empty()) {}
 
 	printf("after: \n");
 	for (size_t k = 0; k < warp_count; k++) {
@@ -305,11 +308,11 @@ struct count_warp_t : iris_warp_t<iris_async_worker_t<>, false, count_warp_t> {
 		counter--;
 	}
 
-	size_t enter_join_warp(bool execute_remaining, bool finalize) {
+	size_t enter_join_warp() {
 		return 0;
 	}
 
-	size_t leave_join_warp(bool execute_remaining, bool finalize) {
+	size_t leave_join_warp() {
 		return 0;
 	}
 
@@ -418,12 +421,12 @@ void garbage_collection() {
 
 		// invoke explosion from external thread (current thread is external to the threads in thread pool)
 		warps[graph.nodes[root_index].warp_index].queue_routine_post(std::bind(collector, root_index));
-		worker.finalize();
+		worker.join();
 
 		// finished!
-		while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), []() {
+		while (worker.poll() || warp_t::poll(warps.begin(), warps.end(), []() {
 			std::this_thread::sleep_for(std::chrono::milliseconds(50));
-			return false;
+			return true;
 		}) || !worker.empty()) {}
 	}
 }
@@ -535,14 +538,14 @@ void graph_dispatch() {
 	}
 
 	dispatcher.dispatch(std::move(last));
-	worker.finalize();
+	worker.join();
 	IRIS_ASSERT(task_count.load(std::memory_order_acquire) == 0);
 	printf("sum of factors: %d\n", (int)sum_factors);
 
 	// finished!
-	while (!worker.join() || !warp_t::join(warps.begin(), warps.end(), []() {
+	while (worker.poll() || warp_t::poll(warps.begin(), warps.end(), []() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
-		return false;
+		return true;
 	}) || !worker.empty()) {}
 }
 
@@ -578,8 +581,8 @@ void acquire_release() {
 		});
 	}
 
-	worker.finalize();
-	main_warp.join([]() {
+	worker.join();
+	main_warp.poll([]() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		return true;
 	});

@@ -101,14 +101,14 @@ namespace iris {
 			// manually polling events
 			async_worker->make_current(~(size_t)0);
 
-			while (!async_worker->join() || !main_warp->join([]() {
+			while (async_worker->poll() || main_warp->poll([]() {
 				std::this_thread::sleep_for(std::chrono::milliseconds(50));
-				return false;
+				return true;
 			}) || !async_worker->empty()) {}
 
 			async_worker->make_current(~(size_t)0);
 			reset();
-			async_worker->finalize();
+			async_worker->join();
 
 			return true;
 		} else {
@@ -121,15 +121,19 @@ namespace iris {
 		// try to poll tasks of main_warp, also poll other tasks in given time if there is no task in main_warp.
 		if (async_worker != nullptr && main_warp != nullptr) {
 			// try poll
-			auto waiter = [] { std::this_thread::sleep_for(std::chrono::milliseconds(50)); return false; };
-			if (main_warp->join(waiter)) {
+			auto waiter = []() {
+				std::this_thread::sleep_for(std::chrono::milliseconds(50));
+				return false;
+			};
+
+			if (main_warp->poll(waiter)) {
 				return true;
 			} else if (delay_in_milliseconds == 0) {
 				return false;
 			} else {
-				async_worker->join_one(0, std::chrono::milliseconds(delay_in_milliseconds));
+				async_worker->poll_one(0, std::chrono::milliseconds(delay_in_milliseconds));
 				// try poll again
-				return main_warp->join(waiter);
+				return main_warp->poll(waiter);
 			}
 		} else {
 			return false;
