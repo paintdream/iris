@@ -624,11 +624,11 @@ namespace iris {
 			return iris_static_instance_t<iris_warp_t*>::get_thread_local();
 		}
 
-		template <bool strand>
-		typename std::enable_if<strand>::type queue_barrier_internal() {}
+		template <bool enable_strand>
+		typename std::enable_if<enable_strand>::type queue_barrier_internal() {}
 
-		template <bool strand>
-		typename std::enable_if<!strand>::type queue_barrier_internal() {
+		template <bool enable_strand>
+		typename std::enable_if<!enable_strand>::type queue_barrier_internal() {
 			size_t counter = storage.barrier_version.fetch_add(1, std::memory_order_acquire) + 1;
 			queue_routine_post([this, counter]() noexcept {
 				storage.next_version = counter;
@@ -636,8 +636,8 @@ namespace iris {
 		}
 
 		// execute all tasks scheduled at once.
-		template <bool strand, bool force>
-		typename std::enable_if<strand>::type execute_internal() {
+		template <bool enable_strand, bool force>
+		typename std::enable_if<enable_strand>::type execute_internal() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			// mark for queueing, avoiding flush me more than once.
@@ -679,8 +679,8 @@ namespace iris {
 			} while (execute_counter != 0);
 		}
 
-		template <bool strand, bool force>
-		typename std::enable_if<!strand>::type execute_internal() {
+		template <bool enable_strand, bool force>
+		typename std::enable_if<!enable_strand>::type execute_internal() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			// mark for queueing, avoiding flush me more than once.
@@ -726,8 +726,8 @@ namespace iris {
 			} while (execute_counter != 0);
 		}
 
-		template <bool strand, bool force>
-		void execute() noexcept(noexcept(std::declval<iris_warp_t>().template execute_internal<strand, force>())) {
+		template <bool enable_strand, bool force>
+		void execute() noexcept(noexcept(std::declval<iris_warp_t>().template execute_internal<enable_strand, force>())) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			if (!is_suspended()) {
@@ -738,7 +738,7 @@ namespace iris {
 					execute_parallel();
 
 					if (!is_suspended()) { // double check for suspend_count
-						execute_internal<strand, force>();
+						execute_internal<enable_strand, force>();
 						
 						bool preempted = preempt_guard.is_preempted();
 						preempt_guard.cleanup();
