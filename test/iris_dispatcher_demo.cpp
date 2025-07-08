@@ -281,10 +281,9 @@ void simple_explosion(void) {
 	worker.join();
 
 	// finished!
-	while (worker.poll() || warp_t::poll(warps.begin(), warps.end(), []() {
+	while (warp_t::poll(warps.begin(), warps.end())) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
-		return true;
-	}) || !worker.empty()) {}
+	}
 
 	printf("after: \n");
 	for (size_t k = 0; k < warp_count; k++) {
@@ -424,10 +423,9 @@ void garbage_collection() {
 		worker.join();
 
 		// finished!
-		while (worker.poll() || warp_t::poll(warps.begin(), warps.end(), []() {
+		while (warp_t::poll(warps.begin(), warps.end())) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(50));
-			return true;
-		}) || !worker.empty()) {}
+		}
 	}
 }
 
@@ -543,10 +541,9 @@ void graph_dispatch() {
 	printf("sum of factors: %d\n", (int)sum_factors);
 
 	// finished!
-	while (worker.poll() || warp_t::poll(warps.begin(), warps.end(), []() {
+	while (warp_t::poll(warps.begin(), warps.end())) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
-		return true;
-	}) || !worker.empty()) {}
+	}
 }
 
 void acquire_release() {
@@ -582,9 +579,8 @@ void acquire_release() {
 	}
 
 	worker.join();
-	main_warp.poll([]() {
+	while (main_warp.poll()) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
-		return true;
-	});
+	}
 }
 

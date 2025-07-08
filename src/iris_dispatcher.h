@@ -422,64 +422,82 @@ namespace iris {
 		}
 
 		// cleanup the dispatcher, pass true to 'execute_remaining' to make sure all tasks are executed finally.
-		template <typename iterator_t = iris_warp_t*, typename waiter_t>
-		static bool poll(iterator_t begin, iterator_t end, waiter_t&& waiter) {
+		template <bool poll_async_worker = true, typename iterator_t>
+		static bool poll(iterator_t begin, iterator_t end) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
-			// suspend all warps so we can take over tasks
-			for (iterator_t p = begin; p != end; ++p) {
-				iris_warp_t& warp = *p;
-				warp.suspend();
-			}
+			while (true) {
+				// suspend all warps so we can take over tasks
+				for (iterator_t p = begin; p != end; ++p) {
+					iris_warp_t& warp = *p;
+					warp.suspend();
+				}
 
-			size_t pending_count = 0;
-			size_t executing_count = 0;
+				size_t pending_count = 0;
+				size_t executing_count = 0;
 
-			for (iterator_t p = begin; p != end; ++p) {
-				iris_warp_t& warp = *p;
-				pending_count += warp.template invoke_enter_join_warp<iris_warp_t>();
-			}
+				for (iterator_t p = begin; p != end; ++p) {
+					iris_warp_t& warp = *p;
+					pending_count += warp.template invoke_enter_join_warp<iris_warp_t>();
+				}
 
-			for (iterator_t p = begin; p != end; ++p) {
-				iris_warp_t& warp = *p;
-				if (!warp.empty() || warp.has_parallel_task()) {
-					pending_count++;
-					preempt_guard_t preempt_guard(*p, ~size_t(0));
-					if (preempt_guard) {
-						executing_count++;
-						warp.execute_parallel();
-						// execute remaining
-						warp.template execute_internal<strand, true>();
-						break;
+				for (iterator_t p = begin; p != end; ++p) {
+					iris_warp_t& warp = *p;
+					if (!warp.empty() || warp.has_parallel_task()) {
+						pending_count++;
+						preempt_guard_t preempt_guard(*p, ~size_t(0));
+						if (preempt_guard) {
+							executing_count++;
+							warp.execute_parallel();
+							// execute remaining
+							warp.template execute_internal<strand, true>();
+							break;
+						}
 					}
 				}
-			}
 
-			for (iterator_t p = begin; p != end; ++p) {
-				iris_warp_t& warp = *p;
-				pending_count += warp.template invoke_leave_join_warp<iris_warp_t>();
-			}
+				for (iterator_t p = begin; p != end; ++p) {
+					iris_warp_t& warp = *p;
+					pending_count += warp.template invoke_leave_join_warp<iris_warp_t>();
+				}
 
-			for (iterator_t p = begin; p != end; ++p) {
-				iris_warp_t& warp = *p;
-				warp.resume();
-			}
+				for (iterator_t p = begin; p != end; ++p) {
+					iris_warp_t& warp = *p;
+					warp.resume();
+				}
 
-			if (executing_count != pending_count) {
-				return waiter();
-			} else {
-				return pending_count != 0;
+				if /* constexpr */ (poll_async_worker) {
+					async_worker_t* last = nullptr;
+					for (iterator_t p = begin; p != end; ++p) {
+						iris_warp_t& warp = *p;
+						async_worker_t* t = &warp.get_async_worker();
+						if (t != last) {
+							if (t->poll() || !t->empty()) {
+								pending_count++;
+							}
+
+							last = t;
+						}
+					}
+				}
+
+				if (pending_count == 0) {
+					IRIS_ASSERT(executing_count == 0);
+					return false;
+				} else if (executing_count == 0) {
+					return true;
+				}
 			}
 		}
 
-		template <typename waiter_t>
-		static bool poll(std::initializer_list<std::reference_wrapper<iris_warp_t>>&& container, waiter_t&& waiter) {
-			return poll(std::begin(container), std::end(container), std::forward<waiter_t>(waiter));
+		template <bool poll_async_worker = true>
+		static bool poll(std::initializer_list<std::reference_wrapper<iris_warp_t>>&& container) {
+			return poll<poll_async_worker>(std::begin(container), std::end(container));
 		}
 
-		template <typename waiter_t>
-		bool poll(waiter_t&& waiter) {
-			return poll({ std::ref(*this) }, std::forward<waiter_t>(waiter));
+		template <bool poll_async_worker = true>
+		bool poll() {
+			return poll<poll_async_worker>({ std::ref(*this) });
 		}
 
 		// get current thread's warp binding instance
@@ -606,11 +624,11 @@ namespace iris {
 			return iris_static_instance_t<iris_warp_t*>::get_thread_local();
 		}
 
-		template <bool s>
-		typename std::enable_if<s>::type queue_barrier_internal() {}
+		template <bool strand>
+		typename std::enable_if<strand>::type queue_barrier_internal() {}
 
-		template <bool s>
-		typename std::enable_if<!s>::type queue_barrier_internal() {
+		template <bool strand>
+		typename std::enable_if<!strand>::type queue_barrier_internal() {
 			size_t counter = storage.barrier_version.fetch_add(1, std::memory_order_acquire) + 1;
 			queue_routine_post([this, counter]() noexcept {
 				storage.next_version = counter;
@@ -618,8 +636,8 @@ namespace iris {
 		}
 
 		// execute all tasks scheduled at once.
-		template <bool s, bool force>
-		typename std::enable_if<s>::type execute_internal() {
+		template <bool strand, bool force>
+		typename std::enable_if<strand>::type execute_internal() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			// mark for queueing, avoiding flush me more than once.
@@ -661,8 +679,8 @@ namespace iris {
 			} while (execute_counter != 0);
 		}
 
-		template <bool s, bool force>
-		typename std::enable_if<!s>::type execute_internal() {
+		template <bool strand, bool force>
+		typename std::enable_if<!strand>::type execute_internal() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			// mark for queueing, avoiding flush me more than once.
@@ -708,8 +726,8 @@ namespace iris {
 			} while (execute_counter != 0);
 		}
 
-		template <bool s, bool force>
-		void execute() noexcept(noexcept(std::declval<iris_warp_t>().template execute_internal<s, force>())) {
+		template <bool strand, bool force>
+		void execute() noexcept(noexcept(std::declval<iris_warp_t>().template execute_internal<strand, force>())) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 
 			if (!is_suspended()) {
@@ -720,7 +738,7 @@ namespace iris {
 					execute_parallel();
 
 					if (!is_suspended()) { // double check for suspend_count
-						execute_internal<s, force>();
+						execute_internal<strand, force>();
 						
 						bool preempted = preempt_guard.is_preempted();
 						preempt_guard.cleanup();

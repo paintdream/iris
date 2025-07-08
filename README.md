@@ -365,3 +365,15 @@ while (some_variable.load(std::memory_order_acquire) != expected_value) {
 }
 ```
 
+### Exiting 
+
+Use iris_warp_t::poll to poll all tasks from all wraps (including their async_worker's tasks) while exiting.
+
+```C++
+async_worker.terminate();
+async_worker.join();
+while (iris_warp_t::poll({ &warp1, &warp2, ... })) {
+	std::this_thread::sleep_for(std::chrono::milliseconds(20));
+}
+```
+

@@ -29,10 +29,8 @@ struct engine_t {
 		worker.terminate();
 		worker.join();
 
-		while (worker.poll() || warp_t::poll({ std::ref(warp_audio), std::ref(warp_script), std::ref(warp_network), std::ref(warp_render) }, []() {
+		while (warp_t::poll({ std::ref(warp_audio), std::ref(warp_script), std::ref(warp_network), std::ref(warp_render) })) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(50));
-			return true;
-		}) || !worker.empty()) {
 			printf("finalizing ...\n");
 		}
 	}

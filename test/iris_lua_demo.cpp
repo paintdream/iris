@@ -762,10 +762,9 @@ end\n\
 		return false;
 	};
 
-	while (worker.poll() || warp_t::poll({ std::ref(warp), std::ref(warp2) }, []() {
+	while (warp_t::poll({ std::ref(warp), std::ref(warp2) })) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
-		return true;
-	}) || !worker.empty()) {}
+	}
 
 	preempt_guard.cleanup();
 #endif

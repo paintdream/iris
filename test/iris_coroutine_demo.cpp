@@ -293,10 +293,9 @@ int main(void) {
 	worker.join();
 
 	// finished!
-	while (worker.poll() || warp_t::poll(warps.begin(), warps.end(), []() {
+	while (warp_t::poll(warps.begin(), warps.end())) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
-		return true;
-	}) || !worker.empty()) {}
+	}
 
 	return 0;
 }
