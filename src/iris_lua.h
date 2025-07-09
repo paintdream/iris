@@ -2807,15 +2807,15 @@ namespace iris {
 		// spec for constexpr ptr
 		template <auto ptr, typename... envs_t>
 		static void push_variable(lua_State* L, envs_t&&... envs) {
-			auto executor = []<typename... args_t>(lua_State* L, args_t&&... args) {
+			auto executor = [](lua_State* L, envs_t&&... envs) {
 				if constexpr (std::is_convertible_v<decltype(ptr), int (*)(lua_State*)> || std::is_convertible_v<decltype(ptr), int (*)(lua_State*) noexcept>) {
-					push_native(L, ptr, std::forward<args_t>(args)...);
+					push_native(L, ptr, std::forward<envs_t>(envs)...);
 				} else if constexpr (std::is_member_function_pointer_v<decltype(ptr)>) {
-					push_method<ptr>(L, std::nullptr_t(), ptr, std::forward<args_t>(args)...);
+					push_method<ptr>(L, std::nullptr_t(), ptr, std::forward<envs_t>(envs)...);
 				} else if constexpr (std::is_member_object_pointer_v<decltype(ptr)>) {
-					push_property<ptr>(L, ptr, std::forward<args_t>(args)...);
+					push_property<ptr>(L, ptr, std::forward<envs_t>(envs)...);
 				} else {
-					push_function<ptr>(L, ptr, std::forward<args_t>(args)...);
+					push_function<ptr>(L, ptr, std::forward<envs_t>(envs)...);
 				}
 			};
 
@@ -2828,8 +2828,8 @@ namespace iris {
 
 		template <typename type_t, typename first_t, typename... envs_t>
 		static void push_variable(lua_State* L, type_t&& variable, first_t&& first, envs_t&&... envs) {
-			auto executor = [&]<typename... args_t>(lua_State* L, args_t&&... args) {
-				push_method<&type_t::operator ()>(L, std::forward<type_t>(variable), &type_t::operator (), std::forward<args_t>(args)...);
+			auto executor = [&](lua_State* L, first_t&& first, envs_t&&... envs) {
+				push_method<&type_t::operator ()>(L, std::forward<type_t>(variable), &type_t::operator (), std::forward<first_t>(first), std::forward<envs_t>(envs)...);
 			};
 
 			if constexpr (iris_lua_traits_t<decltype(&type_t::operator ())>::value) {
