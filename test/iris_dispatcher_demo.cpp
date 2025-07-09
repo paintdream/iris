@@ -501,7 +501,7 @@ void graph_dispatch() {
 		});
 	}
 
-	static constexpr size_t max_task_count = 0x1126;
+	static constexpr size_t max_task_count = 0x100;
 	uint8_t executed[max_task_count] = { 0 };
 	routine_handle_t tasks[max_task_count];
 	size_t sum_factors = 0;
