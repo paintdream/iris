@@ -528,17 +528,24 @@ namespace iris {
 				type_t* object = static_cast<type_t*>(base_object);
 				IRIS_ASSERT(object != nullptr);
 				if (object->ref_count.fetch_add(1, std::memory_order_relaxed) == 0) {
-					IRIS_ASSERT(lua.get_state() != nullptr && !object->ref);
-					object->ref = lua.get_context<ref_t>(context_stackvalue_t(index));
+					IRIS_ASSERT(!object->ref);
+					if (lua) {
+						object->ref = lua.get_context<ref_t>(context_stackvalue_t(index));
+					}
 				}
 			}
 
 			static void lua_shared_release(iris_lua_t lua, int, shared_object_t* base_object) {
 				type_t* object = static_cast<type_t*>(base_object);
 				if (object->ref_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
-					lua_State* L = lua.get_state();
-					IRIS_ASSERT(L != nullptr && object->ref);
-					deref(L, std::move(object->ref));
+					// managed by lua
+					if (object->ref) {
+						lua_State* L = lua.get_state();
+						IRIS_ASSERT(L != nullptr);
+						deref(L, std::move(object->ref));
+					} else {
+						iris_lua_traits_t<type_t>::type::lua_shared_delete(base_object);
+					}
 				}
 			}
 
@@ -558,6 +565,10 @@ namespace iris {
 				shared_object_t** p = reinterpret_cast<shared_object_t**>(t);
 				IRIS_ASSERT(*p != nullptr);
 				return *p;
+			}
+
+			static void lua_shared_delete(shared_object_t* instance) {
+				delete static_cast<type_t*>(instance);
 			}
 
 			const ref_t& lua_get_ref() const noexcept { return ref; }
@@ -592,6 +603,11 @@ namespace iris {
 			template <typename cast_type_t>
 			shared_ref_t<cast_type_t> cast() {
 				return shared_ref_t<cast_type_t>(static_cast<cast_type_t*>(ptr));
+			}
+
+			template <typename... args_t>
+			static shared_ref_t make(args_t&&... args) {
+				return shared_ref_t(new type_t(std::forward<args_t>(args)...));
 			}
 
 			void deref(lua_State* L) {

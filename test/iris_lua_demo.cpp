@@ -383,6 +383,17 @@ int main(void) {
 		auto instance_construct = lua.make_registry_shared<shared_object_example_t>(2);
 		instance_construct->foo(nullptr, nullptr, nullptr);
 		lua.deref(instance_construct);
+
+		auto instance_offline = lua_t::shared_ref_t<shared_object_example_t>::make(3);
+		lua.set_global("failed_instance", std::move(instance_offline));
+		IRIS_ASSERT(lua.get_global<shared_object_example_t*>("failed_instance") == nullptr);
+	
+		{
+			auto instance_offline2 = lua_t::shared_ref_t<shared_object_example_t>::make(4);
+			lua.set_global("success_instance", lua.make_object_view(shared_object_example_type, instance_offline2.get()));
+			IRIS_ASSERT(lua.get_global<shared_object_example_t*>("success_instance") != nullptr);
+			lua.deref(std::move(instance_offline2));
+		}
 	}
 
 	lua.deref(std::move(shared_object_example_type));
