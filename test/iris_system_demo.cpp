@@ -31,6 +31,23 @@ inline void int_interface::release_element<int*>(int*&& object) {
 }
 
 int main(void) {
+	iris::iris_queue_list_t<int> ql;
+	std::vector<int> vv;
+	for (int i = 0; i < 0x716; i++) {
+		vv.push_back(i);
+	}
+
+	ql.push(vv.begin(), vv.end());
+	auto s = ql.copy(vv.begin(), vv.end(), 100);
+	IRIS_ASSERT(vv.end() - s == 100);
+
+	/*
+	for (auto v : ql) {
+		printf("%d\n", v);
+	}*/
+
+	auto t = ql.copy(vv.begin() + 100, vv.end(), 300);
+	IRIS_ASSERT(vv.end() - t == 200);
 
 	iris::iris_quota_t<int, 2> quota({ 5, 3 });
 	bool u1 = quota.acquire({ 1,2 });

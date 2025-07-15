@@ -283,7 +283,7 @@ namespace iris {
 
 	// gcc/clang cannot export template instance across shared library (i.e. 'extern template struct' not works but msvc does)
 	// these lines are ugly but works in both of them
-#define declare_shared_static_instance(type) \
+#define DECLARE_SHARED_STATIC_INSTANCE(type) \
 	template <> \
 	struct iris_static_instance_t<type> { \
 		IRIS_SHARED_LIBRARY_INTERFACE static type& get_thread_local() noexcept; \
@@ -291,7 +291,7 @@ namespace iris {
 		IRIS_SHARED_LIBRARY_INTERFACE static size_t get_unique_hash() noexcept; \
 	} \
 
-#define implement_shared_static_instance(type) \
+#define IMPLEMENT_SHARED_STATIC_INSTANCE(type) \
 	type& iris_static_instance_t<type>::get_thread_local() noexcept { \
 		return iris_static_instance_base_t<type>::get_thread_local(); \
 	} \
@@ -1338,6 +1338,66 @@ namespace iris {
 		}
 
 		template <typename iterator_t>
+		iterator_t copy(iterator_t from, iterator_t to, size_t offset) noexcept(noexcept(element_t(*from))) {
+			auto guard = in_fence();
+			IRIS_ASSERT(offset >= pop_count && offset < push_count);
+
+			iterator_t org = from;
+			size_t windex = offset % element_count;
+			size_t rindex = push_count % element_count;
+
+			if (rindex <= windex) {
+				while (from != to && windex < element_count) {
+					*reinterpret_cast<element_t*>(&ring_buffer[windex++]) = *from++;
+				}
+
+				windex = 0;
+			}
+
+			while (from != to && windex < rindex) {
+				*reinterpret_cast<element_t*>(&ring_buffer[windex++]) = *from++;
+			}
+
+			// place a thread_fence here to ensure that change of ring_buffer[windex]
+			//   must be visible to other threads after push_count being updated.
+			if /* constexpr */ (enable_memory_fence) {
+				std::atomic_thread_fence(std::memory_order_release);
+			}
+
+			return from;
+		}
+
+		template <typename iterator_t>
+		iterator_t move(iterator_t from, iterator_t to, size_t offset) noexcept(noexcept(element_t(*from))) {
+			auto guard = in_fence();
+			IRIS_ASSERT(offset >= pop_count && offset < push_count);
+
+			iterator_t org = from;
+			size_t windex = offset % element_count;
+			size_t rindex = push_count % element_count;
+
+			if (rindex <= windex) {
+				while (from != to && windex < element_count) {
+					*reinterpret_cast<element_t*>(&ring_buffer[windex++]) = std::move(*from++);
+				}
+
+				windex = 0;
+			}
+
+			while (from != to && windex < rindex) {
+				*reinterpret_cast<element_t*>(&ring_buffer[windex++]) = std::move(*from++);
+			}
+
+			// place a thread_fence here to ensure that change of ring_buffer[windex]
+			//   must be visible to other threads after push_count being updated.
+			if /* constexpr */ (enable_memory_fence) {
+				std::atomic_thread_fence(std::memory_order_release);
+			}
+
+			return from;
+		}
+
+		template <typename iterator_t>
 		iterator_t pop(iterator_t from, iterator_t to) noexcept {
 			auto guard = out_fence();
 			if (empty()) {
@@ -1633,7 +1693,7 @@ namespace iris {
 			}
 
 			iterator operator ++ (int) noexcept {
-				return iterator(*queue, step_counter(index, 1));
+				return iterator(queue, step_counter(index, 1));
 			}
 
 			iterator& operator += (ptrdiff_t count) noexcept {
@@ -1642,7 +1702,7 @@ namespace iris {
 			}
 
 			iterator operator + (ptrdiff_t count) const noexcept {
-				return iterator(*queue, step_counter(index, count));
+				return iterator(queue, step_counter(index, count));
 			}
 
 			ptrdiff_t operator - (const iterator& it) const noexcept {
@@ -1689,7 +1749,7 @@ namespace iris {
 			}
 
 			const_iterator operator ++ (int) noexcept {
-				return const_iterator(*queue, step_counter(index, 1));
+				return const_iterator(queue, step_counter(index, 1));
 			}
 
 			const_iterator& operator += (ptrdiff_t count) noexcept {
@@ -1698,7 +1758,7 @@ namespace iris {
 			}
 
 			const_iterator operator + (ptrdiff_t count) const noexcept {
-				return const_iterator(*queue, step_counter(index, count));
+				return const_iterator(queue, step_counter(index, count));
 			}
 
 			ptrdiff_t operator - (const const_iterator& it) const noexcept {
@@ -1902,6 +1962,43 @@ namespace iris {
 			return from;
 		}
 
+		template <typename iterator_t>
+		iterator_t copy(iterator_t from, iterator_t to, size_t offset) noexcept(noexcept(std::declval<node_t>().push(from, to))) {
+			for (node_t* p = pop_head; p != push_head->next; p = p->next) {
+				if (p->end_index() > offset) {
+					// copy from current node_t
+					iterator_t org = from;
+					from = p->copy(from, to, offset);
+					if (from == to) {
+						return from; // copied all elements
+					}
+
+					offset += (from - org);
+				}
+			}
+
+			return from;
+		}
+
+		template <typename iterator_t>
+		iterator_t move(iterator_t from, iterator_t to, size_t offset) noexcept(noexcept(std::declval<node_t>().push(from, to))) {
+			for (node_t* p = pop_head; p != push_head->next; p = p->next) {
+				if (p->end_index() > offset) {
+					// move from current node_t
+					iterator_t org = from;
+					from = p->move(from, to, offset);
+					if (from == to) {
+						return from; // copied all elements
+					}
+
+					offset += (from - org);
+				}
+			}
+
+			return from;
+		}
+
+
 		size_t end_index() const noexcept {
 			return push_head->end_index();
 		}
@@ -1913,8 +2010,8 @@ namespace iris {
 		const element_t& get(size_t index) const noexcept {
 			auto guard = out_fence();
 
-			for (const node_t* p = pop_head; p != push_head; p = p->next) {
-				if (p->end_index() - index > 0) {
+			for (const node_t* p = pop_head; p != push_head->next; p = p->next) {
+				if (p->end_index() > index) {
 					return p->get(index);
 				}
 			}
@@ -1924,8 +2021,8 @@ namespace iris {
 
 		element_t& get(size_t index) noexcept {
 			auto guard = out_fence();
-			for (node_t* p = pop_head; p != push_head; p = p->next) {
-				if (p->end_index() - index > 0) {
+			for (node_t* p = pop_head; p != push_head->next; p = p->next) {
+				if (p->end_index() > index) {
 					return p->get(index);
 				}
 			}
@@ -2247,7 +2344,7 @@ namespace iris {
 			}
 
 			const_iterator operator + (ptrdiff_t count) const noexcept {
-				node_t* n = current_node;
+				const node_t* n = current_node;
 				size_t sub = it;
 				while (true) {
 					ptrdiff_t c = node_t::diff_counter(n->end_index(), sub);

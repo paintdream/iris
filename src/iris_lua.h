@@ -648,7 +648,7 @@ namespace iris {
 				if (this != &rhs) {
 					reset();
 					ptr = rhs.ptr;
-					iris_lua_traits_t<type_t>::type::lua_shared_acquire(ptr, nullptr, 0);
+					iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
 				}
 
 				return *this;
@@ -661,7 +661,7 @@ namespace iris {
 				if (this != &rhs) {
 					reset();
 					ptr = rhs.ptr;
-					iris_lua_traits_t<type_t>::type::lua_shared_acquire(ptr, nullptr, 0);
+					iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
 				}
 
 				return *this;
@@ -844,7 +844,7 @@ namespace iris {
 
 		// register a new type, taking registar from &type_t::lua_registar by default, and you could also specify your own registar.
 		template <typename type_t, int user_value_count = 0, typename... args_t, typename... envs_t>
-		reftype_t<type_t> make_type(std::string_view name, optional_result_t<type_t*> (*creator)(iris_lua_t, type_t*, args_t...) = &trivial_object_creator<type_t>, envs_t&&... envs) {
+		reftype_t<type_t> make_type(std::string_view name, optional_result_t<type_t*>(*creator)(iris_lua_t, type_t*, args_t...) = &trivial_object_creator<type_t>, envs_t&&... envs) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = write_fence();
 
@@ -892,11 +892,23 @@ namespace iris {
 			return reftype_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX));
 		}
 
+		template <typename type_t>
+		static optional_result_t<type_t*> abstract_object_creator(iris_lua_t, type_t* object) {
+			return nullptr;
+		}
+
+		template <typename type_t, int user_value_count = 0>
+		reftype_t<type_t> make_type(std::string_view name, std::nullptr_t) {
+			return make_type<type_t, user_value_count>(name, &abstract_object_creator<type_t>);
+		}
+
 		// build a cast relationship from target_meta to base_meta
 		template <typename meta_base_t, typename meta_target_t>
 		void cast_type(meta_base_t&& base_meta, meta_target_t&& target_meta) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
-			static_assert(std::is_base_of<typename std::remove_reference_t<meta_base_t>::type_t, typename std::remove_reference_t<meta_target_t>::type_t>::value, "Incompatible type cast!");
+			if constexpr (!std::is_same_v<std::remove_reference_t<meta_base_t>, ref_t>) {
+				static_assert(std::is_base_of<typename std::remove_reference_t<meta_base_t>::type_t, typename std::remove_reference_t<meta_target_t>::type_t>::value, "Incompatible type cast!");
+			}
 			// IRIS_ASSERT(static_cast<typename std::remove_reference_t<meta_base_t>::type_t*>(reinterpret_cast<typename std::remove_reference_t<meta_target_t>::type_t*>(~size_t(0))) == reinterpret_cast<typename std::remove_reference_t<meta_base_t>::type_t*>(~size_t(0)));
 
 			lua_State* L = state;
