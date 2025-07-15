@@ -2247,7 +2247,7 @@ namespace iris {
 			}
 
 			const_iterator operator + (ptrdiff_t count) const noexcept {
-				node_t* n = current_node;
+				const node_t* n = current_node;
 				size_t sub = it;
 				while (true) {
 					ptrdiff_t c = node_t::diff_counter(n->end_index(), sub);
