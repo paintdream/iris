@@ -601,8 +601,13 @@ namespace iris {
 			}
 
 			template <typename cast_type_t>
-			shared_ref_t<cast_type_t> cast() {
+			shared_ref_t<cast_type_t> cast_static() {
 				return shared_ref_t<cast_type_t>(static_cast<cast_type_t*>(ptr));
+			}
+
+			template <typename cast_type_t>
+			shared_ref_t<cast_type_t> cast_dynamic() {
+				return shared_ref_t<cast_type_t>(dynamic_cast<cast_type_t*>(ptr));
 			}
 
 			template <typename... args_t>
@@ -906,7 +911,7 @@ namespace iris {
 		template <typename meta_base_t, typename meta_target_t>
 		void cast_type(meta_base_t&& base_meta, meta_target_t&& target_meta) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
-			if constexpr (!std::is_same_v<std::remove_reference_t<meta_base_t>, ref_t>) {
+			if constexpr (!std::is_same_v<std::remove_reference_t<meta_base_t>, ref_t> && !std::is_same_v<std::remove_reference_t<meta_target_t>, ref_t>) {
 				static_assert(std::is_base_of<typename std::remove_reference_t<meta_base_t>::type_t, typename std::remove_reference_t<meta_target_t>::type_t>::value, "Incompatible type cast!");
 			}
 			// IRIS_ASSERT(static_cast<typename std::remove_reference_t<meta_base_t>::type_t*>(reinterpret_cast<typename std::remove_reference_t<meta_target_t>::type_t*>(~size_t(0))) == reinterpret_cast<typename std::remove_reference_t<meta_base_t>::type_t*>(~size_t(0)));

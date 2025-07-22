@@ -369,7 +369,7 @@ int main(void) {
 	lua.set_global("shared_ptrinstance", std::move(shared_ptr_instance));
 	{
 		auto instance_copy1 = lua.get_global<lua_t::shared_ref_t<shared_object_example_t>>("shared_ptrinstance");
-		auto casted = instance_copy1.cast<shared_object_example_sub_t>();
+		auto casted = instance_copy1.cast_static<shared_object_example_sub_t>();
 		lua.deref(std::move(casted));
 		auto instance_copy2 = instance_copy1;
 		{
