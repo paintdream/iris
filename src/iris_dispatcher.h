@@ -1496,7 +1496,7 @@ namespace iris {
 				std::unique_lock<std::mutex> lock(mutex);
 				waiting_guard_t guard(this);
 
-				if (fetch(threads.size()).first == ~size_t(0)) {
+				if (fetch(waiting_thread_count).first == ~size_t(0)) {
 					if (!is_terminated()) {
 						condition.wait(lock);
 					}
@@ -1578,6 +1578,13 @@ namespace iris {
 
 							std::atomic_thread_fence(std::memory_order_acq_rel);
 							wakeup_one_with_priority(priority);
+						} else {
+							IRIS_ASSERT(!threads.empty());
+							if (waiting_thread_count > priority + limit_count) {
+								if (fetch(priority_size).first != ~size_t(0)) {
+									wakeup_one_with_priority(priority);
+								}
+							}
 						}
 
 						// in case task->task() throws exceptions
