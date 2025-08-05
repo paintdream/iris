@@ -129,8 +129,11 @@ struct example_t : example_base_t {
 		lua.set_current<&example_t::get_vector3>("get_vector3");
 		lua.set_current<&example_t::native_call>("native_call");
 		lua.set_current<&example_t::native_call_noexcept>("native_call_noexcept");
+		lua.set_current_overload<iris_overload_cast<int>(&example_t::overload_func)>("overload_func");
+		lua.set_current_overload<iris_overload_cast<int, int>(&example_t::overload_func)>("overload_func");
 #if USE_LUA_COROUTINE
-		lua.set_current<&example_t::coro_get_int>("coro_get_int");
+		lua.set_current_overload<iris_overload_cast<iris::iris_coroutine_t<int>, const std::string&>(&example_t::coro_get_int)>("coro_get_int");
+		lua.set_current_overload<iris_overload_cast<iris::iris_coroutine_t<int>, const std::string&, int>(&example_t::coro_get_int)>("coro_get_int");
 		lua.set_current<&example_t::coro_get_none>("coro_get_none");
 		lua.set_current<&example_t::mem_coro_get_int>("mem_coro_get_int");
 		lua.set_current<&example_t::mem_coro_get_int_raw>("mem_coro_get_int_raw");
@@ -177,6 +180,16 @@ struct example_t : example_base_t {
 
 	int get_value() noexcept {
 		return value;
+	}
+
+	int overload_func() {
+		printf("overload 1\n");
+		return 1;
+	}
+
+	int overload_func(int) {
+		printf("overload 2\n");
+		return 2;
 	}
 
 	static int value_raw(lua_State* L) {
@@ -264,6 +277,10 @@ struct example_t : example_base_t {
 #if USE_LUA_COROUTINE
 	static iris::iris_coroutine_t<int> coro_get_int(const std::string& s) noexcept {
 		co_return 1;
+	}
+
+	static iris::iris_coroutine_t<int> coro_get_int(const std::string& s, int) noexcept {
+		co_return 2;
 	}
 
 	static iris::iris_coroutine_t<> coro_get_none() noexcept {
@@ -359,7 +376,24 @@ struct shared_object_example_t : lua_t::shared_object_t<shared_object_example_t>
 
 struct shared_object_example_sub_t : shared_object_example_t {};
 
+struct test_overload_t {
+	void foo() const {}
+	void foo(int) const {}
+	static void bar() noexcept {}
+	static void bar(int) noexcept {}
+};
+
 int main(void) {
+	constexpr auto castfoo = iris_overload_cast<void, int>(&test_overload_t::foo);
+	constexpr auto castfoo2 = iris_overload_cast<void>(&test_overload_t::foo);
+	//constexpr auto q = iris_overload_cast<void>(&test_overload_t::foo);
+	static_assert(!std::is_same_v<decltype(castfoo), decltype(castfoo2)>);
+
+	constexpr auto castbar = iris_overload_cast<void, int>(&test_overload_t::bar);
+	constexpr auto castbar2 = iris_overload_cast<void>(&test_overload_t::bar);
+	//constexpr auto q = iris_overload_cast<void>(&test_overload_t::bar);
+	static_assert(!std::is_same_v<decltype(castbar), decltype(castbar2)>);
+
 	lua_State* L = luaL_newstate();
 	luaL_openlibs(L);
 
@@ -663,6 +697,8 @@ end\n\
 		example_t.native_call_noexcept() \n\
 		local a = example_t.new()\n\
 		local b = example_t.new()\n\
+		b:overload_func() \n\
+		b:overload_func(1) \n\
 		b:base_func() \n\
 		print('base value ' .. tostring(b:base_value())) \n\
 		b:join_value_required(a)\n\
@@ -739,6 +775,7 @@ end\n\
 		local a = example_t.new()\n\
 		local coro = coroutine.create(function() \n\
 			print('coro get ' .. a.coro_get_int('hello')) \n\
+			print('coro get ' .. a.coro_get_int('hello', 1)) \n\
 			local x1, x2 = a:mem_coro_get_int('world') \n\
 			print('memcoro get ' .. x1 .. ', ' .. x2) \n\
 			print('memcoro get second ' .. a:mem_coro_get_int('world')) \n\
@@ -753,6 +790,7 @@ end\n\
 		local coro = coroutine.create(function() \n\
 			local status, message = pcall(function() \n\
 			print('coro get ' .. a.coro_get_int('hello')) \n\
+			print('coro get ' .. a.coro_get_int('hello', 1)) \n\
 			local x1, x2 = a:mem_coro_get_int('world') \n\
 			print('memcoro get ' .. x1 .. ', ' .. x2) \n\
 			print('memcoro get second ' .. a:mem_coro_get_int('world')) \n\
