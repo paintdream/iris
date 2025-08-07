@@ -315,6 +315,7 @@ struct shared_data_t : std::enable_shared_from_this<shared_data_t> {
 template <typename type_t>
 struct iris::iris_lua_traits_t<type_t, std::enable_if_t<std::is_base_of_v<std::enable_shared_from_this<type_t>, type_t>>> {
 	using type = iris::iris_lua_traits_t<shared_data_t>;
+	static constexpr int uservalue_count = 0;
 	static_assert(alignof(std::weak_ptr<type_t>) <= alignof(type_t*), "Unexpected alignment.");
 
 	static void lua_view_initialize(lua_t lua, int index, void* t) {
