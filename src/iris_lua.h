@@ -2625,7 +2625,9 @@ namespace iris {
 				// must check before calling this
 				check_result = check_required_parameters<required_t<std::remove_reference_t<type_t>*>>(L, env_count, up_base, use_this, index, throw_error);
 			} else {
-				// do not check
+				if constexpr (has_lua_check<value_t>::value) {
+					check_result = iris_lua_traits_t<value_t>::type::lua_check(iris_lua_t(L), var_index, nullptr);
+				}
 			}
 
 			if (!check_result) {
