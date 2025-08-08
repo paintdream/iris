@@ -949,7 +949,7 @@ namespace iris {
 		}
 
 		template <typename type_t, typename... args_t>
-		type_t* push_registry_object(args_t&&... args) {
+		type_t* native_push_registry_object(args_t&&... args) {
 			return native_push_object<type_t>(registry_type_hash_t(reinterpret_cast<const void*>(get_hash<type_t>())), std::forward<args_t>(args)...);
 		}
 
