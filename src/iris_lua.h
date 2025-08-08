@@ -932,7 +932,7 @@ namespace iris {
 		}
 
 		template <typename type_t, typename meta_t, typename... args_t>
-		type_t* push_object(meta_t&& meta, args_t&&... args) {
+		type_t* native_push_object(meta_t&& meta, args_t&&... args) {
 			lua_State* L = get_state();
 			if constexpr (std::is_base_of_v<ref_t, meta_t>) {
 				IRIS_ASSERT(*meta.template get<const void*>(*this, "__typeid") == reinterpret_cast<const void*>(get_hash<type_t>()));
@@ -950,7 +950,7 @@ namespace iris {
 
 		template <typename type_t, typename... args_t>
 		type_t* push_registry_object(args_t&&... args) {
-			return push_object<type_t>(registry_type_hash_t(reinterpret_cast<const void*>(get_hash<type_t>())), std::forward<args_t>(args)...);
+			return native_push_object<type_t>(registry_type_hash_t(reinterpret_cast<const void*>(get_hash<type_t>())), std::forward<args_t>(args)...);
 		}
 
 		// make an object with given meta
@@ -959,7 +959,7 @@ namespace iris {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			lua_State* L = state;
 			stack_guard_t guard(L);
-			type_t* p = push_object<type_t>(std::forward<meta_t>(meta), std::forward<args_t>(args)...);
+			type_t* p = native_push_object<type_t>(std::forward<meta_t>(meta), std::forward<args_t>(args)...);
 
 			return refptr_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX), p);
 		}
@@ -974,7 +974,7 @@ namespace iris {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			lua_State* L = state;
 			stack_guard_t guard(L);
-			type_t* p = push_object<type_t>(std::forward<meta_t>(meta), std::forward<args_t>(args)...);
+			type_t* p = native_push_object<type_t>(std::forward<meta_t>(meta), std::forward<args_t>(args)...);
 			shared_ref_t<type_t> ret(*this, -1, p);
 			lua_pop(L, 1);
 
