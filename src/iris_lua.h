@@ -89,7 +89,6 @@ namespace iris {
 	template <typename type_t, typename = void>
 	struct iris_lua_traits_t : std::false_type {
 		using type = type_t;
-		static constexpr int uservalue_count = 0;
 		operator std::nullptr_t() const noexcept {
 			return nullptr;
 		}
@@ -422,7 +421,7 @@ namespace iris {
 			}
 
 			// register current table as global type to registry table.
-			reftype_t& make_registry(iris_lua_t lua, bool enable = true) & {
+			reftype_t& set_registry(iris_lua_t lua, bool enable = true) & {
 				const void* hash = get_type_hash();
 				if (hash != nullptr) {
 					if (enable) {
@@ -442,8 +441,8 @@ namespace iris {
 			}
 
 			// for chain expressions
-			reftype_t&& make_registry(iris_lua_t lua, bool enable = true) && {
-				static_cast<reftype_t*>(this)->make_registry(lua, enable);
+			reftype_t&& set_registry(iris_lua_t lua, bool enable = true) && {
+				static_cast<reftype_t*>(this)->set_registry(lua, enable);
 				return std::move(*this);
 			}
 
@@ -849,7 +848,7 @@ namespace iris {
 		}
 
 		// register a new type, taking registar from &type_t::lua_registar by default, and you could also specify your own registar.
-		template <typename type_t, int user_value_count = 0, typename... args_t, typename... envs_t>
+		template <typename type_t, typename... args_t, typename... envs_t>
 		reftype_t<type_t> make_type(std::string_view name, optional_result_t<type_t*>(*creator)(iris_lua_t, type_t*, args_t...) = &trivial_object_creator<type_t>, envs_t&&... envs) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = write_fence();
@@ -858,7 +857,7 @@ namespace iris {
 			stack_guard_t stack_guard(L);
 			lua_newtable(L);
 
-			make_uniform_meta_internal<type_t, user_value_count>(L);
+			make_uniform_meta_internal<type_t>(L);
 
 			// hash code is to check types when passing as a argument to C++
 			push_variable(L, "__typeid");
@@ -887,7 +886,7 @@ namespace iris {
 			}
 
 			push_arguments(L, std::forward<envs_t>(envs)...);
-			lua_pushcclosure(L, &iris_lua_t::new_object<type_t, user_value_count, sizeof...(envs), args_t...>, 2 + sizeof...(envs));
+			lua_pushcclosure(L, &iris_lua_t::new_object<type_t, sizeof...(envs), args_t...>, 2 + sizeof...(envs));
 			lua_rawset(L, -3);
 
 			// call custom registar if needed
@@ -903,9 +902,14 @@ namespace iris {
 			return nullptr;
 		}
 
-		template <typename type_t, int user_value_count = 0>
+		template <typename type_t>
 		reftype_t<type_t> make_type(std::string_view name, std::nullptr_t) {
-			return make_type<type_t, user_value_count>(name, &abstract_object_creator<type_t>);
+			return make_type<type_t>(name, &abstract_object_creator<type_t>);
+		}
+
+		template <typename type_t>
+		reftype_t<type_t> make_registry_type(std::string_view name, std::nullptr_t) {
+			return make_registry_type<type_t>(name, &abstract_object_creator<type_t>);
 		}
 
 		// build a cast relationship from target_meta to base_meta
@@ -931,6 +935,21 @@ namespace iris {
 			lua_pop(L, 1);
 		}
 
+		template <typename type_t, typename = void>
+		struct has_lua_uservalue_count : std::false_type {};
+
+		template <typename type_t>
+		struct has_lua_uservalue_count<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_uservalue_count())>> : std::true_type {};
+
+		template <typename type_t>
+		static constexpr int get_lua_uservalue_count() noexcept {
+			if constexpr (has_lua_uservalue_count<type_t>::value) {
+				return iris_lua_traits_t<type_t>::type::lua_uservalue_count();
+			} else {
+				return 0;
+			}
+		}
+
 		template <typename type_t, typename meta_t, typename... args_t>
 		type_t* native_push_object(meta_t&& meta, args_t&&... args) {
 			lua_State* L = get_state();
@@ -939,7 +958,7 @@ namespace iris {
 			}
 
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
-			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), iris_lua_traits_t<type_t>::uservalue_count));
+			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), get_lua_uservalue_count<type_t>()));
 			new (p) type_t(std::forward<args_t>(args)...);
 			push_variable(L, std::forward<meta_t>(meta));
 			lua_setmetatable(L, -2);
@@ -970,7 +989,7 @@ namespace iris {
 		}
 
 		template <typename type_t, typename meta_t, typename... args_t>
-		shared_ref_t<type_t> make_shared(meta_t&& meta, args_t&&... args) {
+		shared_ref_t<type_t> make_shared_object(meta_t&& meta, args_t&&... args) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			lua_State* L = state;
 			stack_guard_t guard(L);
@@ -982,8 +1001,8 @@ namespace iris {
 		}
 	
 		template <typename type_t, typename... args_t>
-		shared_ref_t<type_t> make_registry_shared(args_t&&... args) {
-			return make_shared<type_t>(registry_type_hash_t(reinterpret_cast<const void*>(get_hash<type_t>())), std::forward<args_t>(args)...);
+		shared_ref_t<type_t> make_registry_shared_object(args_t&&... args) {
+			return make_shared_object<type_t>(registry_type_hash_t(reinterpret_cast<const void*>(get_hash<type_t>())), std::forward<args_t>(args)...);
 		}
 
 		// make an object view with an exiting object
@@ -1002,7 +1021,7 @@ namespace iris {
 				payload_size += iris_lua_traits_t<type_t>::type::lua_view_payload(iris_lua_t(L), object);
 			}
 
-			void* p = lua_newuserdatauv(L, (sizeof(type_t*) + payload_size) | size_mask_view, iris_lua_traits_t<type_t>::uservalue_count);
+			void* p = lua_newuserdatauv(L, (sizeof(type_t*) + payload_size) | size_mask_view, get_lua_uservalue_count<type_t>());
 			*reinterpret_cast<type_t**>(p) = object;
 
 			push_variable(L, std::forward<meta_t>(meta));
@@ -1861,7 +1880,7 @@ namespace iris {
 		using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<type_t>>;
 
 		template <typename type_t>
-		using cast_arg_type_t = std::conditional_t<has_lua_registar<remove_cvref_t<type_t>>::value, remove_cvref_t<type_t>&, remove_cvref_t<type_t>>;
+		using cast_arg_type_t = std::conditional_t<has_lua_registar<remove_cvref_t<type_t>>::value && !std::is_const_v<std::remove_reference_t<type_t>>, remove_cvref_t<type_t>&, remove_cvref_t<type_t>>;
 		
 		// wrap a member function with normal function
 		template <auto method, typename return_t, typename type_t, typename... args_t>
@@ -1941,23 +1960,23 @@ namespace iris {
 
 		template <typename type_t>
 		static void copy_construct_stub(lua_State* L, const void* prototype, size_t rawlen) {
-			type_t* p = new (reinterpret_cast<type_t*>(lua_newuserdatauv(L, rawlen, iris_lua_traits_t<type_t>::uservalue_count))) type_t(*reinterpret_cast<const type_t*>(prototype));
+			type_t* p = new (reinterpret_cast<type_t*>(lua_newuserdatauv(L, rawlen, get_lua_uservalue_count<type_t>()))) type_t(*reinterpret_cast<const type_t*>(prototype));
 			construct_meta_internal(L, p);
 		}
 
 		// copy constructor stub
 		template <typename type_t>
 		static void move_construct_stub(lua_State* L, void* prototype, size_t rawlen) {
-			type_t* p = new (reinterpret_cast<type_t*>(lua_newuserdatauv(L, rawlen, iris_lua_traits_t<type_t>::uservalue_count))) type_t(std::move(*reinterpret_cast<type_t*>(prototype)));
+			type_t* p = new (reinterpret_cast<type_t*>(lua_newuserdatauv(L, rawlen, get_lua_uservalue_count<type_t>()))) type_t(std::move(*reinterpret_cast<type_t*>(prototype)));
 			construct_meta_internal(L, p);
 		}
 
 		// view stub
-		template <typename type_t, int user_value_count>
+		template <typename type_t>
 		static void view_construct_stub(lua_State* T, lua_State* L, int index, size_t rawlen) {
 			type_t* src = extract_object_ptr<type_t>(L, index);
 
-			type_t** p = reinterpret_cast<type_t**>(lua_newuserdatauv(T, rawlen, user_value_count));
+			type_t** p = reinterpret_cast<type_t**>(lua_newuserdatauv(T, rawlen, get_lua_uservalue_count<type_t>()));
 			*p = src;
 
 			lua_pushvalue(T, -2);
@@ -2166,7 +2185,7 @@ namespace iris {
 			return property_proxy_dispatch<prop_t, type_t>(L, prop);
 		}
 
-		template <typename type_t, int user_value_count>
+		template <typename type_t>
 		static void make_uniform_meta_internal(lua_State* L) {
 			// copy constructor
 			if constexpr (std::is_copy_constructible_v<type_t>) {
@@ -2184,7 +2203,7 @@ namespace iris {
 
 			// move constructor
 			push_variable(L, "__view");
-			push_variable(L, reinterpret_cast<void*>(&view_construct_stub<type_t, user_value_count>));
+			push_variable(L, reinterpret_cast<void*>(&view_construct_stub<type_t>));
 			lua_rawset(L, -3);
 
 			// create __gc for collecting objects
@@ -2273,7 +2292,7 @@ namespace iris {
 		template <typename type_t>
 		struct has_lua_check<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_check(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
 
-		template <typename type_t, int user_value_count, int env_count, typename... args_t>
+		template <typename type_t, int env_count, typename... args_t>
 		static int new_object(lua_State* L) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			if constexpr (sizeof...(args_t) > 0) {
@@ -2283,7 +2302,7 @@ namespace iris {
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
 			do {
 				stack_guard_t guard(L, 1);
-				type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), user_value_count));
+				type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), get_lua_uservalue_count<type_t>()));
 				auto result = invoke_create<type_t, std::tuple<cast_arg_type_t<args_t>...>>(p, L, reinterpret_cast<optional_result_t<type_t*> (*)(iris_lua_t, type_t*, args_t...)>(lua_touserdata(L, lua_upvalueindex(2))), env_count, std::make_index_sequence<sizeof...(args_t)>());
 				if (result) {
 					assert(result.value() == p); // must return original ptr if success
@@ -2328,7 +2347,7 @@ namespace iris {
 			stack_guard_t guard(L);
 
 			if constexpr (iris_lua_traits_t<value_t>::value) {
-				return iris_lua_traits_t<value_t>::type::from_lua(iris_lua_t(L), index);
+				return iris_lua_traits_t<value_t>::type::lua_fromstack(iris_lua_t(L), index);
 			} else if constexpr (std::is_null_pointer_v<value_t>) {
 				return nullptr;
 			} else if constexpr (std::is_same_v<type_t, context_stackvalue_t>) {
@@ -2490,7 +2509,7 @@ namespace iris {
 				return *get_variable<std::remove_reference_t<type_t>*>(L, index);
 			} else {
 				// by default, force iris_lua_traits_t
-				return iris_lua_traits_t<value_t>::type::from_lua(iris_lua_t(L), index);
+				return iris_lua_traits_t<value_t>::type::lua_fromstack(iris_lua_t(L), index);
 			}
 		}
 
@@ -2932,7 +2951,7 @@ namespace iris {
 			};
 
 			if constexpr (iris_lua_traits_t<decltype(ptr)>::value) {
-				iris_lua_traits_t<decltype(ptr)>::type::template to_lua<ptr>(L, std::nullptr_t(), executor, std::forward<envs_t>(envs)...);
+				iris_lua_traits_t<decltype(ptr)>::type::template lua_tostack<ptr>(L, std::nullptr_t(), executor, std::forward<envs_t>(envs)...);
 			} else {
 				executor(L, std::forward<envs_t>(envs)...);
 			}
@@ -2945,7 +2964,7 @@ namespace iris {
 			};
 
 			if constexpr (iris_lua_traits_t<decltype(&type_t::operator ())>::value) {
-				iris_lua_traits_t<decltype(type_t::operator ())>::type::template to_lua<&type_t::operator ()>(L, std::forward<type_t>(variable), executor, std::forward<first_t>(first), std::forward<envs_t>(envs)...);
+				iris_lua_traits_t<decltype(type_t::operator ())>::type::template lua_tostack<&type_t::operator ()>(L, std::forward<type_t>(variable), executor, std::forward<first_t>(first), std::forward<envs_t>(envs)...);
 			} else {
 				executor(L, std::forward<first_t>(first), std::forward<envs_t>(envs)...);
 			}
@@ -2957,7 +2976,7 @@ namespace iris {
 			stack_guard_t guard(L, 1);
 
 			if constexpr (iris_lua_traits_t<value_t>::value) {
-				guard.append(iris_lua_traits_t<value_t>::type::to_lua(iris_lua_t(L), std::forward<type_t>(variable)) - 1);
+				guard.append(iris_lua_traits_t<value_t>::type::lua_tostack(iris_lua_t(L), std::forward<type_t>(variable)) - 1);
 			} else if constexpr (is_optional<value_t>::value) {
 				if (variable) {
 					if constexpr (std::is_rvalue_reference_v<type_t&&>) {
@@ -3068,7 +3087,7 @@ namespace iris {
 				push_method<&type_t::operator ()>(L, std::forward<type_t>(variable), &type_t::operator ());
 			} else {
 				// by default, force iris_lua_traits_t
-				guard.append(iris_lua_traits_t<value_t>::type::to_lua(iris_lua_t(L), std::forward<type_t>(variable)) - 1);
+				guard.append(iris_lua_traits_t<value_t>::type::lua_tostack(iris_lua_t(L), std::forward<type_t>(variable)) - 1);
 			}
 		}
 
@@ -3202,7 +3221,7 @@ namespace iris {
 								lua_pop(T, 1);
 
 								if (ptr != nullptr) {
-									reinterpret_cast<decltype(&view_construct_stub<void*, 0>)>(ptr)(T, L, index, rawlen);
+									reinterpret_cast<decltype(&view_construct_stub<void*>)>(ptr)(T, L, index, rawlen);
 								} else {
 									lua_pushnil(T);
 								}

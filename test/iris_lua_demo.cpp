@@ -30,7 +30,7 @@ template <>
 struct iris::iris_lua_traits_t<vector3> : std::true_type {
 	using type = iris::iris_lua_traits_t<vector3>;
 
-	static int to_lua(lua_State* L, vector3&& v) noexcept {
+	static int lua_tostack(lua_State* L, vector3&& v) noexcept {
 		lua_newtable(L);
 		lua_pushnumber(L, v.z);
 		lua_pushnumber(L, v.y);
@@ -41,7 +41,7 @@ struct iris::iris_lua_traits_t<vector3> : std::true_type {
 		return 1;
 	}
 
-	static vector3 from_lua(lua_State* L, int index) noexcept {
+	static vector3 lua_fromstack(lua_State* L, int index) noexcept {
 		lua_pushvalue(L, index);
 		lua_rawgeti(L, -1, 1);
 		lua_rawgeti(L, -2, 2);
@@ -315,7 +315,7 @@ struct shared_data_t : std::enable_shared_from_this<shared_data_t> {
 template <typename type_t>
 struct iris::iris_lua_traits_t<type_t, std::enable_if_t<std::is_base_of_v<std::enable_shared_from_this<type_t>, type_t>>> {
 	using type = iris::iris_lua_traits_t<shared_data_t>;
-	static constexpr int uservalue_count = 0;
+	static constexpr int lua_uservalue_count = 0;
 	static_assert(alignof(std::weak_ptr<type_t>) <= alignof(type_t*), "Unexpected alignment.");
 
 	static void lua_view_initialize(lua_t lua, int index, void* t) {
@@ -414,8 +414,8 @@ int main(void) {
 		lua.set_global("shared_deref_auto", std::move(instance_copy1));
 		lua.deref(instance_copy2);
 
-		shared_object_example_type.make_registry(lua, true);
-		auto instance_construct = lua.make_registry_shared<shared_object_example_t>(2);
+		shared_object_example_type.set_registry(lua, true);
+		auto instance_construct = lua.make_registry_shared_object<shared_object_example_t>(2);
 		instance_construct->foo(nullptr, nullptr, nullptr);
 		lua.deref(instance_construct);
 
@@ -450,7 +450,7 @@ int main(void) {
 		printf("once value = %d\n", lua.get_current<int>("once"));
 	}));
 
-	auto example_type = lua.make_type<example_t>("example_t").make_registry(lua);
+	auto example_type = lua.make_type<example_t>("example_t").set_registry(lua);
 	auto example_base_type = lua.make_type<example_base_t>("example_base_t");
 	lua.cast_type(std::move(example_base_type), example_type);
 	lua.set_global("example_t", std::move(example_type));
@@ -553,7 +553,7 @@ end\n\
 	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test");
 	example_t existing_object;
 	existing_object.value = 2222;
-	auto temp_type = target.make_type<example_t>("example_temp_t").make_registry(target);
+	auto temp_type = target.make_type<example_t>("example_temp_t").set_registry(target);
 	{
 		// target.cast_type(std::move(example_base_type), temp_type);
 		temp_type.make_cast(target, target.make_type<example_base_t>("example_base_t"));
