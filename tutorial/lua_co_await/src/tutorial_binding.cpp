@@ -16,22 +16,22 @@ namespace iris {
 		lua.set_current("run", lua.load("local self = ...\n\
 print('[tutorial_binding] ')\n\
 local printfields = function (object) \n\
-	print('\tint_value = ' .. tostring(object:int_value())) \n\
-	print('\tfloat_value = ' .. tostring(object:float_value())) \n\
-	print('\tdouble_value = ' .. tostring(object:double_value())) \n\
-	print('\tstring_value = ' .. tostring(object:string_value())) \n\
-	for k, v in ipairs(object:string_vector_value()) do \n\
+	print('\tint_value = ' .. tostring(object.int_value)) \n\
+	print('\tfloat_value = ' .. tostring(object.float_value)) \n\
+	print('\tdouble_value = ' .. tostring(object.double_value)) \n\
+	print('\tstring_value = ' .. tostring(object.string_value)) \n\
+	for k, v in ipairs(object.string_vector_value) do \n\
 		print('\tstring_vector_value[' .. tostring(k) .. '] = ' .. tostring(v)) \n\
 	end \n\
-	for k, v in pairs(object:string_int_map_value()) do \n\
+	for k, v in pairs(object.string_int_map_value) do \n\
 		print('\tstring_int_map_value[' .. tostring(k) .. '] = ' .. tostring(v)) \n\
 	end \n\
 end \n\
 self:init(1, 2.0, 3.0, 'hello', { 'alpha', 'beta', 'gamma' }, { x = 0, y = 1, z = 2}) \n\
 print('old values: ') \n\
 printfields(self) \n\
-self:int_value(4) \n\
-self:string_value('world') \n\
+self.int_value = 4 \n\
+self.string_value = 'world' \n\
 print('new values: ') \n\
 printfields(self) \n\
 local tab = self:save() \n\
@@ -48,7 +48,7 @@ other2:copy_static(self) \n\
 print('other values ') \n\
 printfields(other) \n\
 print('other2 values ') \n\
-other2:string_int_map_value({ x = 1, y = 2, z = 3}) \n\
+other2.string_int_map_value = { x = 1, y = 2, z = 3} \n\
 printfields(other2) \n\
 print('[tutorial_binding] complete!')\n"));
 	}

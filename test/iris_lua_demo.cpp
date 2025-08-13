@@ -109,7 +109,6 @@ struct example_t : example_base_t {
 		});
 		lua.set_current<&example_t::value>("value");
 		lua.set_current<iris_add_member_const(&example_t::value_as_const)> ("value_as_const");
-		lua.set_current<&example_t::value_raw>("value_raw");
 		lua.set_current<&example_t::const_value>("const_value");
 		lua.set_current<&example_t::accum_value>("accum_value");
 		lua.set_current<&example_t::join_value>("join_value");
@@ -190,10 +189,6 @@ struct example_t : example_base_t {
 	int overload_func(int) {
 		printf("overload 2\n");
 		return 2;
-	}
-
-	static int value_raw(lua_State* L) {
-		return lua_t::forward(L, &example_t::value);
 	}
 
 	static int get_value_raw(lua_State* L) {
@@ -529,19 +524,19 @@ int main(void) {
 	target.native_pop_variable(1);
 	target.call<void>(std::move(f), "transferred!");
 
-	target.call<void>(target.load("\n\
+	auto callResult = target.call<void>(target.load("\n\
 function test(a, b, c) \n\
 	b:base_func() \n\
 	b:base_bind() \n\
 	b.base_bind_static() \n\
 	print('equal value ======== ' .. tostring(b == c)) \n\
-	print('base value ======== ' .. tostring(b:base_value())) \n\
+	print('base value ======== ' .. tostring(b.base_value)) \n\
 	print('cross ' .. tostring(a)) \n\
-	print('cross value ' .. b:value()) \n\
+	print('cross value ' .. b.value) \n\
 	print('lambda value ' .. b.lambda(4)) \n\
-	print('cross value ' .. c:value()) \n\
-	c:value(3333) \n\
-	print('cross value ' .. c:value()) \n\
+	print('cross value ' .. c.value) \n\
+	c.value = 3333 \n\
+	print('cross value ' .. c.value) \n\
 	return a \n\
 end\n\
 function test2() \n\
@@ -550,6 +545,11 @@ function test2() \n\
 	return a \n\
 end\n\
 ").value());
+	if (!callResult) {
+		fprintf(stderr, "Lua code error: %s\n", callResult.message.c_str());
+		IRIS_ASSERT(false);
+	}
+
 	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test");
 	example_t existing_object;
 	existing_object.value = 2222;
@@ -559,7 +559,12 @@ end\n\
 		temp_type.make_cast(target, target.make_type<example_base_t>("example_base_t"));
 	}
 
-	target.call<void>(test, "existing", target.make_registry_object_view<example_t>(&existing_object), target.make_object_view<example_t>(temp_type, &existing_object));
+	auto callResultProperty = target.call<void>(test, "existing", target.make_registry_object_view<example_t>(&existing_object), target.make_object_view<example_t>(temp_type, &existing_object));
+	if (!callResultProperty) {
+		fprintf(stderr, "Lua code error: %s\n", callResultProperty.message.c_str());
+		IRIS_ASSERT(false);
+	}
+
 	target.deref(std::move(temp_type));
 	IRIS_ASSERT(existing_object.value == 3333);
 	existing_object.value = 2222;
@@ -585,11 +590,16 @@ end\n\
 	target.native_pop_variable(1);
 	lua_close(T);
 
-	lua.call<void>(lua.load("\n\
+	auto callResult2 = lua.call<void>(lua.load("\n\
 	function print2(a) \n\
 		print(a.text) \n\
 		assert(a.b.self == a) \n\
 	end\n").value());
+
+	if (!callResult2) {
+		fprintf(stderr, "Lua code error: %s\n", callResult2.message.c_str());
+		IRIS_ASSERT(false);
+	}
 
 	auto encode_text = lua.encode<std::string>("haha");
 	auto decode_text = lua.decode<iris_lua_t::ref_t>(std::move(encode_text)).value();
@@ -692,7 +702,7 @@ end\n\
 
 	lua.set_global("test_tab", std::move(temp_tab));
 
-	auto success = lua.call<void>(lua.load("\
+	auto callResult3 = lua.call<void>(lua.load("\
 		print(_VERSION)\n\
 		example_t.native_call() \n\
 		example_t.native_call_noexcept() \n\
@@ -701,18 +711,17 @@ end\n\
 		b:overload_func() \n\
 		b:overload_func(1) \n\
 		b:base_func() \n\
-		print('base value ' .. tostring(b:base_value())) \n\
+		print('base value ' .. tostring(b.base_value)) \n\
 		b:join_value_required(a)\n\
 		--b:join_value_required()\n\
 		b:join_value_required_refptr(a)\n\
 		--b:join_value_required_refptr()\n\
-		print(a:const_value())\n\
-		b:value(1)\n\
-		assert(b:value() == 1)\n\
-		assert(b:value_raw() == 1)\n\
+		print(a.const_value)\n\
+		b.value = 1\n\
+		assert(b.value == 1)\n\
 		assert(b:get_value_raw() == 1)\n\
 		assert(b:get_value_raw_lambda() == 1)\n\
-		local base2 = b:value()\n\
+		local base2 = b.value\n\
 		print(base2)\n\
 		b:accum_value(1000)\n\
 		local sum = 0\n\
@@ -740,7 +749,11 @@ end\n\
 		for i = 1, #t do\n\
 			print(t[i])\n\
 		end\n").value());
-	IRIS_ASSERT(success);
+	if (!callResult3) {
+		fprintf(stderr, "Lua code error: %s\n", callResult3.message.c_str());
+		IRIS_ASSERT(false);
+	}
+
 	auto tab = lua.make_table([](lua_t&& lua) {
 		lua.set_current("key", "value");
 		lua.set_current(1, "number");
@@ -772,7 +785,7 @@ end\n\
 
 #if LUA_VERSION_NUM <= 501
 	// lua 5.1 do not accept yield from pcall
-	lua.call<void>(lua.load("\n\
+	callResult4 = lua.call<void>(lua.load("\n\
 		local a = example_t.new()\n\
 		local coro = coroutine.create(function() \n\
 			print('coro get ' .. a.coro_get_int('hello')) \n\
@@ -786,7 +799,7 @@ end\n\
 		end)\n\
 		coroutine.resume(coro)\n").value());
 #else
-	lua.call<void>(lua.load("\n\
+	auto callResult4 = lua.call<void>(lua.load("\n\
 		local a = example_t.new()\n\
 		local coro = coroutine.create(function() \n\
 			local status, message = pcall(function() \n\
@@ -803,6 +816,11 @@ end\n\
 		end)\n\
 		coroutine.resume(coro)\n").value());
 #endif
+
+	if (!callResult4) {
+		fprintf(stderr, "Lua code error: %s\n", callResult4.message.c_str());
+		IRIS_ASSERT(false);
+	}
 
 	warp.yield();
 	worker.join();
