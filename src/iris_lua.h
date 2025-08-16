@@ -968,6 +968,21 @@ namespace iris {
 			}
 		}
 
+		template <typename type_t, typename = void>
+		struct has_lua_sizeof : std::false_type {};
+
+		template <typename type_t>
+		struct has_lua_sizeof<type_t, iris_void_t<decltype(&iris_lua_traits_t<type_t>::type::lua_sizeof)>> : std::true_type {};
+
+		template <typename type_t, typename... args_t>
+		static size_t get_lua_sizeof(args_t&&... args) noexcept {
+			if constexpr (has_lua_sizeof<type_t>::value) {
+				return iris_lua_traits_t<type_t>::type::lua_sizeof(std::forward<args_t>(args)...);
+			} else {
+				return sizeof(type_t);
+			}
+		}
+
 		template <typename type_t, typename meta_t, typename... args_t>
 		type_t* native_push_object(meta_t&& meta, args_t&&... args) {
 			lua_State* L = get_state();
@@ -976,7 +991,10 @@ namespace iris {
 			}
 
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
-			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), get_lua_uservalue_count<type_t>()));
+			size_t size = get_lua_sizeof<type_t>(std::forward<args_t>(args)...);
+			IRIS_ASSERT(size >= sizeof(type_t));
+
+			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(size, size_mask_alignment), get_lua_uservalue_count<type_t>()));
 			new (p) type_t(std::forward<args_t>(args)...);
 			push_variable(L, std::forward<meta_t>(meta));
 			lua_setmetatable(L, -2);
@@ -2290,6 +2308,11 @@ namespace iris {
 			return func(iris_lua_t(L), p, get_variable<std::tuple_element_t<k, args_tuple_t>, true>(L, k < env_count ? lua_upvalueindex(3 + int(k)) : 1 + int(k - env_count))...);
 		}
 
+		template <typename type_t, typename args_tuple_t, size_t... k>
+		static size_t invoke_sizeof(lua_State* L, int env_count,  std::index_sequence<k...>) {
+			return get_lua_sizeof<type_t>(get_variable<std::tuple_element_t<k, args_tuple_t>, true>(L, k < env_count ? lua_upvalueindex(3 + int(k)) : 1 + int(k - env_count))...);
+		}
+
 		template <typename type_t, typename = void>
 		struct has_lua_initialize : std::false_type {};
 
@@ -2338,7 +2361,17 @@ namespace iris {
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
 			do {
 				stack_guard_t guard(L, 1);
-				type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t), size_mask_alignment), get_lua_uservalue_count<type_t>()));
+				size_t size;
+				if constexpr (has_lua_sizeof<type_t>::value) {
+					size = invoke_sizeof<type_t, std::tuple<cast_arg_type_t<args_t>...>>(L, env_count, std::make_index_sequence<sizeof...(args_t)>());
+					if (size < sizeof(type_t)) {
+						return syserror(L, "error.new", "iris_lua_t::new_object() -> Unable to create object of type %s. Size is too small: %d < %d\n", typeid(type_t).name(), (int)size, (int)sizeof(type_t));
+					}
+				} else {
+					size = sizeof(type_t);
+				}
+
+				type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(size, size_mask_alignment), get_lua_uservalue_count<type_t>()));
 				auto result = invoke_create<type_t, std::tuple<cast_arg_type_t<args_t>...>>(p, L, reinterpret_cast<optional_result_t<type_t*> (*)(iris_lua_t, type_t*, args_t...)>(lua_touserdata(L, lua_upvalueindex(2))), env_count, std::make_index_sequence<sizeof...(args_t)>());
 				if (result) {
 					assert(result.value() == p); // must return original ptr if success

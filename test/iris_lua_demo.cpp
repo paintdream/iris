@@ -149,6 +149,10 @@ struct example_t : example_base_t {
 		value = rhs.value;
 	}
 
+	static size_t lua_sizeof() noexcept {
+		return sizeof(example_t) + sizeof(void*);
+	}
+
 	int call(lua_t lua, lua_t::ref_t&& r, int value) {
 		printf("call type %d\n", r.get_type(lua));
 		auto result = lua.call<int>(r, value);
