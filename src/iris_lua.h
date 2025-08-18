@@ -1057,7 +1057,7 @@ namespace iris {
 				payload_size += iris_lua_traits_t<type_t>::type::lua_view_payload(iris_lua_t(L), object);
 			}
 
-			void* p = lua_newuserdatauv(L, (sizeof(type_t*) + payload_size) | size_mask_view, get_lua_uservalue_count<type_t>());
+			void* p = lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t*) + payload_size, size_mask_alignment) | size_mask_view, get_lua_uservalue_count<type_t>());
 			*reinterpret_cast<type_t**>(p) = object;
 
 			push_variable(L, std::forward<meta_t>(meta));
