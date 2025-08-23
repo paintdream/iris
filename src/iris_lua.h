@@ -1602,6 +1602,7 @@ namespace iris {
 		static constexpr uint8_t spec_type_tag = 0x80;
 		struct str_Writer {
 			int init;  /* true iff buffer has been initialized */
+			int result_stack;
 			luaL_Buffer B;
 		};
 
@@ -1611,7 +1612,13 @@ namespace iris {
 				state->init = 1;
 				luaL_buffinit(L, &state->B);
 			}
-			luaL_addlstring(&state->B, (const char*)b, size);
+
+			if (b == NULL) {  /* finishing dump? */
+				luaL_pushresult(&state->B);  /* push result */
+				lua_replace(L, state->result_stack);
+			} else {
+				luaL_addlstring(&state->B, (const char*)b, size);
+			}
 
 			return 0;
 		}
@@ -1720,8 +1727,14 @@ namespace iris {
 							// auto encode lua functions
 							if (!lua_iscfunction(L, index)) {
 								lua_pushvalue(L, index);
+
 								struct str_Writer state;
 								state.init = 0;
+#if LUA_VERSION_NUM >= 505
+								lua_pushvalue(L, -1);
+								state.result_stack = lua_gettop(L);
+#endif
+
 #if LUA_VERSION_NUM >= 503
 								if (lua_dump(L, &encode_function_writer, &state, 1) != 0) {
 #else
@@ -1730,7 +1743,9 @@ namespace iris {
 									syserror(L, "error.encode", "iris_lua_t::encode() -> unable to dump function!\n");
 								}
 
+#if LUA_VERSION_NUM <= 504
 								luaL_pushresult(&state.B);
+#endif
 								size_t len;
 								const char* s = lua_tolstring(L, -1, &len);
 								lua_Integer llen = static_cast<lua_Integer>(len);
