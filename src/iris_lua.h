@@ -780,12 +780,12 @@ namespace iris {
 		}
 
 		// load a code thunk and return an callable function
-		optional_result_t<ref_t> load(std::string_view code, std::string_view name = "") {
+		optional_result_t<ref_t> load(std::string_view code, const char* name = "", const char* mode = nullptr) {
 			auto guard = write_fence();
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 
-			if (luaL_loadbuffer(L, code.data(), code.size(), name.data()) != LUA_OK) {
+			if (luaL_loadbufferx(L, code.data(), code.size(), name, mode) != LUA_OK) {
 				iris_lua_t::systrap(L, "error.load", "iris_lua_t::run() -> load code error: %s\n", luaL_optstring(L, -1, ""));
 				result_error_t ret(luaL_optstring(L, -1, ""));
 				lua_pop(L, 1);
