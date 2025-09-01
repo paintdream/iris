@@ -99,6 +99,9 @@ namespace iris {
 		static constexpr size_t size_mask_view = 1u;
 		static constexpr size_t size_mask_alignment = 2u;
 
+		template <typename type_t>
+		using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<type_t>>;
+
 		// borrow from an existing state
 		explicit iris_lua_t(lua_State* L) noexcept : state(L) {}
 		iris_lua_t(iris_lua_t&& rhs) noexcept : state(rhs.state) { rhs.state = nullptr; }
@@ -145,7 +148,7 @@ namespace iris {
 		}
 
 		// systrap is a low level error-capturing machanism
-		// usually you can get errors from result_error_t<> when calling lua
+		// usually you can get errors from result_error_t when calling lua
 		// but in LuaJIT and Lua 5.1, it is impossible to retrieve errors from C-lua mixed coroutines
 		// so you could declare a __iris_systrap__ lua variable to make a workaround.
 		template <typename... args_t>
@@ -186,9 +189,9 @@ namespace iris {
 
 			optional_result_t() : base_t(value_t()) {}
 			optional_result_t(result_error_t&& err) : message(std::move(err.message)) {}
-
-			template <typename... args_t>
-			optional_result_t(args_t&&... args) : base_t(std::forward<args_t>(args)...) {}
+			optional_result_t(const result_error_t& err) : message(err.message) {}
+			optional_result_t(const std::conditional_t<!std::is_void_v<return_t>, return_t, nullptr_t>& value) : base_t(value) {}
+			optional_result_t(std::conditional_t<!std::is_void_v<return_t>, return_t, nullptr_t>&& value) : base_t(std::move(value)) {}
 
 			std::string message;
 		};
@@ -1944,9 +1947,6 @@ namespace iris {
 				return optional_result_t<return_t>();
 			}
 		}
-
-		template <typename type_t>
-		using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<type_t>>;
 
 		template <typename type_t>
 		using cast_arg_type_t = std::conditional_t<has_lua_registar<remove_cvref_t<type_t>>::value && !std::is_const_v<std::remove_reference_t<type_t>>, remove_cvref_t<type_t>&, remove_cvref_t<type_t>>;
