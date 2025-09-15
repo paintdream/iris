@@ -528,6 +528,12 @@ int main(void) {
 	target.native_pop_variable(1);
 	target.call<void>(std::move(f), "transferred!");
 
+	lua.native_push_variable(lua.load("print('transfer function')"));
+	lua.native_cross_transfer_variable<true>(target, -1);
+	auto ft = target.native_get_variable<lua_t::ref_t>(-1);
+	target.native_pop_variable(1);
+	target.call<void>(std::move(ft));
+
 	auto callResult = target.call<void>(target.load("\n\
 function test(a, b, c) \n\
 	b:base_func() \n\

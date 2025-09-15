@@ -1729,12 +1729,10 @@ namespace iris {
 						if (type == LUA_TFUNCTION) {
 							// auto encode lua functions
 							if (!lua_iscfunction(L, index)) {
-								lua_pushvalue(L, index);
-
 								struct str_Writer state;
 								state.init = 0;
 #if LUA_VERSION_NUM >= 505
-								lua_pushvalue(L, -1);
+								lua_pushvalue(L, index);
 								state.result_stack = lua_gettop(L);
 #endif
 
@@ -1757,6 +1755,7 @@ namespace iris {
 								lua_pop(L, 1);
 
 								// get upvalue count of function
+								lua_pushvalue(L, index);
 								lua_Debug ar;
 								lua_getinfo(L, ">u", &ar);
 								bytes.push(ar.nups);
@@ -3324,8 +3323,51 @@ namespace iris {
 
 						lua_pushcclosure(T, proxy, n - 1);
 					} else {
-						// do not convert lua functions
-						target.native_push_variable(nullptr);
+						// dump function
+						struct str_Writer state;
+						state.init = 0;
+#if LUA_VERSION_NUM >= 505
+						lua_pushvalue(L, index);
+						state.result_stack = lua_gettop(L);
+#endif
+
+#if LUA_VERSION_NUM >= 503
+						if (lua_dump(L, &encode_function_writer, &state, 1) != 0) {
+#else
+						if (lua_dump(L, &encode_function_writer, &state) != 0) {
+#endif
+							// unable to dump function
+							lua_pushnil(T);
+#if LUA_VERSION_NUM >= 505
+							lua_pop(L, 1);
+#endif
+							break;
+						}
+
+#if LUA_VERSION_NUM <= 504
+						luaL_pushresult(&state.B);
+#endif
+						size_t len;
+						const char* s = lua_tolstring(L, -1, &len);
+						lua_Integer llen = static_cast<lua_Integer>(len);
+						luaL_loadbuffer(T, s, len, nullptr);
+						lua_pop(L, 1);
+
+						int absindex = lua_absindex(L, index);
+						int n = 1;
+						const char* name = nullptr;
+						while ((name = lua_getupvalue(L, absindex, n)) != nullptr) {
+							if (strcmp(name, "_ENV") == 0) {
+								// set global env
+								lua_getglobal(T, "_G");
+							} else {
+								recursion_index = cross_transfer_variable<false>(L, target, -1, recursion_source, recursion_target, recursion_index);
+							}
+
+							lua_setupvalue(T, -2, n);
+							lua_pop(L, 1);
+							n++;
+						}
 					}
 					break;
 				}
@@ -3446,7 +3488,7 @@ namespace iris {
 							recursion_index = new_index;
 							lua_setmetatable(T, -2);
 						}
-						
+
 						lua_pop(L, 1);
 					}
 
