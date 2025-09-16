@@ -3350,7 +3350,12 @@ namespace iris {
 						size_t len;
 						const char* s = lua_tolstring(L, -1, &len);
 						lua_Integer llen = static_cast<lua_Integer>(len);
-						luaL_loadbuffer(T, s, len, nullptr);
+						if (luaL_loadbuffer(T, s, len, "=(cross)") != LUA_OK) {
+							lua_pop(T, 1);
+							lua_pushnil(T);
+							lua_pop(L, 1);
+							break;
+						}
 						lua_pop(L, 1);
 
 						int absindex = lua_absindex(L, index);
