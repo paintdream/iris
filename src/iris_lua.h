@@ -1248,7 +1248,7 @@ namespace iris {
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 
-			lua_getglobal(L, key.data());
+			lua_getglobal(L, key.data() == nullptr ? "" : key.data());
 			value_t value = get_variable<value_t>(L, -1);
 			lua_pop(L, 1);
 
