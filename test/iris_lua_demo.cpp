@@ -75,6 +75,10 @@ struct example_base_t {
 		printf("base func\n");
 	}
 
+	static constexpr const char* lua_typename() noexcept {
+		return "example_base_t";
+	}
+
 	static void lua_view_initialize(lua_t lua, int index, void* t) {
 		example_base_t** p = (example_base_t**)t;
 		p[1] = p[0];
@@ -147,6 +151,10 @@ struct example_t : example_base_t {
 	example_t(example_t&& rhs) noexcept {
 		printf("move construct!!\n");
 		value = rhs.value;
+	}
+
+	static constexpr const char* lua_typename() noexcept {
+		return "example_t";
 	}
 
 	static size_t lua_sizeof() noexcept {
@@ -308,6 +316,10 @@ struct example_t : example_base_t {
 };
 
 struct shared_data_t : std::enable_shared_from_this<shared_data_t> {
+	static constexpr const char* lua_typename() noexcept {
+		return "shared_data_t";
+	}
+
 	std::string data = "shared data";
 };
 
@@ -370,11 +382,19 @@ struct shared_object_example_t : lua_t::shared_object_t<shared_object_example_t>
 		return this;
 	}
 
+	static constexpr const char* lua_typename() noexcept {
+		return "shared_object_example_t";
+	}
+
 	lua_t::shared_ref_t<shared_object_example_t> other;
 	int index;
 };
 
-struct shared_object_example_sub_t : shared_object_example_t {};
+struct shared_object_example_sub_t : shared_object_example_t {
+	static constexpr const char* lua_typename() noexcept {
+		return "shared_object_example_sub_t";
+	}
+};
 
 struct test_overload_t {
 	void foo() const {}
@@ -398,7 +418,14 @@ int main(void) {
 	luaL_openlibs(L);
 
 	lua_t lua(L);
-	auto shared_object_example_type = lua.make_type<shared_object_example_t>("shared_object_example_t");
+	auto r1 = lua.set_global("test_reflection", std::function<void(int, double)>(+[](int a, double b) { return 1; }));
+	auto r2 = lua.set_global<&example_t::accum_value>("test_reflection2");
+
+	auto printTable = lua.load("for i, v in ipairs(...) do print(v) end");
+	lua.call<void>(printTable, lua.call<lua_t::ref_t>(r1));
+	lua.call<void>(printTable, lua.call<lua_t::ref_t>(r2));
+
+	auto shared_object_example_type = lua.make_type<shared_object_example_t>();
 	auto shared_ptr_instance = lua.make_object<shared_object_example_t>(shared_object_example_type, 1);
 	lua.set_global("shared_ptrinstance", std::move(shared_ptr_instance));
 	{
@@ -436,7 +463,7 @@ int main(void) {
 	lua.set_global<&use_expired>("use_expired");
 	std::shared_ptr<shared_data_t> expired_object = std::make_shared<shared_data_t>();
 	std::shared_ptr<shared_data_t> hold_object = std::make_shared<shared_data_t>();
-	auto shared_data_type = lua.make_type<shared_data_t>("shared_data_t");
+	auto shared_data_type = lua.make_type<shared_data_t>();
 	lua.set_global("expired_instance", lua.make_object_view(shared_data_type, expired_object.get()));
 	lua.set_global("hold_instance", lua.make_object_view(shared_data_type, hold_object.get()));
 	lua.deref(std::move(shared_data_type));
@@ -449,8 +476,8 @@ int main(void) {
 		printf("once value = %d\n", lua.get_current<int>("once"));
 	}));
 
-	auto example_type = lua.make_type<example_t>("example_t").set_registry(lua);
-	auto example_base_type = lua.make_type<example_base_t>("example_base_t");
+	auto example_type = lua.make_type<example_t>().set_registry(lua);
+	auto example_base_type = lua.make_type<example_base_t>();
 	lua.cast_type(std::move(example_base_type), example_type);
 	lua.set_global("example_t", std::move(example_type));
 	int capture = 2;
@@ -563,10 +590,10 @@ end\n\
 	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test");
 	example_t existing_object;
 	existing_object.value = 2222;
-	auto temp_type = target.make_type<example_t>("example_temp_t").set_registry(target);
+	auto temp_type = target.make_type<example_t>().set_registry(target);
 	{
 		// target.cast_type(std::move(example_base_type), temp_type);
-		temp_type.make_cast(target, target.make_type<example_base_t>("example_base_t"));
+		temp_type.make_cast(target, target.make_type<example_base_t>());
 	}
 
 	auto callResultProperty = target.call<void>(test, "existing", target.make_registry_object_view<example_t>(&existing_object), target.make_object_view<example_t>(temp_type, &existing_object));
@@ -581,7 +608,7 @@ end\n\
 
 	lua.native_push_variable(1234);
 	lua.native_push_variable(lua.make_registry_object<example_t>());
-	lua.native_push_variable(lua.make_object_view<example_t>(lua.make_type<example_t>("example_duplicate_view_t"), &existing_object));
+	lua.native_push_variable(lua.make_object_view<example_t>(lua.make_type<example_t>(), &existing_object));
 	lua.native_cross_transfer_variable<true>(target, -3);
 	lua.native_cross_transfer_variable<true>(target, -2);
 	lua.native_cross_transfer_variable<false>(target, -1);
