@@ -86,7 +86,7 @@ extern "C" {
 #endif
 
 #ifndef IRIS_LUA_REFLECTION
-#define IRIS_LUA_REFLECTION lua_reflection
+#define IRIS_LUA_REFLECTION reflection
 #endif
 
 namespace iris {
@@ -97,8 +97,6 @@ namespace iris {
 			return nullptr;
 		}
 	};
-
-	using iris_lua_reflection_t = lua_CFunction;
 
 	// A simple lua binding with C++17
 	struct iris_lua_t : enable_read_write_fence_t<> {
@@ -182,6 +180,50 @@ namespace iris {
 			return luaL_error(L, format, std::forward<args_t>(args)...);
 		}
 
+
+		using reflection_t = lua_CFunction;
+
+		// default reflection implementation
+		template <typename first_t, typename... args_t>
+		static void reflection_args(lua_State* L, int base) {
+			if constexpr (!std::is_same_v<iris_lua_t, remove_cvref_t<first_t>>) {
+				push_variable(L, get_lua_typename<first_t>());
+				lua_rawseti(L, -2, base++);
+			}
+
+			if constexpr (sizeof...(args_t) > 0) {
+				reflection_args<args_t...>(L, base);
+			}
+		}
+
+		template <auto function_t, typename return_t, typename... args_t>
+		static int reflection(lua_State* L) {
+			lua_createtable(L, 0, 4);
+			lua_pushliteral(L, "return");
+			push_variable(L, get_lua_typename<return_t>());
+			lua_rawset(L, -3);
+
+			lua_pushliteral(L, "arguments");
+			lua_createtable(L, sizeof...(args_t) + 1, 1);
+			reflection_args<return_t, args_t...>(L, 1);
+			lua_rawset(L, -3);
+
+			lua_pushliteral(L, "category");
+			if constexpr (std::is_member_function_pointer_v<decltype(function_t)>) {
+				lua_pushliteral(L, "method");
+			} else if constexpr (std::is_member_object_pointer_v<decltype(function_t)>) {
+				lua_pushliteral(L, "property");
+			} else {
+				lua_pushliteral(L, "function");
+			}
+			lua_rawset(L, -3);
+
+			lua_pushliteral(L, "coroutine");
+			lua_pushboolean(L, iris_is_coroutine<return_t>::value);
+			lua_rawset(L, -3);
+			return 1;
+		}
+
 		// any return value with not-null message will cause a lua error
 		struct result_error_t {
 			template <typename value_t>
@@ -216,7 +258,7 @@ namespace iris {
 					IRIS_ASSERT(ref_index == LUA_REFNIL);
 					std::swap(rhs.ref_index, ref_index);
 				}
-				
+
 				return *this;
 			}
 
@@ -1059,7 +1101,7 @@ namespace iris {
 
 			return ret;
 		}
-	
+
 		template <typename type_t, typename... args_t>
 		shared_ref_t<type_t> make_registry_shared_object(args_t&&... args) {
 			return make_shared_object<type_t>(registry_type_hash_t(reinterpret_cast<const void*>(get_hash<type_t>())), std::forward<args_t>(args)...);
@@ -1240,13 +1282,13 @@ namespace iris {
 
 		// set lua registry table
 		template <typename value_t, typename key_t>
-		iris_lua_reflection_t set_registry(key_t&& key, value_t&& value) {
+		reflection_t set_registry(key_t&& key, value_t&& value) {
 			auto guard = write_fence();
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 
 			push_variable(L, std::forward<key_t>(key));
-			iris_lua_reflection_t reflection = push_variable(L, std::forward<value_t>(value));
+			reflection_t reflection = push_variable(L, std::forward<value_t>(value));
 			lua_rawset(L, LUA_REGISTRYINDEX);
 
 			return reflection;
@@ -1254,13 +1296,13 @@ namespace iris {
 
 		// get lua registry table
 		template <auto value_t, typename key_t>
-		iris_lua_reflection_t set_registry(key_t&& key) {
+		reflection_t set_registry(key_t&& key) {
 			auto guard = write_fence();
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 
 			push_variable(L, std::forward<key_t>(key));
-			iris_lua_reflection_t reflection = push_variable<value_t>(L);
+			reflection_t reflection = push_variable<value_t>(L);
 			lua_rawset(L, LUA_REGISTRYINDEX);
 
 			return reflection;
@@ -1282,11 +1324,11 @@ namespace iris {
 
 		// set lua global table with given name and value
 		template <typename value_t, typename... envs_t>
-		iris_lua_reflection_t set_global(std::string_view key, value_t&& value, envs_t&&... envs) {
+		reflection_t set_global(std::string_view key, value_t&& value, envs_t&&... envs) {
 			auto guard = write_fence();
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
-			iris_lua_reflection_t reflection = push_variable(L, std::forward<value_t>(value), std::forward<envs_t>(envs)...);
+			reflection_t reflection = push_variable(L, std::forward<value_t>(value), std::forward<envs_t>(envs)...);
 			lua_setglobal(L, key.data());
 
 			return reflection;
@@ -1294,11 +1336,11 @@ namespace iris {
 
 		// set lua global table
 		template <auto value_t, typename... envs_t>
-		iris_lua_reflection_t set_global(std::string_view key, envs_t&&... envs) {
+		reflection_t set_global(std::string_view key, envs_t&&... envs) {
 			auto guard = write_fence();
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
-			iris_lua_reflection_t reflection = push_variable<value_t>(L, std::forward<envs_t>(envs)...);
+			reflection_t reflection = push_variable<value_t>(L, std::forward<envs_t>(envs)...);
 			lua_setglobal(L, key.data());
 
 			return reflection;
@@ -1306,7 +1348,7 @@ namespace iris {
 
 		// set 'current' lua table, usually used in lua_registar callbacks
 		template <typename value_t, typename key_t, typename... envs_t>
-		iris_lua_reflection_t set_current(key_t&& key, value_t&& value, envs_t&&... envs) {
+		reflection_t set_current(key_t&& key, value_t&& value, envs_t&&... envs) {
 			auto guard = write_fence();
 
 			lua_State* L = state;
@@ -1321,7 +1363,7 @@ namespace iris {
 		// set 'current' lua table, usually used in lua_registar callbacks
 		// spec for constexpr ptr (methods, properties)
 		template <auto ptr, typename key_t, typename... envs_t>
-		iris_lua_reflection_t set_current(key_t&& key, envs_t&&... envs) {
+		reflection_t set_current(key_t&& key, envs_t&&... envs) {
 			auto guard = write_fence();
 
 			lua_State* L = state;
@@ -1342,14 +1384,14 @@ namespace iris {
 				IRIS_ASSERT(lua_type(L, -1) == LUA_TTABLE);
 
 				push_variable(L, std::forward<key_t>(key));
-				iris_lua_reflection_t reflection = push_property_set<ptr>(L, ptr);
+				reflection_t reflection = push_property_set<ptr>(L, ptr);
 				lua_rawset(L, -3);
 				lua_pop(L, 1);
 
 				return reflection;
 			} else {
 				push_variable(L, std::forward<key_t>(key));
-				iris_lua_reflection_t reflection = push_variable<ptr>(L, std::forward<envs_t>(envs)...);
+				reflection_t reflection = push_variable<ptr>(L, std::forward<envs_t>(envs)...);
 				lua_rawset(L, -3);
 
 				return reflection;
@@ -1357,13 +1399,13 @@ namespace iris {
 		}
 
 		template <auto ptr, typename key_t, typename... envs_t>
-		iris_lua_reflection_t set_current_overload(key_t&& key, envs_t&&... envs) {
+		reflection_t set_current_overload(key_t&& key, envs_t&&... envs) {
 			auto guard = write_fence();
 
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 
-			iris_lua_reflection_t reflection = push_variable<ptr>(L, std::forward<envs_t>(envs)...);
+			reflection_t reflection = push_variable<ptr>(L, std::forward<envs_t>(envs)...);
 			if (lua_getupvalue(L, -1, 1) == nullptr) {
 				auto func = lua_tocfunction(L, -1);
 				if (func != nullptr) {
@@ -1402,7 +1444,7 @@ namespace iris {
 
 			return value;
 		}
-		
+
 		// define metatable for current table, should be called nested in make_table call
 		template <typename value_t>
 		void set_current_metatable(value_t&& metatable) {
@@ -1489,13 +1531,13 @@ namespace iris {
 
 		// native_* series functions may cause unbalanced stack, use them at your own risks
 		template <typename value_t>
-		iris_lua_reflection_t native_push_variable(value_t&& value) {
+		reflection_t native_push_variable(value_t&& value) {
 			auto guard = write_fence();
 			return push_variable(state, std::forward<value_t>(value));
 		}
 
 		template <auto ptr, typename... args_t>
-		iris_lua_reflection_t native_push_variable(args_t&&... args) {
+		reflection_t native_push_variable(args_t&&... args) {
 			auto guard = write_fence();
 			return push_variable<ptr>(state, std::forward<args_t>(args)...);
 		}
@@ -1521,7 +1563,7 @@ namespace iris {
 
 			return get_variable<value_t, skip_checks>(state, index);
 		}
-	
+
 		template <bool move, typename lua_t>
 		void native_cross_transfer_variable(lua_t& target, int index) {
 			auto guard = write_fence();
@@ -1617,26 +1659,6 @@ namespace iris {
 		}
 
 	protected:
-		// default reflection implementation
-		template <typename first_t, typename... args_t>
-		static void lua_reflection_args(lua_State* L, int base) {
-			if constexpr (!std::is_same_v<iris_lua_t, remove_cvref_t<first_t>>) {
-				push_variable(L, get_lua_typename<first_t>());
-				lua_rawseti(L, -2, base++);
-			}
-
-			if constexpr (sizeof...(args_t) > 0) {
-				lua_reflection_args<args_t...>(L, base);
-			}
-		}
-
-		template <auto function_t, typename return_t, typename... args_t>
-		static int lua_reflection(lua_State* L) {
-			lua_createtable(L, sizeof...(args_t) + 1, 0);
-			lua_reflection_args<return_t, args_t...>(L, 1);
-
-			return 1;
-		}
 
 
 		template <typename return_t, typename... args_t>
@@ -1826,7 +1848,7 @@ namespace iris {
 									} else {
 										encode_internal(L, bytes, lua_absindex(L, -1), encoder, recursionTable);
 									}
-									
+
 									lua_pop(L, 1);
 								}
 
@@ -2115,34 +2137,34 @@ namespace iris {
 
 		// raw lua stub
 		template <typename value_t>
-		static iris_lua_reflection_t push_native(lua_State* L, value_t ptr) {
+		static reflection_t push_native(lua_State* L, value_t ptr) {
 			lua_pushcfunction(L, ptr);
 			return nullptr;
 		}
 
 		// four specs for [const][noexcept] method definition
 		template <auto method, typename object_t, typename return_t, typename type_t, typename... args_t, typename... envs_t>
-		static iris_lua_reflection_t push_method(lua_State* L, object_t&& object, return_t(type_t::*)(args_t...), envs_t&&... envs) {
+		static reflection_t push_method(lua_State* L, object_t&& object, return_t(type_t::*)(args_t...), envs_t&&... envs) {
 			return push_method_internal<method, object_t, return_t, type_t, args_t...>(L, std::forward<object_t>(object), std::forward<envs_t>(envs)...);
 		}
 
 		template <auto method, typename object_t, typename return_t, typename type_t, typename... args_t, typename... envs_t>
-		static iris_lua_reflection_t push_method(lua_State* L, object_t&& object, return_t(type_t::*)(args_t...) noexcept, envs_t&&... envs) {
+		static reflection_t push_method(lua_State* L, object_t&& object, return_t(type_t::*)(args_t...) noexcept, envs_t&&... envs) {
 			return push_method_internal<method, object_t, return_t, type_t, args_t...>(L, std::forward<object_t>(object), std::forward<envs_t>(envs)...);
 		}
 
 		template <auto method, typename object_t, typename return_t, typename type_t, typename... args_t, typename... envs_t>
-		static iris_lua_reflection_t push_method(lua_State* L, object_t&& object, return_t(type_t::*)(args_t...) const, envs_t&&... envs) {
+		static reflection_t push_method(lua_State* L, object_t&& object, return_t(type_t::*)(args_t...) const, envs_t&&... envs) {
 			return push_method_internal<method, object_t, return_t, type_t, args_t...>(L, std::forward<object_t>(object), std::forward<envs_t>(envs)...);
 		}
 
 		template <auto method, typename object_t, typename return_t, typename type_t, typename... args_t, typename... envs_t>
-		static iris_lua_reflection_t push_method(lua_State* L, object_t&& object, return_t(type_t::*)(args_t...) const noexcept, envs_t&&... envs) {
+		static reflection_t push_method(lua_State* L, object_t&& object, return_t(type_t::*)(args_t...) const noexcept, envs_t&&... envs) {
 			return push_method_internal<method, object_t, return_t, type_t, args_t...>(L, std::forward<object_t>(object), std::forward<envs_t>(envs)...);
 		}
 
 		template <auto method, typename object_t, typename return_t, typename type_t, typename... args_t, typename... envs_t>
-		static iris_lua_reflection_t push_method_internal(lua_State* L, object_t&& object, envs_t&&... envs) {
+		static reflection_t push_method_internal(lua_State* L, object_t&& object, envs_t&&... envs) {
 			if constexpr (std::is_null_pointer_v<object_t>) {
 				return push_function_internal<method_function_adapter<method, return_t, type_t, args_t...>, return_t, true, required_t<type_t*>&&, args_t...>(L, std::forward<envs_t>(envs)...);
 			} else {
@@ -2151,17 +2173,17 @@ namespace iris {
 		}
 
 		template <auto function, typename return_t, typename... args_t, typename... envs_t>
-		static iris_lua_reflection_t push_function(lua_State* L, return_t(*)(args_t...), envs_t&&... envs) {
+		static reflection_t push_function(lua_State* L, return_t(*)(args_t...), envs_t&&... envs) {
 			return push_function_internal<function, return_t, false, args_t...>(L, std::forward<envs_t>(envs)...);
 		}
 
 		template <auto function, typename return_t, typename... args_t, typename... envs_t>
-		static iris_lua_reflection_t push_function(lua_State* L, return_t(*)(args_t...) noexcept, envs_t&&... envs) {
+		static reflection_t push_function(lua_State* L, return_t(*)(args_t...) noexcept, envs_t&&... envs) {
 			return push_function_internal<function, return_t, false, args_t...>(L, std::forward<envs_t>(envs)...);
 		}
 
 		template <auto function, typename return_t, bool use_this, typename... args_t, typename... envs_t>
-		static iris_lua_reflection_t push_function_internal(lua_State* L, envs_t&&... envs) {
+		static reflection_t push_function_internal(lua_State* L, envs_t&&... envs) {
 			stack_guard_t guard(L, 1);
 			if constexpr (sizeof...(envs_t) > 0) {
 				if constexpr (use_this) {
@@ -2186,7 +2208,7 @@ namespace iris {
 		}
 
 		template <auto function, typename object_t, typename return_t, typename type_t, typename... args_t, typename... envs_t>
-		static iris_lua_reflection_t push_functor_internal(lua_State* L, object_t&& object, envs_t&&... envs) {
+		static reflection_t push_functor_internal(lua_State* L, object_t&& object, envs_t&&... envs) {
 			stack_guard_t guard(L, 1);
 
 			lua_pushnil(L);
@@ -2215,7 +2237,7 @@ namespace iris {
 		}
 		
 		template <auto prop, typename type_t, typename value_t>
-		static iris_lua_reflection_t push_property_get(lua_State* L, value_t type_t::*) {
+		static reflection_t push_property_get(lua_State* L, value_t type_t::*) {
 			push_property_get_internal<prop, type_t>(L);
 			return &IRIS_LUA_REFLECTION<prop, std::add_const_t<value_t>>;
 		}
@@ -2226,7 +2248,7 @@ namespace iris {
 		}
 
 		template <auto prop, typename type_t, typename value_t>
-		static iris_lua_reflection_t push_property_set(lua_State* L, value_t type_t::*) {
+		static reflection_t push_property_set(lua_State* L, value_t type_t::*) {
 			push_property_set_internal<prop, type_t>(L);
 			return &IRIS_LUA_REFLECTION<prop, std::remove_const_t<value_t>>;
 		}
@@ -3138,7 +3160,7 @@ namespace iris {
 
 		// spec for constexpr ptr
 		template <auto ptr, typename... envs_t>
-		static iris_lua_reflection_t push_variable(lua_State* L, envs_t&&... envs) {
+		static reflection_t push_variable(lua_State* L, envs_t&&... envs) {
 			auto executor = [](lua_State* L, envs_t&&... envs) {
 				if constexpr (std::is_convertible_v<decltype(ptr), int (*)(lua_State*)> || std::is_convertible_v<decltype(ptr), int (*)(lua_State*) noexcept>) {
 					return push_native(L, ptr, std::forward<envs_t>(envs)...);
@@ -3157,7 +3179,7 @@ namespace iris {
 		}
 
 		template <typename type_t, typename first_t, typename... envs_t>
-		static iris_lua_reflection_t push_variable(lua_State* L, type_t&& variable, first_t&& first, envs_t&&... envs) {
+		static reflection_t push_variable(lua_State* L, type_t&& variable, first_t&& first, envs_t&&... envs) {
 			auto executor = [&](lua_State* L, first_t&& first, envs_t&&... envs) {
 				return push_method<&type_t::operator ()>(L, std::forward<type_t>(variable), &type_t::operator (), std::forward<first_t>(first), std::forward<envs_t>(envs)...);
 			};
@@ -3170,7 +3192,7 @@ namespace iris {
 		}
 
 		template <typename type_t>
-		static iris_lua_reflection_t push_variable(lua_State* L, type_t&& variable) {
+		static reflection_t push_variable(lua_State* L, type_t&& variable) {
 			using value_t = remove_cvref_t<type_t>;
 			stack_guard_t guard(L, 1);
 

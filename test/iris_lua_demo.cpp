@@ -421,7 +421,7 @@ int main(void) {
 	auto r1 = lua.set_global("test_reflection", std::function<void(int, double)>(+[](int a, double b) { return 1; }));
 	auto r2 = lua.set_global<&example_t::accum_value>("test_reflection2");
 
-	auto printTable = lua.load("for i, v in ipairs(...) do print(v) end");
+	auto printTable = lua.load("for i, v in pairs(...) do print(v) end");
 	lua.call<void>(printTable, lua.call<lua_t::ref_t>(r1));
 	lua.call<void>(printTable, lua.call<lua_t::ref_t>(r2));
 
