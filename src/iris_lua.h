@@ -187,7 +187,7 @@ namespace iris {
 		template <typename first_t, typename... args_t>
 		static void reflection_args(lua_State* L, int base) {
 			if constexpr (!std::is_same_v<iris_lua_t, remove_cvref_t<first_t>>) {
-				push_variable(L, get_lua_typename<first_t>());
+				push_variable(L, get_lua_name<first_t>());
 				lua_rawseti(L, -2, base++);
 			}
 
@@ -200,7 +200,7 @@ namespace iris {
 		static int reflection(lua_State* L) {
 			lua_createtable(L, 0, 4);
 			lua_pushliteral(L, "return");
-			push_variable(L, get_lua_typename<return_t>());
+			push_variable(L, get_lua_name<return_t>());
 			lua_rawset(L, -3);
 
 			lua_pushliteral(L, "arguments");
@@ -921,7 +921,7 @@ namespace iris {
 			lua_rawset(L, -3);
 
 			lua_pushliteral(L, "__name");
-			lua_pushstring(L, get_lua_typename<type_t>());
+			lua_pushstring(L, get_lua_name<type_t>());
 			lua_rawset(L, -3);
 
 			push_variable(L, "__get");
@@ -1020,15 +1020,15 @@ namespace iris {
 		}
 
 		template <typename type_t, typename = void>
-		struct has_lua_typename : std::false_type {};
+		struct has_lua_name : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_typename<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_typename(std::declval<iris_lua_t>()))>> : std::true_type {};
+		struct has_lua_name<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_name(std::declval<iris_lua_traits_t<type_t>>()))>> : std::true_type {};
 
 		template <typename type_t>
-		static constexpr const char* get_lua_typename() noexcept {
-			if constexpr (has_lua_typename<type_t>::value) {
-				return iris_lua_traits_t<type_t>::type::lua_typename();
+		static constexpr const char* get_lua_name() noexcept {
+			if constexpr (has_lua_name<type_t>::value) {
+				return iris_lua_traits_t<type_t>::type::lua_name(iris_lua_traits_t<type_t>());
 			} else {
 				return typeid(type_t).name();
 			}
@@ -2466,7 +2466,7 @@ namespace iris {
 				if constexpr (has_lua_sizeof<type_t>::value) {
 					size = invoke_sizeof<type_t, std::tuple<cast_arg_type_t<args_t>...>>(L, env_count, std::make_index_sequence<sizeof...(args_t)>());
 					if (size < sizeof(type_t)) {
-						return syserror(L, "error.new", "iris_lua_t::new_object() -> Unable to create object of type %s. Size is too small: %d < %d\n", get_lua_typename<type_t>(), (int)size, (int)sizeof(type_t));
+						return syserror(L, "error.new", "iris_lua_t::new_object() -> Unable to create object of type %s. Size is too small: %d < %d\n", get_lua_name<type_t>(), (int)size, (int)sizeof(type_t));
 					}
 				} else {
 					size = sizeof(type_t);
@@ -2487,7 +2487,7 @@ namespace iris {
 				}
 			} while (false);
 
-			return syserror(L, "error.new", "iris_lua_t::new_object() -> Unable to create object of type %s. %s\n", get_lua_typename<type_t>(), luaL_optstring(L, -1, ""));
+			return syserror(L, "error.new", "iris_lua_t::new_object() -> Unable to create object of type %s. %s\n", get_lua_name<type_t>(), luaL_optstring(L, -1, ""));
 		}
 
 		// get multiple variables from a lua table and pack them into a tuple/pair 
@@ -2836,7 +2836,7 @@ namespace iris {
 
 			if (!check_result) {
 				if (throw_error) {
-					syserror(L, "error.parameter", "Required %s parameter %d of type %s is invalid or inaccessable.\n", index <= env_count ? "Env" : "Stack", offset_index, get_lua_typename<type_t>());
+					syserror(L, "error.parameter", "Required %s parameter %d of type %s is invalid or inaccessable.\n", index <= env_count ? "Env" : "Stack", offset_index, get_lua_name<type_t>());
 				}
 
 				return false;

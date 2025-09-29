@@ -16,7 +16,7 @@ __attribute__((visibility("default")))
 int luaopen_lua_co_await(lua_State* L) {
 	iris_register_plugins(L);
 	return iris_lua_t::forward(L, [](iris_lua_t lua) {
-		return lua.make_type<lua_co_await_t>("lua_co_await");
+		return lua.make_type<lua_co_await_t>();
 	});
 }
 
