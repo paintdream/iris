@@ -424,6 +424,7 @@ int main(void) {
 	auto printTable = lua.load("for i, v in pairs(...) do print(v) end");
 	lua.call<void>(printTable, lua.call<lua_t::ref_t>(r1));
 	lua.call<void>(printTable, lua.call<lua_t::ref_t>(r2));
+	lua.deref(std::move(*printTable));
 
 	auto shared_object_example_type = lua.make_type<shared_object_example_t>();
 	auto shared_ptr_instance = lua.make_object<shared_object_example_t>(shared_object_example_type, 1);

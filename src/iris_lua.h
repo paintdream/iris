@@ -601,20 +601,23 @@ namespace iris {
 				}
 			}
 
-			static void lua_view_initialize(iris_lua_t lua, int index, void* p) {
+			template <typename subtype_t>
+			static void lua_view_initialize(iris_lua_t lua, int index, subtype_t** p) {
 				iris_lua_traits_t<type_t>::type::lua_shared_acquire(lua, index, iris_lua_traits_t<type_t>::type::lua_view_extract(lua, index, p));
 			}
 
-			static void lua_view_finalize(iris_lua_t lua, int index, void* p) {
+			template <typename subtype_t>
+			static void lua_view_finalize(iris_lua_t lua, int index, subtype_t** p) {
 				iris_lua_traits_t<type_t>::type::lua_shared_release(lua, index, iris_lua_traits_t<type_t>::type::lua_view_extract(lua, index, p));
 			}
 
-			static size_t lua_view_payload(iris_lua_t lua, void* p) {
+			template <typename subtype_t>
+			static size_t lua_view_payload(iris_lua_t lua, subtype_t* p) {
 				return 0;
 			}
 
-			static shared_object_t* lua_view_extract(iris_lua_t lua, int index, void* t) {
-				shared_object_t** p = reinterpret_cast<shared_object_t**>(t);
+			template <typename subtype_t>
+			static type_t* lua_view_extract(iris_lua_t lua, int index, subtype_t** p) {
 				IRIS_ASSERT(*p != nullptr);
 				return *p;
 			}
@@ -1123,8 +1126,8 @@ namespace iris {
 				payload_size += iris_lua_traits_t<type_t>::type::lua_view_payload(iris_lua_t(L), object);
 			}
 
-			void* p = lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t*) + payload_size, size_mask_alignment) | size_mask_view, get_lua_uservalue_count<type_t>());
-			*reinterpret_cast<type_t**>(p) = object;
+			type_t** p = static_cast<type_t**>(lua_newuserdatauv(L, iris_to_alignment(sizeof(type_t*) + payload_size, size_mask_alignment) | size_mask_view, get_lua_uservalue_count<type_t>()));
+			*p = object;
 
 			push_variable(L, std::forward<meta_t>(meta));
 			lua_setmetatable(L, -2);
@@ -2385,7 +2388,7 @@ namespace iris {
 			if (lua_rawlen(L, 1) & size_mask_view) {
 				// call lua_view_finalize if needed
 				if constexpr (has_lua_view_finalize<type_t>::value) {
-					iris_lua_traits_t<type_t>::type::lua_view_finalize(iris_lua_t(L), 1, lua_touserdata(L, 1));
+					iris_lua_traits_t<type_t>::type::lua_view_finalize(iris_lua_t(L), 1, static_cast<type_t**>(lua_touserdata(L, 1)));
 				}
 			} else {
 				type_t* p = reinterpret_cast<type_t*>(lua_touserdata(L, 1));
@@ -2802,8 +2805,8 @@ namespace iris {
 				check_result = lua_istable(L, var_index);
 			} else if constexpr (std::is_pointer_v<value_t>) {
 				using internal_type_t = std::remove_pointer_t<value_t>;
-				auto checked_value = get_variable<value_t, true>(L, var_index);
-				auto unchecked_value = get_variable<value_t, false>(L, var_index);
+				value_t checked_value = get_variable<value_t, true>(L, var_index);
+				value_t unchecked_value = get_variable<value_t, false>(L, var_index);
 				check_result = checked_value == unchecked_value;
 
 				if constexpr (has_lua_check<internal_type_t>::value) {
