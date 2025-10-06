@@ -170,7 +170,7 @@ static void example_dispatch_coroutine(worker_t& worker) {
 	dispatcher.dispatch(std::move(postNode));
 	dispatcher.dispatch(std::move(preNode));
 
-	while (!finished2.load(std::memory_order_acquire)) {
+	while (!finished2.load(std::memory_order_acquire) && dispatcher.get_pending_count() != 0) {
 		worker.poll_one(0, std::chrono::milliseconds(50));
 	}
 }

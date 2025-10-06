@@ -606,70 +606,10 @@ namespace iris {
 		std::vector<info_t> handles;
 	};
 
-	// pipe-like multiple coroutine synchronization (spsc)
-	template <typename element_t, typename warp_t, typename async_worker_t = typename warp_t::async_worker_t>
-	struct iris_pipe_t : iris_sync_t<warp_t, async_worker_t>, protected enable_in_out_fence_t<size_t> {
-		iris_pipe_t(async_worker_t& worker) : iris_sync_t<warp_t, async_worker_t>(worker), in_index(0), out_index(0) {}
-
-		constexpr bool await_ready() const noexcept {
-			auto guard = out_fence();
-			return !elements.empty();
-		}
-
-		void await_suspend(std::coroutine_handle<> handle) noexcept {
-			auto guard = out_fence();
-
-			info_t info;
-			info.handle = std::move(handle);
-
-			if constexpr (!std::is_same_v<warp_t, void>) {
-				info.warp = warp_t::get_current();
-			}
-
-			std::atomic_thread_fence(std::memory_order_acquire);
-			IRIS_ASSERT(out_index == in_index);
-		
-			handles[out_index] = std::move(info);
-			std::atomic_thread_fence(std::memory_order_release);
-			out_index = out_index ^ 1;
-		}
-
-		element_t await_resume() noexcept {
-			auto fence = out_fence();
-			element_t element = std::move(elements.top());
-			elements.pop();
-
-			return element;
-		}
-
-		template <typename element_data_t>
-		void emplace(element_data_t&& element) {
-			auto fence = in_fence();
-			elements.push(std::forward<element_data_t>(element));
-
-			std::atomic_thread_fence(std::memory_order_acquire);
-			if (in_index != out_index) {
-				auto handle = std::move(handles[in_index]);
-				handles[in_index] = info_t();
-
-				iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(handle));
-				std::atomic_thread_fence(std::memory_order_release);
-				in_index = out_index;
-			}
-		}
-		
-	protected:
-		using info_t = typename iris_sync_t<warp_t, async_worker_t>::info_t;
-		uint32_t in_index;
-		uint32_t out_index;
-		info_t handles[2];
-		iris_queue_list_t<element_t> elements;
-	};
-
-	// stock-like multiple coroutine synchronization (mpmc)
-	template <typename element_t, typename warp_t, typename async_worker_t = typename warp_t::async_worker_t>
-	struct iris_stock_t : iris_sync_t<warp_t, async_worker_t> {
-		iris_stock_t(async_worker_t& worker) : iris_sync_t<warp_t, async_worker_t>(worker) {
+	// stock-like multiple coroutine synchronization (mpmc/spsc)
+	template <typename element_t, typename warp_t, typename async_worker_t = typename warp_t::async_worker_t, typename mutex_t = iris_no_mutex_t>
+	struct iris_pipe_t : iris_sync_t<warp_t, async_worker_t> {
+		iris_pipe_t(async_worker_t& worker) : iris_sync_t<warp_t, async_worker_t>(worker) {
 			prepared_count.store(0, std::memory_order_relaxed);
 			waiting_count.store(0, std::memory_order_release);
 		}
@@ -692,7 +632,7 @@ namespace iris {
 				return;
 			}
 			
-			std::unique_lock<std::mutex> guard(handle_lock);
+			std::unique_lock<mutex_t> guard(handle_lock);
 			// retry
 			if (flush_prepared()) {
 				guard.unlock();
@@ -706,7 +646,7 @@ namespace iris {
 		}
 
 		element_t await_resume() noexcept {
-			std::lock_guard<std::mutex> guard(data_pop_lock);
+			std::lock_guard<mutex_t> guard(data_pop_lock);
 			element_t element = std::move(elements.top());
 			elements.pop();
 
@@ -716,7 +656,7 @@ namespace iris {
 		template <typename element_data_t>
 		void emplace(element_data_t&& element) {
 			do {
-				std::lock_guard<std::mutex> guard(data_push_lock);
+				std::lock_guard<mutex_t> guard(data_push_lock);
 				elements.push(std::forward<element_data_t>(element));
 			} while (false);
 
@@ -724,7 +664,7 @@ namespace iris {
 			if (flush_waiting()) {
 				info_t info;
 				do {
-					std::lock_guard<std::mutex> guard(handle_lock);
+					std::lock_guard<mutex_t> guard(handle_lock);
 					info = std::move(handles.top());
 					handles.pop();
 				} while (false);
@@ -733,7 +673,7 @@ namespace iris {
 				return;
 			}
 
-			std::unique_lock<std::mutex> guard(handle_lock);
+			std::unique_lock<mutex_t> guard(handle_lock);
 			if (flush_waiting()) {
 				info_t info = std::move(handles.top());
 				handles.pop();
@@ -776,9 +716,9 @@ namespace iris {
 		using info_t = typename iris_sync_t<warp_t, async_worker_t>::info_t;
 		std::atomic<size_t> prepared_count;
 		std::atomic<size_t> waiting_count;
-		std::mutex handle_lock;
-		std::mutex data_push_lock;
-		std::mutex data_pop_lock;
+		mutex_t handle_lock;
+		mutex_t data_push_lock;
+		mutex_t data_pop_lock;
 
 		iris_queue_list_t<info_t> handles;
 		iris_queue_list_t<element_t> elements;
@@ -835,11 +775,14 @@ namespace iris {
 		void await_suspend(std::coroutine_handle<> handle) {
 			size_t index = await_count.fetch_add(1, std::memory_order_acquire);
 			IRIS_ASSERT(index < max_await_count);
-			auto& info = handles[index];
-			info.handle = std::move(handle);
 
-			if constexpr (!std::is_same_v<warp_t, void>) {
-				info.warp = warp_t::get_current();
+			if (handle) {
+				auto& info = handles[index];
+				info.handle = std::move(handle);
+
+				if constexpr (!std::is_same_v<warp_t, void>) {
+					info.warp = warp_t::get_current();
+				}
 			}
 
 			// all finished?

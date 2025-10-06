@@ -251,6 +251,12 @@ namespace iris {
 #endif
 	};
 
+	struct iris_no_mutex_t {
+		void lock() noexcept {}
+		void unlock() noexcept {}
+	};
+
+
 	// check if casting from source_t to target_t is lossless
 	template <typename target_t, typename source_t>
 	target_t iris_verify_cast(source_t&& src) noexcept {

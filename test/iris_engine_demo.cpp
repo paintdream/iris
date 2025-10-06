@@ -45,13 +45,11 @@ struct engine_t {
 
 	coroutine_t coroutine_async() {
 		int index = 0;
+		printf("start coroutine async\n");
 		while (co_await frame) {
 			// place a barrier here to assure the completion of sync_event.reset() in main coroutine happends before we use it
 			printf("coroutine async prepare\n");
 			pipe.emplace(index++);
-
-			// pretend to do something
-			printf("coroutine async ticks\n");
 
 			co_await iris_switch(&warp_audio);
 			printf("coroutine async audio ticks\n");
@@ -105,6 +103,7 @@ struct engine_t {
 			attribute_system.insert(i, parent_t{ i + 1 }, hitpoint_t{ 0.0f, float(i) }, manapoint_t{ 0.0f, float(i) });
 		}
 
+		printf("start coroutine tick\n");
 		while (co_await frame) {
 			sync_event.reset();
 			printf("coroutine main prepare\n");
@@ -160,6 +159,7 @@ int main(void) {
 	while (frame.get_value()) {
 		bool state = false;
 		frame.dispatch([&cv, &mutex, &state](auto& frame) {
+			printf("---------\n");
 			if (rand() % 11 == 0) {
 				frame.set_value(false);
 			}
