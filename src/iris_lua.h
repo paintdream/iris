@@ -128,7 +128,7 @@ namespace iris {
 		// get a compiler-related hash from a type
 		template <typename type_t>
 		static size_t get_hash() noexcept {
-			static size_t hash = std::hash<std::string_view>()(typeid(type_t).name()) & 0xFFFFFFFF; // compatible with tagged pointer trick by LuaJIT
+			static size_t hash = std::hash<std::string_view>()(get_lua_name<type_t>()) & 0xFFFFFFFF; // compatible with tagged pointer trick by LuaJIT
 			return hash;
 		}
 
@@ -3106,7 +3106,7 @@ namespace iris {
 		static int property_get_proxy_dispatch(lua_State* L, prop_t prop) {
 			type_t* object = get_variable<type_t*>(L, 1);
 			if (object == nullptr) {
-				return syserror(L, "error.parameter", "The first parameter of a property must be a C++ instance of type %s.\n", typeid(type_t).name());
+				return syserror(L, "error.parameter", "The first parameter of a property must be a C++ instance of type %s.\n", get_lua_name<type_t>());
 			}
 
 			using value_t = decltype(object->*prop);
@@ -3124,7 +3124,7 @@ namespace iris {
 		static int property_set_proxy_dispatch(lua_State* L, prop_t prop) {
 			type_t* object = get_variable<type_t*>(L, 1);
 			if (object == nullptr) {
-				return syserror(L, "error.parameter", "The first parameter of a property must be a C++ instance of type %s.\n", typeid(type_t).name());
+				return syserror(L, "error.parameter", "The first parameter of a property must be a C++ instance of type %s.\n", get_lua_name<type_t>());
 			}
 
 			using value_t = decltype(object->*prop);
@@ -3133,7 +3133,7 @@ namespace iris {
 				object->*prop = get_variable<std::remove_reference_t<value_t>>(L, 3);
 				return 0;
 			} else {
-				return syserror(L, "error.exec", "Cannot modify const member of type %s.\n", typeid(type_t).name());
+				return syserror(L, "error.exec", "Cannot modify const member of type %s.\n", get_lua_name<type_t>());
 			}
 		}
 
