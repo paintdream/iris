@@ -606,7 +606,7 @@ namespace iris {
 		std::vector<info_t> handles;
 	};
 
-	// stock-like multiple coroutine synchronization (mpmc/spsc)
+	// pipe-like multiple coroutine synchronization (mpmc/spsc)
 	template <typename element_t, typename warp_t, typename async_worker_t = typename warp_t::async_worker_t, typename mutex_t = iris_no_mutex_t>
 	struct iris_pipe_t : iris_sync_t<warp_t, async_worker_t> {
 		iris_pipe_t(async_worker_t& worker) : iris_sync_t<warp_t, async_worker_t>(worker) {
@@ -633,11 +633,13 @@ namespace iris {
 			}
 			
 			std::unique_lock<mutex_t> guard(handle_lock);
-			// retry
-			if (flush_prepared()) {
-				guard.unlock();
-				iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(info));
-				return;
+			if constexpr (!std::is_same_v<mutex_t, iris_no_mutex_t>) {
+				// retry
+				if (flush_prepared()) {
+					guard.unlock();
+					iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(info));
+					return;
+				}
 			}
 
 			// failed, push to deferred list
@@ -674,13 +676,15 @@ namespace iris {
 			}
 
 			std::unique_lock<mutex_t> guard(handle_lock);
-			if (flush_waiting()) {
-				info_t info = std::move(handles.top());
-				handles.pop();
-				guard.unlock();
+			if constexpr (!std::is_same_v<mutex_t, iris_no_mutex_t>) {
+				if (flush_waiting()) {
+					info_t info = std::move(handles.top());
+					handles.pop();
+					guard.unlock();
 
-				iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(info));
-				return;
+					iris_sync_t<warp_t, async_worker_t>::dispatch(std::move(info));
+					return;
+				}
 			}
 
 			// still not success, go starving
