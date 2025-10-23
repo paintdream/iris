@@ -3236,7 +3236,7 @@ namespace iris {
 #if LUA_VERSION_NUM >= 503
 				lua_rawgetp(L, LUA_REGISTRYINDEX, variable.hash);
 #else
-				lua_pushlightuserdata(L, variable.hash);
+				lua_pushlightuserdata(L, const_cast<void*>(variable.hash));
 				lua_rawget(L, LUA_REGISTRYINDEX);
 #endif
 			} else if constexpr (std::is_convertible_v<value_t, int (*)(lua_State*)> || std::is_convertible_v<value_t, int (*)(lua_State*) noexcept>) {

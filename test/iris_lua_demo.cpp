@@ -823,7 +823,7 @@ end\n\
 
 #if LUA_VERSION_NUM <= 501
 	// lua 5.1 do not accept yield from pcall
-	callResult4 = lua.call<void>(lua.load("\n\
+	auto callResult4 = lua.call<void>(lua.load("\n\
 		local a = example_t.new()\n\
 		local coro = coroutine.create(function() \n\
 			print('coro get ' .. a.coro_get_int('hello')) \n\
