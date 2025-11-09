@@ -2521,7 +2521,126 @@ namespace iris {
 
 			if constexpr (iris_lua_traits_t<value_t>::value) {
 				return iris_lua_traits_t<value_t>::type::lua_fromstack(iris_lua_t(L), index);
-			} else if constexpr (std::is_null_pointer_v<value_t>) {
+			} 
+#ifdef INCLUDE_NLOHMANN_JSON_HPP_
+			else if constexpr (std::is_same_v<value_t, nlohmann::json>) {
+				int t = lua_type(L, index);
+				if (t == LUA_TBOOLEAN) {
+					return bool(lua_toboolean(L, index));
+				}
+				else if (t == LUA_TNUMBER)
+				{
+					return lua_tonumber(L, index);
+				}
+				else if (t == LUA_TSTRING)
+				{
+					size_t len = 0;
+					const char* s = lua_tolstring(L, index, &len);
+					if (!s) {
+						return "";  
+					}
+					return std::string(s, len);
+				}
+				else if (t == LUA_TTABLE)
+				{
+					int abs_index = lua_absindex(L, index);
+					size_t len = lua_rawlen(L, index);
+					size_t count = 0;
+					lua_pushnil(L);
+					bool isArray = true;
+					while (lua_next(L, abs_index) != 0) {
+						if (!lua_isnumber(L, -2)) { lua_pop(L, 1); isArray = false; break; }
+						lua_Integer k = lua_tointeger(L, -2);
+						if (k < 1 || k >(lua_Integer)len) { lua_pop(L, 1);  isArray = false; break; }
+						count++;
+						lua_pop(L, 1);
+					}
+					if (isArray)
+					{
+						auto v = nlohmann::json::array();
+						size_t size = static_cast<size_t>(lua_rawlen(L, index));
+						for (size_t i = 0; i < size; i++) {
+							lua_rawgeti(L, index, static_cast<int>(i) + 1);
+							v.push_back(get_variable<value_t>(L, -1));
+							lua_pop(L, 1);
+						}
+						return v;
+					}
+					else {
+						auto v = nlohmann::json::object();
+						lua_pushnil(L);
+						while (lua_next(L, abs_index) != 0) {
+							auto key = get_variable<std::string>(L, -2);
+							auto val = get_variable<value_t>(L, -1);
+							v[key] = std::move(val);
+							lua_pop(L, 1);
+						}
+						return v;
+					}
+				}
+				return std::nullptr_t();
+			} 
+#endif
+#ifdef BOOST_JSON_HPP
+			else if constexpr (std::is_same_v<value_t, boost::json::value>) {
+				int t = lua_type(L, index);
+				if (t == LUA_TBOOLEAN) {
+					return bool(lua_toboolean(L, index));
+				}
+				else if (t == LUA_TNUMBER)
+				{
+					return lua_tonumber(L, index);
+				}
+				else if (t == LUA_TSTRING)
+				{
+					size_t len = 0;
+					const char* s = lua_tolstring(L, index, &len);
+					if (!s) {
+						return "";
+					}
+					return boost::json::string(s, len);
+				}
+				else if (t == LUA_TTABLE)
+				{
+					int abs_index = lua_absindex(L, index);
+					size_t len = lua_rawlen(L, index);
+					size_t count = 0;
+					lua_pushnil(L);
+					bool isArray = true;
+					while (lua_next(L, abs_index) != 0) {
+						if (!lua_isnumber(L, -2)) { lua_pop(L, 1); isArray = false; break; }
+						lua_Integer k = lua_tointeger(L, -2);
+						if (k < 1 || k >(lua_Integer)len) { lua_pop(L, 1);  isArray = false; break; }
+						count++;
+						lua_pop(L, 1);
+					}
+					if (isArray)
+					{
+						auto v = boost::json::array();
+						size_t size = static_cast<size_t>(lua_rawlen(L, index));
+						for (size_t i = 0; i < size; i++) {
+							lua_rawgeti(L, index, static_cast<int>(i) + 1);
+							v.push_back(get_variable<value_t>(L, -1));
+							lua_pop(L, 1);
+						}
+						return v;
+					}
+					else {
+						auto v = boost::json::object();
+						lua_pushnil(L);
+						while (lua_next(L, abs_index) != 0) {
+							auto key = get_variable<std::string>(L, -2);
+							auto val = get_variable<value_t>(L, -1);
+							v[key] = std::move(val);
+							lua_pop(L, 1);
+						}
+						return v;
+					}
+				}
+				return std::nullptr_t();
+			}
+#endif
+			else if constexpr (std::is_null_pointer_v<value_t>) {
 				return nullptr;
 			} else if constexpr (std::is_same_v<type_t, context_stackvalue_t>) {
 				return context_stackvalue_t(lua_absindex(L, index));
@@ -2767,7 +2886,18 @@ namespace iris {
 				if constexpr (has_lua_check<value_t>::value) {
 					check_result = iris_lua_traits_t<value_t>::type::lua_check(iris_lua_t(L), var_index, nullptr);
 				}
-			} else if constexpr (std::is_null_pointer_v<value_t>) {
+			} 
+#ifdef INCLUDE_NLOHMANN_JSON_HPP_
+			else if constexpr (std::is_same_v<value_t, nlohmann::json>) {
+				// do not check json
+			}
+#endif
+#ifdef BOOST_JSON_HPP
+			else if constexpr (std::is_same_v<value_t, boost::json::value>) {
+				// do not check json
+			}
+#endif
+			else if constexpr (std::is_null_pointer_v<value_t>) {
 				// do not check
 			} else if constexpr (std::is_same_v<type_t, context_stackvalue_t>) {
 				// do not check
@@ -3201,7 +3331,82 @@ namespace iris {
 
 			if constexpr (iris_lua_traits_t<value_t>::value) {
 				guard.append(iris_lua_traits_t<value_t>::type::lua_tostack(iris_lua_t(L), std::forward<type_t>(variable)) - 1);
-			} else if constexpr (is_optional<value_t>::value) {
+			} 
+#ifdef INCLUDE_NLOHMANN_JSON_HPP_
+			else if constexpr (std::is_same_v<value_t, nlohmann::json>) {
+				if (variable.is_array())
+				{
+					lua_createtable(L, 0, static_cast<int>(variable.size()));
+					int i = 0;
+					for (auto& val : variable)
+					{
+						stack_guard_t guard(L);
+						push_variable(L, val);
+						lua_rawseti(L, -2, ++i);
+					}
+				}
+				else if (variable.is_object()) {
+					lua_createtable(L, 0, static_cast<int>(variable.size()));
+					for (auto& [k, val] : variable.items()) {
+						stack_guard_t guard(L);
+						push_variable(L, k);
+						push_variable(L, val);
+						lua_rawset(L, -3);
+					}
+				}
+				else if (variable.is_string())
+					return push_variable(L, std::string(variable));
+				else if (variable.is_boolean())
+					return push_variable(L, bool(variable));
+				else if (variable.is_number_unsigned())
+					return push_variable(L, std::uint64_t(variable));
+				else if (variable.is_number_integer())
+					return push_variable(L, std::int64_t(variable));
+				else if (variable.is_number_float())
+					return push_variable(L, double(variable));
+				else
+					lua_pushnil(L);
+			} 
+#endif
+#ifdef BOOST_JSON_HPP
+			else if constexpr (std::is_same_v<value_t, boost::json::value>) {
+				if (variable.is_array())
+				{
+					auto t = variable.as_array();
+					lua_createtable(L, 0, static_cast<int>(t.size()));
+					int i = 0;
+					for (auto& val : t)
+					{
+						stack_guard_t guard(L);
+						push_variable(L, val);
+						lua_rawseti(L, -2, ++i);
+					}
+				}
+				else if (variable.is_object()) {
+					auto t = variable.as_object();
+					lua_createtable(L, 0, static_cast<int>(t.size()));
+					for (auto& [k, val] : t) {
+						stack_guard_t guard(L);
+						push_variable(L, k);
+						push_variable(L, val);
+						lua_rawset(L, -3);
+					}
+				}
+				else if (variable.is_string())
+					return push_variable(L, variable.as_string());
+				else if (variable.is_bool())
+					return push_variable(L, variable.as_bool());
+				else if (variable.is_uint64())
+					return push_variable(L, variable.as_uint64());
+				else if (variable.is_int64())
+					return push_variable(L, variable.as_int64());
+				else if (variable.is_double())
+					return push_variable(L, variable.as_double());
+				else
+					lua_pushnil(L);
+			} 
+#endif	
+			else if constexpr (is_optional<value_t>::value) {
 				if (variable) {
 					if constexpr (std::is_rvalue_reference_v<type_t&&>) {
 						return push_variable(L, std::move(variable.value()));
