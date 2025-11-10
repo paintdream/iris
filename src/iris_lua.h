@@ -695,20 +695,26 @@ namespace iris {
 
 			shared_ref_t(shared_ref_t&& rhs) noexcept : ptr(rhs.ptr) { rhs.ptr = nullptr; }
 			shared_ref_t(const shared_ref_t& rhs) noexcept : ptr(rhs.ptr) {
-				iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+				if (ptr != nullptr) {
+					iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+				}
 			}
 
 			template <typename subtype_t>
 			shared_ref_t(const shared_ref_t<subtype_t>& rhs) noexcept : ptr(rhs.ptr) {
 				static_assert(std::is_convertible_v<subtype_t*, type_t*>, "Must be convertible");
-				iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+				if (ptr != nullptr) {
+					iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+				}
 			}
 
 			shared_ref_t& operator = (const shared_ref_t& rhs) noexcept {
 				if (this != &rhs) {
 					reset();
 					ptr = rhs.ptr;
-					iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+					if (ptr != nullptr) {
+						iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+					}
 				}
 
 				return *this;
@@ -721,7 +727,9 @@ namespace iris {
 				if (this != &rhs) {
 					reset();
 					ptr = rhs.ptr;
-					iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+					if (ptr != nullptr) {
+						iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+					}
 				}
 
 				return *this;
