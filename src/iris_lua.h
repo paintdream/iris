@@ -1115,12 +1115,8 @@ namespace iris {
 
 		// make an object view with an exiting object
 		template <typename type_t, typename meta_t, typename... args_t>
-		refptr_t<type_t> make_object_view(meta_t&& meta, type_t* object) {
-			IRIS_PROFILE_SCOPE(__FUNCTION__);
-			IRIS_ASSERT(object != nullptr);
-
+		type_t* native_push_object_view(meta_t&& meta, type_t* object) {
 			lua_State* L = state;
-			stack_guard_t guard(L);
 			IRIS_ASSERT(*meta.template get<const void*>(*this, "__typeid") == reinterpret_cast<const void*>(get_hash<type_t>()));
 
 			static_assert(sizeof(type_t*) == sizeof(void*), "Unrecognized architecture.");
@@ -1140,13 +1136,35 @@ namespace iris {
 				iris_lua_traits_t<type_t>::type::lua_view_initialize(iris_lua_t(L), lua_absindex(L, -1), p);
 			}
 
+			return object;
+		}
+
+		template <typename type_t, typename meta_t, typename... args_t>
+		refptr_t<type_t> make_object_view(meta_t&& meta, type_t* object) {
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
+			IRIS_ASSERT(object != nullptr);
+			lua_State* L = state;
+			stack_guard_t guard(L);
+
+			native_push_object_view<type_t>(std::forward<meta_t>(meta), object);
 			return refptr_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX), object);
 		}
 
 		// make object view from registry meta
 		template <typename type_t>
+		type_t* native_push_registry_object_view(type_t* object) {
+			return native_push_object_view<type_t>(get_registry<ref_t>(reinterpret_cast<const void*>(get_hash<type_t>())), object);
+		}
+
+		template <typename type_t>
 		refptr_t<type_t> make_registry_object_view(type_t* object) {
-			return make_object_view<type_t>(get_registry<ref_t>(reinterpret_cast<const void*>(get_hash<type_t>())), object);
+			IRIS_PROFILE_SCOPE(__FUNCTION__);
+			IRIS_ASSERT(object != nullptr);
+			lua_State* L = state;
+			stack_guard_t guard(L);
+
+			native_push_registry_object_view<type_t>(object);
+			return refptr_t<type_t>(luaL_ref(L, LUA_REGISTRYINDEX), object);
 		}
 
 		struct buffer_t {
@@ -3225,12 +3243,7 @@ namespace iris {
 					deref(L, std::move(variable));
 				}
 			} else if constexpr (is_shared_ref_t<value_t>::value) {
-				auto* ptr = variable.get();
-				if (ptr == nullptr || !ptr->lua_get_ref()) {
-					push_variable(L, nullptr);
-				} else {
-					push_variable(L, ptr->lua_get_ref());
-				}
+				push_variable(L, variable.get());
 
 				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
 					deref(L, std::move(variable));
@@ -3306,10 +3319,14 @@ namespace iris {
 				} else {
 					return push_variable(L, variable.get());
 				}
-			} else if constexpr (is_shared_object_t<value_t>::value) {
-				return push_variable(L, variable.lua_get_ref());
 			} else if constexpr (std::is_pointer_v<value_t> && is_shared_object_t<std::remove_pointer_t<value_t>>::value) {
-				return push_variable(L, variable->lua_get_ref());
+				if (variable) {
+					return push_variable(L, *variable);
+				} else {
+					return push_variable(L, nullptr);
+				}
+			} else if constexpr (is_shared_object_t<value_t>::value) {
+				push_variable(L, variable.lua_get_ref());
 			} else if constexpr (is_functor<value_t>::value) {
 				return push_method<&type_t::operator ()>(L, std::forward<type_t>(variable), &type_t::operator ());
 			} else {
