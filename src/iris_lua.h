@@ -987,11 +987,6 @@ namespace iris {
 			return make_type<type_t>(&abstract_object_creator<type_t>);
 		}
 
-		template <typename type_t>
-		reftype_t<type_t> make_registry_type(std::nullptr_t) {
-			return make_registry_type<type_t>(&abstract_object_creator<type_t>);
-		}
-
 		// build a cast relationship from target_meta to base_meta
 		template <typename meta_base_t, typename meta_target_t>
 		void cast_type(meta_base_t&& base_meta, meta_target_t&& target_meta) {
