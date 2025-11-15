@@ -447,8 +447,8 @@ int main(void) {
 		lua.deref(instance_construct);
 
 		auto instance_offline = lua_t::shared_ref_t<shared_object_example_t>::make(3);
-		lua.set_global("failed_instance", std::move(instance_offline));
-		IRIS_ASSERT(lua.get_global<shared_object_example_t*>("failed_instance") == nullptr);
+		lua.set_global("registry_instance", std::move(instance_offline));
+		IRIS_ASSERT(lua.get_global<shared_object_example_t*>("registry_instance") != nullptr);
 	
 		{
 			auto instance_offline2 = lua_t::shared_ref_t<shared_object_example_t>::make(4);

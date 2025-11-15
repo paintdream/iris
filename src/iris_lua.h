@@ -602,6 +602,17 @@ namespace iris {
 			}
 
 			template <typename subtype_t>
+			static int lua_tostack(iris_lua_t lua, subtype_t&& variable) noexcept {
+				if (variable.ref) {
+					lua.native_push_variable(variable.ref);
+				} else {
+					lua.native_push_registry_object_view(&variable);
+				}
+				
+				return 1;
+			}
+
+			template <typename subtype_t>
 			static void lua_view_initialize(iris_lua_t lua, int index, subtype_t** p) {
 				iris_lua_traits_t<type_t>::type::lua_shared_acquire(lua, index, iris_lua_traits_t<type_t>::type::lua_view_extract(lua, index, p));
 			}
@@ -625,8 +636,6 @@ namespace iris {
 			static void lua_shared_delete(shared_object_t* instance) {
 				delete static_cast<type_t*>(instance);
 			}
-
-			const ref_t& lua_get_ref() const noexcept { return ref; }
 
 		protected:
 			ref_t ref;
@@ -1117,6 +1126,7 @@ namespace iris {
 		template <typename type_t, typename meta_t, typename... args_t>
 		type_t* native_push_object_view(meta_t&& meta, type_t* object) {
 			lua_State* L = state;
+			IRIS_ASSERT(meta);
 			IRIS_ASSERT(*meta.template get<const void*>(*this, "__typeid") == reinterpret_cast<const void*>(get_hash<type_t>()));
 
 			static_assert(sizeof(type_t*) == sizeof(void*), "Unrecognized architecture.");
@@ -3242,12 +3252,6 @@ namespace iris {
 				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
 					deref(L, std::move(variable));
 				}
-			} else if constexpr (is_shared_ref_t<value_t>::value) {
-				push_variable(L, variable.get());
-
-				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
-					deref(L, std::move(variable));
-				}
 			} else if constexpr (std::is_same_v<type_t, registry_type_hash_t>) {
 #if LUA_VERSION_NUM >= 503
 				lua_rawgetp(L, LUA_REGISTRYINDEX, variable.hash);
@@ -3319,14 +3323,18 @@ namespace iris {
 				} else {
 					return push_variable(L, variable.get());
 				}
-			} else if constexpr (std::is_pointer_v<value_t> && is_shared_object_t<std::remove_pointer_t<value_t>>::value) {
+			} else if constexpr (is_shared_ref_t<value_t>::value) {
+				push_variable(L, variable.get());
+
+				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
+					deref(L, std::move(variable));
+				}
+			} else if constexpr (std::is_pointer_v<value_t>) {
 				if (variable) {
 					return push_variable(L, *variable);
 				} else {
 					return push_variable(L, nullptr);
 				}
-			} else if constexpr (is_shared_object_t<value_t>::value) {
-				push_variable(L, variable.lua_get_ref());
 			} else if constexpr (is_functor<value_t>::value) {
 				return push_method<&type_t::operator ()>(L, std::forward<type_t>(variable), &type_t::operator ());
 			} else {
