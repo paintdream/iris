@@ -54,6 +54,14 @@ struct iris::iris_lua_traits_t<vector3> : std::true_type {
 	}
 };
 
+struct complex_t {
+	double real = 0;
+	double image = 0;
+};
+
+template <>
+struct iris::iris_lua_traits_t<complex_t> : iris::iris_lua_traits_trivial_t<complex_t> {};
+
 struct example_base_t {
 	template <typename traits_t>
 	static void lua_registar(lua_t lua, traits_t) {
@@ -418,6 +426,11 @@ int main(void) {
 	luaL_openlibs(L);
 
 	lua_t lua(L);
+	complex_t cpx{ 1.0, 2.0 };
+	lua.make_registry_type<complex_t>(nullptr);
+	lua.set_global("test_complex", cpx);
+	auto cpxget = lua.get_global<complex_t>("test_complex");
+
 	auto r1 = lua.set_global("test_reflection", std::function<void(int, double)>(+[](int a, double b) { return 1; }));
 	auto r2 = lua.set_global<&example_t::accum_value>("test_reflection2");
 
@@ -430,7 +443,7 @@ int main(void) {
 	auto shared_ptr_instance = lua.make_object<shared_object_example_t>(shared_object_example_type, 1);
 	lua.set_global("shared_ptrinstance", std::move(shared_ptr_instance));
 	{
-		auto instance_copy1 = lua.get_global<lua_t::shared_ref_t<shared_object_example_t>>("shared_ptrinstance");
+		auto instance_copy1 = lua.get_global<lua_t::shared_ref_t<shared_object_example_t>>("shared_ptrinstance").value();
 		auto casted = instance_copy1.cast_static<shared_object_example_sub_t>();
 		lua.deref(std::move(casted));
 		auto instance_copy2 = instance_copy1;
@@ -448,12 +461,12 @@ int main(void) {
 
 		auto instance_offline = lua_t::shared_ref_t<shared_object_example_t>::make(3);
 		lua.set_global("registry_instance", std::move(instance_offline));
-		IRIS_ASSERT(lua.get_global<shared_object_example_t*>("registry_instance") != nullptr);
+		IRIS_ASSERT(lua.get_global<shared_object_example_t*>("registry_instance").value() != nullptr);
 	
 		{
 			auto instance_offline2 = lua_t::shared_ref_t<shared_object_example_t>::make(4);
 			lua.set_global("success_instance", lua.make_object_view(shared_object_example_type, instance_offline2.get()));
-			IRIS_ASSERT(lua.get_global<shared_object_example_t*>("success_instance") != nullptr);
+			IRIS_ASSERT(lua.get_global<shared_object_example_t*>("success_instance").value() != nullptr);
 			lua.deref(std::move(instance_offline2));
 		}
 	}
@@ -484,7 +497,7 @@ int main(void) {
 	int capture = 2;
 
 	lua.set_global("refstr", "shared_string_object");
-	auto p = lua.get_global<lua_t::refview_t<std::string_view>>("refstr");
+	auto p = lua.get_global<lua_t::refview_t<std::string_view>>("refstr").value();
 	std::map<int, lua_t::refview_t<std::string_view>> vv;
 	vv[1234] = std::move(p);
 	for (auto&& v : vv) {
@@ -564,13 +577,13 @@ int main(void) {
 
 	auto callResult = target.call<void>(target.load("\n\
 function test(a, b, c) \n\
+	print('cross value ' .. b.value) \n\
 	b:base_func() \n\
 	b:base_bind() \n\
 	b.base_bind_static() \n\
 	print('equal value ======== ' .. tostring(b == c)) \n\
 	print('base value ======== ' .. tostring(b.base_value)) \n\
 	print('cross ' .. tostring(a)) \n\
-	print('cross value ' .. b.value) \n\
 	print('lambda value ' .. b.lambda(4)) \n\
 	print('cross value ' .. c.value) \n\
 	c.value = 3333 \n\
@@ -588,7 +601,7 @@ end\n\
 		IRIS_ASSERT(false);
 	}
 
-	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test");
+	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test").value();
 	example_t existing_object;
 	existing_object.value = 2222;
 	auto temp_type = target.make_type<example_t>().set_registry(target);
@@ -613,12 +626,12 @@ end\n\
 	lua.native_cross_transfer_variable<true>(target, -3);
 	lua.native_cross_transfer_variable<true>(target, -2);
 	lua.native_cross_transfer_variable<false>(target, -1);
-	auto* g = target.native_get_variable<example_t*>(-1).value();
+	auto* g = target.native_get_variable<example_t*>(-1);
 	lua.native_pop_variable(3);
 
 	int result = target.native_call(std::move(test), 3).value();
 	IRIS_ASSERT(existing_object.value == 3333);
-	int ret_val = target.native_get_variable<int>(-1).value();
+	int ret_val = target.native_get_variable<int>(-1);
 	IRIS_ASSERT(ret_val == 1234);
 	target.native_pop_variable(1);
 
@@ -723,7 +736,7 @@ end\n\
 	lua.native_call(std::move(print2), 1);
 
 	lua.native_push_variable(1234);
-	int v = lua.native_get_variable<int>(-1).value();
+	int v = lua.native_get_variable<int>(-1);
 	lua_pop(L, 1);
 	IRIS_ASSERT(v == 1234);
 

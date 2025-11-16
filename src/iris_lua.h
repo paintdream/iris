@@ -90,11 +90,42 @@ extern "C" {
 #endif
 
 namespace iris {
-	template <typename type_t, typename = void>
+	template <typename type_t, typename placeholder_t = void>
 	struct iris_lua_traits_t : std::false_type {
 		using type = type_t;
+
 		operator std::nullptr_t() const noexcept {
 			return nullptr;
+		}
+	};
+
+	// trivial trait behavior: pushing & getting variable by value
+	template <typename type_t>
+	struct iris_lua_traits_trivial_t : std::false_type {
+		using type = iris_lua_traits_trivial_t<type_t>;
+
+		operator std::nullptr_t() const noexcept {
+			return nullptr;
+		}
+
+		template <typename lua_t, typename value_t>
+		static bool lua_check(lua_t&& lua, int index, value_t&& value) {
+			if (value != nullptr) {
+				return true;
+			} else {
+				return lua.template native_check_variable<type_t&>(index);
+			}
+		}
+
+		template <typename lua_t>
+		static auto lua_fromstack(lua_t&& lua, int index) {
+			return lua.template native_get_variable<type_t&>(index);
+		}
+
+		template <typename lua_t, typename subtype_t>
+		static int lua_tostack(lua_t&& lua, subtype_t&& variable) {
+			lua.template native_push_registry_object<type_t>(variable);
+			return 1;
 		}
 	};
 
@@ -996,6 +1027,11 @@ namespace iris {
 			return make_type<type_t>(&abstract_object_creator<type_t>);
 		}
 
+		template <typename type_t, typename... args_t>
+		void make_registry_type(args_t&&... args) {
+			make_type<type_t>(std::forward<args_t>(args)...).set_registry(*this, true).deref(*this);
+		}
+
 		// build a cast relationship from target_meta to base_meta
 		template <typename meta_base_t, typename meta_target_t>
 		void cast_type(meta_base_t&& base_meta, meta_target_t&& target_meta) {
@@ -1066,6 +1102,8 @@ namespace iris {
 
 		template <typename type_t, typename meta_t, typename... args_t>
 		type_t* native_push_object(meta_t&& meta, args_t&&... args) {
+			IRIS_ASSERT(meta); // must registerred!
+
 			lua_State* L = get_state();
 			if constexpr (std::is_base_of_v<ref_t, meta_t>) {
 				IRIS_ASSERT(*meta.template get<const void*>(*this, "__typeid") == reinterpret_cast<const void*>(get_hash<type_t>()));
@@ -1126,7 +1164,7 @@ namespace iris {
 		template <typename type_t, typename meta_t, typename... args_t>
 		type_t* native_push_object_view(meta_t&& meta, type_t* object) {
 			lua_State* L = state;
-			IRIS_ASSERT(meta);
+			IRIS_ASSERT(meta); // must registerred!
 			IRIS_ASSERT(*meta.template get<const void*>(*this, "__typeid") == reinterpret_cast<const void*>(get_hash<type_t>()));
 
 			static_assert(sizeof(type_t*) == sizeof(void*), "Unrecognized architecture.");
@@ -1265,6 +1303,7 @@ namespace iris {
 
 		struct registry_type_hash_t {
 			registry_type_hash_t(const void* h) noexcept : hash(h) {}
+			operator bool() const noexcept { return true; }
 
 			const void* hash;
 		};
@@ -1344,12 +1383,17 @@ namespace iris {
 
 		// get lua global value from name
 		template <typename value_t>
-		value_t get_global(std::string_view key) {
+		optional_result_t<value_t> get_global(std::string_view key) {
 			auto guard = write_fence();
 			lua_State* L = state;
 			stack_guard_t stack_guard(L);
 
 			lua_getglobal(L, key.data() == nullptr ? "" : key.data());
+			if (!check_required_parameters<value_t>(L, 0, 0, false, lua_gettop(L), false)) {
+				lua_pop(L, 1);
+				return result_error_t("Unable to get variable.");
+			}
+
 			value_t value = get_variable<value_t>(L, -1);
 			lua_pop(L, 1);
 
@@ -1585,17 +1629,17 @@ namespace iris {
 			auto guard = write_fence();
 			return lua_gettop(state);
 		}
+		
+		template <typename value_t>
+		bool native_check_variable(int index) {
+			return check_required_parameters<value_t>(state, 0, 0, false, lua_absindex(state, index), false);
+		}
 
-		template <typename value_t, bool skip_checks = false>
-		optional_result_t<value_t> native_get_variable(int index) {
+		template <typename value_t>
+		value_t native_get_variable(int index) {
 			auto guard = write_fence();
-			if constexpr (!skip_checks) {
-				if (!check_required_parameters<value_t>(state, 0, 0, false, lua_absindex(state, index), false)) {
-					return result_error_t("Unexpected type.");
-				}
-			}
-
-			return get_variable<value_t, skip_checks>(state, index);
+			IRIS_ASSERT(native_check_variable<value_t>(index));
+			return get_variable<value_t, true>(state, index);
 		}
 
 		template <bool move, typename lua_t>
@@ -2509,7 +2553,7 @@ namespace iris {
 				type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(size, size_mask_alignment), get_lua_uservalue_count<type_t>()));
 				auto result = invoke_create<type_t, std::tuple<cast_arg_type_t<args_t>...>>(p, L, reinterpret_cast<optional_result_t<type_t*> (*)(iris_lua_t, type_t*, args_t...)>(lua_touserdata(L, lua_upvalueindex(2))), env_count, std::make_index_sequence<sizeof...(args_t)>());
 				if (result) {
-					assert(result.value() == p); // must return original ptr if success
+					IRIS_ASSERT(result.value() == p); // must return original ptr if success
 					lua_pushvalue(L, lua_upvalueindex(1));
 					lua_setmetatable(L, -2);
 					initialize_object(L, lua_absindex(L, -1), p);
