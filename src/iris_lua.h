@@ -1102,8 +1102,6 @@ namespace iris {
 
 		template <typename type_t, typename meta_t, typename... args_t>
 		type_t* native_push_object(meta_t&& meta, args_t&&... args) {
-			IRIS_ASSERT(meta); // must registerred!
-
 			lua_State* L = get_state();
 			if constexpr (std::is_base_of_v<ref_t, meta_t>) {
 				IRIS_ASSERT(*meta.template get<const void*>(*this, "__typeid") == reinterpret_cast<const void*>(get_hash<type_t>()));
@@ -1116,6 +1114,7 @@ namespace iris {
 			type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(size, size_mask_alignment), get_lua_uservalue_count<type_t>()));
 			new (p) type_t(std::forward<args_t>(args)...);
 			push_variable(L, std::forward<meta_t>(meta));
+			IRIS_ASSERT(lua_type(L, -1) == LUA_TTABLE);
 			lua_setmetatable(L, -2);
 			initialize_object(L, lua_absindex(L, -1), p);
 
@@ -1164,8 +1163,9 @@ namespace iris {
 		template <typename type_t, typename meta_t, typename... args_t>
 		type_t* native_push_object_view(meta_t&& meta, type_t* object) {
 			lua_State* L = state;
-			IRIS_ASSERT(meta); // must registerred!
-			IRIS_ASSERT(*meta.template get<const void*>(*this, "__typeid") == reinterpret_cast<const void*>(get_hash<type_t>()));
+			if constexpr (std::is_base_of_v<ref_t, meta_t>) {
+				IRIS_ASSERT(*meta.template get<const void*>(*this, "__typeid") == reinterpret_cast<const void*>(get_hash<type_t>()));
+			}
 
 			static_assert(sizeof(type_t*) == sizeof(void*), "Unrecognized architecture.");
 			size_t payload_size = 0;
@@ -1177,6 +1177,7 @@ namespace iris {
 			*p = object;
 
 			push_variable(L, std::forward<meta_t>(meta));
+			IRIS_ASSERT(lua_type(L, -1) == LUA_TTABLE);
 			lua_setmetatable(L, -2);
 
 			// call lua_view_initialize if needed
@@ -1201,7 +1202,7 @@ namespace iris {
 		// make object view from registry meta
 		template <typename type_t>
 		type_t* native_push_registry_object_view(type_t* object) {
-			return native_push_object_view<type_t>(get_registry<ref_t>(reinterpret_cast<const void*>(get_hash<type_t>())), object);
+			return native_push_object_view<type_t>(registry_type_hash_t(reinterpret_cast<const void*>(get_hash<type_t>())), object);
 		}
 
 		template <typename type_t>
