@@ -99,36 +99,6 @@ namespace iris {
 		}
 	};
 
-	// trivial trait behavior: pushing & getting variable by value
-	template <typename type_t>
-	struct iris_lua_traits_trivial_t : std::false_type {
-		using type = iris_lua_traits_trivial_t<type_t>;
-
-		operator std::nullptr_t() const noexcept {
-			return nullptr;
-		}
-
-		template <typename lua_t, typename value_t>
-		static bool lua_check(lua_t&& lua, int index, value_t&& value) {
-			if (value != nullptr) {
-				return true;
-			} else {
-				return lua.template native_check_variable<type_t&>(index);
-			}
-		}
-
-		template <typename lua_t>
-		static auto lua_fromstack(lua_t&& lua, int index) {
-			return lua.template native_get_variable<type_t&>(index);
-		}
-
-		template <typename lua_t, typename subtype_t>
-		static int lua_tostack(lua_t&& lua, subtype_t&& variable) {
-			lua.template native_push_registry_object<type_t>(variable);
-			return 1;
-		}
-	};
-
 	// A simple lua binding with C++17
 	struct iris_lua_t : enable_read_write_fence_t<> {
 		static constexpr size_t size_mask_view = 1u;
@@ -604,75 +574,6 @@ namespace iris {
 
 		template <typename type_t>
 		struct shared_ref_t;
-
-		template <typename type_t>
-		struct shared_object_t {
-			static void lua_shared_acquire(iris_lua_t lua, int index, shared_object_t* base_object) {
-				type_t* object = static_cast<type_t*>(base_object);
-				IRIS_ASSERT(object != nullptr);
-				if (object->ref_count.fetch_add(1, std::memory_order_relaxed) == 0) {
-					IRIS_ASSERT(!object->ref);
-					if (lua) {
-						object->ref = lua.get_context<ref_t>(context_stackvalue_t(index));
-					}
-				}
-			}
-
-			static void lua_shared_release(iris_lua_t lua, int, shared_object_t* base_object) {
-				type_t* object = static_cast<type_t*>(base_object);
-				if (object->ref_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
-					// managed by lua
-					if (object->ref) {
-						lua_State* L = lua.get_state();
-						IRIS_ASSERT(L != nullptr);
-						deref(L, std::move(object->ref));
-					} else {
-						iris_lua_traits_t<type_t>::type::lua_shared_delete(base_object);
-					}
-				}
-			}
-
-			template <typename subtype_t>
-			static int lua_tostack(iris_lua_t lua, subtype_t&& variable) noexcept {
-				if (variable.ref) {
-					lua.native_push_variable(variable.ref);
-				} else {
-					lua.native_push_registry_object_view(&variable);
-				}
-				
-				return 1;
-			}
-
-			template <typename subtype_t>
-			static void lua_view_initialize(iris_lua_t lua, int index, subtype_t** p) {
-				iris_lua_traits_t<type_t>::type::lua_shared_acquire(lua, index, iris_lua_traits_t<type_t>::type::lua_view_extract(lua, index, p));
-			}
-
-			template <typename subtype_t>
-			static void lua_view_finalize(iris_lua_t lua, int index, subtype_t** p) {
-				iris_lua_traits_t<type_t>::type::lua_shared_release(lua, index, iris_lua_traits_t<type_t>::type::lua_view_extract(lua, index, p));
-			}
-
-			template <typename subtype_t>
-			static size_t lua_view_payload(iris_lua_t lua, subtype_t* p) {
-				return 0;
-			}
-
-			template <typename subtype_t>
-			static type_t* lua_view_extract(iris_lua_t lua, int index, subtype_t** p) {
-				IRIS_ASSERT(*p != nullptr);
-				return *p;
-			}
-
-			static void lua_shared_delete(shared_object_t* instance) {
-				delete static_cast<type_t*>(instance);
-			}
-
-		protected:
-			ref_t ref;
-			std::atomic<uint32_t> ref_count = 0;
-		};
-
 		template <typename type_t>
 		struct shared_ref_t {
 			using internal_type_t = type_t*;
@@ -826,9 +727,6 @@ namespace iris {
 			friend struct shared_ref_t;
 			type_t* ptr;
 		};
-
-		template <typename type_t>
-		struct is_shared_object_t : std::is_base_of<shared_object_t<type_t>, type_t> {};
 
 		template <typename type_t>
 		struct is_shared_ref_t : std::false_type {};
@@ -1630,7 +1528,7 @@ namespace iris {
 			auto guard = write_fence();
 			return lua_gettop(state);
 		}
-		
+
 		template <typename value_t>
 		bool native_check_variable(int index) {
 			return check_required_parameters<value_t>(state, 0, 0, false, lua_absindex(state, index), false);
@@ -2372,7 +2270,7 @@ namespace iris {
 				return function_coroutine_proxy_dispatch<decltype(adapter), return_t, required_t<type_t*>&&, args_t...>(L, adapter, 0, true);
 			} else {
 				return function_proxy_dispatch<decltype(adapter), return_t, required_t<type_t*>&&, args_t...>(L, adapter, 0, true);
-			}			
+			}
 		}
 
 		template <typename function_t, typename return_t, typename... args_t>
@@ -2484,12 +2382,12 @@ namespace iris {
 
 		// pass argument by upvalues
 		template <typename type_t, typename args_tuple_t, typename creator_t, size_t... k>
-		static optional_result_t<type_t*> invoke_create(type_t* p, lua_State* L, creator_t func, int env_count,  std::index_sequence<k...>) {
+		static optional_result_t<type_t*> invoke_create(type_t* p, lua_State* L, creator_t func, int env_count, std::index_sequence<k...>) {
 			return func(iris_lua_t(L), p, get_variable<std::tuple_element_t<k, args_tuple_t>, true>(L, k < env_count ? lua_upvalueindex(3 + int(k)) : 1 + int(k - env_count))...);
 		}
 
 		template <typename type_t, typename args_tuple_t, size_t... k>
-		static size_t invoke_sizeof(lua_State* L, int env_count,  std::index_sequence<k...>) {
+		static size_t invoke_sizeof(lua_State* L, int env_count, std::index_sequence<k...>) {
 			return get_lua_sizeof<type_t>(get_variable<std::tuple_element_t<k, args_tuple_t>, true>(L, k < env_count ? lua_upvalueindex(3 + int(k)) : 1 + int(k - env_count))...);
 		}
 
@@ -2961,10 +2859,10 @@ namespace iris {
 		static int function_coroutine_invoke(lua_State* L, const function_t& function, int env_count, bool use_this, int stack_index, params_t&&... params) {
 			if constexpr (index < std::tuple_size_v<tuple_t>) {
 				if constexpr (std::is_same_v<iris_lua_t, remove_cvref_t<std::tuple_element_t<index, tuple_t>>>) {
-					return function_coroutine_invoke<function_t, index + 1, coroutine_t,  tuple_t>(L, function, env_count, use_this, stack_index, std::forward<params_t>(params)..., iris_lua_t(L));
+					return function_coroutine_invoke<function_t, index + 1, coroutine_t, tuple_t>(L, function, env_count, use_this, stack_index, std::forward<params_t>(params)..., iris_lua_t(L));
 				} else {
 					if (stack_index == 1 && use_this) {
-						return function_coroutine_invoke<function_t, index + 1, coroutine_t,  tuple_t>(L, function, env_count, use_this, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>, true>(L, stack_index));
+						return function_coroutine_invoke<function_t, index + 1, coroutine_t, tuple_t>(L, function, env_count, use_this, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>, true>(L, stack_index));
 					} else if (stack_index <= env_count + (use_this ? 1 : 0)) {
 						return function_coroutine_invoke<function_t, index + 1, coroutine_t, tuple_t>(L, function, env_count, use_this, stack_index + 1, std::forward<params_t>(params)..., get_variable<std::tuple_element_t<index, tuple_t>, true>(L, lua_upvalueindex(1 + stack_index - (use_this ? 1 : 0))));
 					} else {
@@ -3677,5 +3575,100 @@ namespace iris {
 
 	protected:
 		lua_State* state = nullptr;
+	};
+
+	// trivial trait behavior: pushing & getting variable by value
+	template <typename type_t>
+	struct iris_lua_traits_trivial_t : std::false_type {
+		using type = iris_lua_traits_trivial_t<type_t>;
+
+		operator std::nullptr_t() const noexcept {
+			return nullptr;
+		}
+
+		template <typename value_t>
+		static bool lua_check(iris_lua_t lua, int index, value_t&& value) {
+			if (value != nullptr) {
+				return true;
+			} else {
+				return lua.template native_check_variable<type_t&>(index);
+			}
+		}
+
+		static auto lua_fromstack(iris_lua_t lua, int index) {
+			return lua.template native_get_variable<type_t&>(index);
+		}
+
+		template <typename subtype_t>
+		static int lua_tostack(iris_lua_t lua, subtype_t&& variable) {
+			lua.template native_push_registry_object<type_t>(variable);
+			return 1;
+		}
+	};
+
+	template <typename type_t>
+	struct iris_lua_shared_object_t {
+		static void lua_shared_acquire(iris_lua_t lua, int index, iris_lua_shared_object_t* base_object) {
+			type_t* object = static_cast<type_t*>(base_object);
+			IRIS_ASSERT(object != nullptr);
+			if (object->ref_count.fetch_add(1, std::memory_order_relaxed) == 0) {
+				IRIS_ASSERT(!object->ref);
+				if (lua) {
+					object->ref = lua.get_context<iris_lua_t::ref_t>(iris_lua_t::context_stackvalue_t(index));
+				}
+			}
+		}
+
+		static void lua_shared_release(iris_lua_t lua, int, iris_lua_shared_object_t* base_object) {
+			type_t* object = static_cast<type_t*>(base_object);
+			if (object->ref_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
+				// managed by lua
+				if (object->ref) {
+					lua.deref(std::move(object->ref));
+				} else {
+					iris_lua_traits_t<type_t>::type::lua_shared_delete(base_object);
+				}
+			}
+		}
+
+		template <typename subtype_t>
+		static int lua_tostack(iris_lua_t lua, subtype_t&& variable) noexcept {
+			if (variable.ref) {
+				lua.native_push_variable(variable.ref);
+			} else {
+				lua.native_push_registry_object_view(&variable);
+			}
+
+			return 1;
+		}
+
+		template <typename subtype_t>
+		static void lua_view_initialize(iris_lua_t lua, int index, subtype_t** p) {
+			iris_lua_traits_t<type_t>::type::lua_shared_acquire(lua, index, iris_lua_traits_t<type_t>::type::lua_view_extract(lua, index, p));
+		}
+
+		template <typename subtype_t>
+		static void lua_view_finalize(iris_lua_t lua, int index, subtype_t** p) {
+			iris_lua_traits_t<type_t>::type::lua_shared_release(lua, index, iris_lua_traits_t<type_t>::type::lua_view_extract(lua, index, p));
+		}
+
+		template <typename subtype_t>
+		static size_t lua_view_payload(iris_lua_t lua, subtype_t* p) {
+			return 0;
+		}
+
+		template <typename subtype_t>
+		static type_t* lua_view_extract(iris_lua_t lua, int index, subtype_t** p) {
+			IRIS_ASSERT(*p != nullptr);
+			return *p;
+		}
+
+		static void lua_shared_delete(iris_lua_shared_object_t* instance) {
+			delete static_cast<type_t*>(instance);
+		}
+
+	protected:
+		iris_lua_t::ref_t ref;
+		std::atomic<uint32_t> ref_count = 0;
 	};
 }
