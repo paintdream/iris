@@ -54,7 +54,11 @@ struct iris::iris_lua_traits_t<vector3> : std::true_type {
 	}
 };
 
-struct complex_t {
+struct number_t {
+	virtual ~number_t() {}
+};
+
+struct complex_t : number_t {
 	double real = 0;
 	double image = 0;
 };
@@ -426,10 +430,13 @@ int main(void) {
 	luaL_openlibs(L);
 
 	lua_t lua(L);
-	complex_t cpx{ 1.0, 2.0 };
+	complex_t cpx;
+	cpx.image = 1.0;
+	cpx.real = 2.0;
 	lua.make_registry_type<complex_t>(nullptr);
 	lua.set_global("test_complex", cpx);
 	auto cpxget = lua.get_global<complex_t>("test_complex");
+	lua.set_global("test_complex_view", lua.make_registry_object_view((number_t*)&cpx));
 
 	auto r1 = lua.set_global("test_reflection", std::function<void(int, double)>(+[](int a, double b) { return 1; }));
 	auto r2 = lua.set_global<&example_t::accum_value>("test_reflection2");

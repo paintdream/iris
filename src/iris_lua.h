@@ -129,8 +129,21 @@ namespace iris {
 		// get a compiler-related hash from a type
 		template <typename type_t>
 		static size_t get_hash() noexcept {
-			static size_t hash = std::hash<std::string_view>()(get_lua_name<type_t>()) & 0xFFFFFFFF; // compatible with tagged pointer trick by LuaJIT
+			static size_t hash = std::hash<std::string_view>()(typeid(type_t).name()) & 0xFFFFFFFF; // compatible with tagged pointer trick by LuaJIT
 			return hash;
+		}
+
+		template <typename type_t>
+		static size_t get_hash(type_t* p) noexcept {
+			if constexpr (std::is_final_v<type_t> || !std::has_virtual_destructor_v<type_t>) {
+				return get_hash<type_t>();
+			} else {
+				if (p == nullptr) {
+					return get_hash<type_t>();
+				} else {
+					return std::hash<std::string_view>()(typeid(*p).name()) & 0xFFFFFFFF;
+				}
+			}
 		}
 
 		// get raw lua_State*, avoid using raw lua apis on it if possible, since it may broken stack layers in context
@@ -1062,7 +1075,7 @@ namespace iris {
 		type_t* native_push_object_view(meta_t&& meta, type_t* object) {
 			lua_State* L = state;
 			if constexpr (std::is_base_of_v<ref_t, meta_t>) {
-				IRIS_ASSERT(*meta.template get<const void*>(*this, "__typeid") == reinterpret_cast<const void*>(get_hash<type_t>()));
+				IRIS_ASSERT(*meta.template get<const void*>(*this, "__typeid") == reinterpret_cast<const void*>(get_hash<type_t>(object)));
 			}
 
 			static_assert(sizeof(type_t*) == sizeof(void*), "Unrecognized architecture.");
@@ -1100,7 +1113,7 @@ namespace iris {
 		// make object view from registry meta
 		template <typename type_t>
 		type_t* native_push_registry_object_view(type_t* object) {
-			return native_push_object_view<type_t>(registry_type_hash_t(reinterpret_cast<const void*>(get_hash<type_t>())), object);
+			return native_push_object_view<type_t>(registry_type_hash_t(reinterpret_cast<const void*>(get_hash<type_t>(object))), object);
 		}
 
 		template <typename type_t>
@@ -2779,8 +2792,8 @@ namespace iris {
 				check_result = lua_istable(L, var_index);
 			} else if constexpr (std::is_pointer_v<value_t>) {
 				using internal_type_t = std::remove_pointer_t<value_t>;
-				value_t checked_value = get_variable<value_t, true>(L, var_index);
-				value_t unchecked_value = get_variable<value_t, false>(L, var_index);
+				value_t unchecked_value = get_variable<value_t, true>(L, var_index);
+				value_t checked_value = get_variable<value_t, false>(L, var_index);
 				check_result = checked_value == unchecked_value;
 
 				if constexpr (has_lua_check<internal_type_t>::value) {
