@@ -866,8 +866,8 @@ namespace iris {
 		}
 
 		// register a new type, taking registar from &type_t::lua_registar by default, and you could also specify your own registar.
-		template <typename type_t, typename... args_t, typename... envs_t>
-		reftype_t<type_t> make_type(optional_result_t<type_t*>(*creator)(iris_lua_t, type_t*, args_t...) = &trivial_object_creator<type_t>, envs_t&&... envs) {
+		template <typename type_t>
+		reftype_t<type_t> make_type() {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			auto guard = write_fence();
 
@@ -912,18 +912,6 @@ namespace iris {
 			lua_rawset(L, -5); // __newindex
 			lua_rawset(L, -3); // __set
 
-			push_variable(L, "new");
-			lua_pushvalue(L, -2);
-			lua_pushlightuserdata(L, reinterpret_cast<void*>(creator));
-
-			if constexpr (sizeof...(envs_t) > 0) {
-				check_matched_parameters<std::tuple<envs_t...>, std::tuple<args_t...>, sizeof...(envs_t)>();
-			}
-
-			push_arguments(L, std::forward<envs_t>(envs)...);
-			lua_pushcclosure(L, &iris_lua_t::new_object<type_t, sizeof...(envs), args_t...>, 2 + sizeof...(envs));
-			lua_rawset(L, -3);
-
 			// call custom registar if needed
 			if constexpr (has_lua_registar<type_t>::value) {
 				iris_lua_traits_t<type_t>::type::lua_registar(iris_lua_t(L), iris_lua_traits_t<type_t>());
@@ -933,18 +921,8 @@ namespace iris {
 		}
 
 		template <typename type_t>
-		static optional_result_t<type_t*> abstract_object_creator(iris_lua_t, type_t* object) {
-			return nullptr;
-		}
-
-		template <typename type_t>
-		reftype_t<type_t> make_type(std::nullptr_t) {
-			return make_type<type_t>(&abstract_object_creator<type_t>);
-		}
-
-		template <typename type_t, typename... args_t>
-		reftype_t<type_t> make_registry_type(args_t&&... args) {
-			return make_type<type_t>(std::forward<args_t>(args)...).set_registry(*this, true);
+		reftype_t<type_t> make_registry_type() {
+			return make_type<type_t>().set_registry(*this, true);
 		}
 
 		template <typename type_t>
@@ -1395,6 +1373,26 @@ namespace iris {
 
 				return reflection;
 			}
+		}
+
+		template <auto ptr, typename type_t, typename... args_t, typename... envs_t>
+		reflection_t set_current_new(std::string_view key, envs_t&&... envs) {
+			auto guard = write_fence();
+
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+
+			push_variable(L, key);
+			lua_pushvalue(L, -2);
+
+			if constexpr (sizeof...(envs_t) > 0) {
+				check_matched_parameters<std::tuple<envs_t...>, std::tuple<args_t...>, sizeof...(envs_t)>();
+			}
+
+			push_arguments(L, std::forward<envs_t>(envs)...);
+			lua_pushcclosure(L, &iris_lua_t::new_object<ptr, type_t, sizeof...(envs), args_t...>, 1 + sizeof...(envs));
+			lua_rawset(L, -3);
+			return nullptr;
 		}
 
 		template <auto ptr, typename key_t, typename... envs_t>
@@ -2405,12 +2403,12 @@ namespace iris {
 		// pass argument by upvalues
 		template <typename type_t, typename args_tuple_t, typename creator_t, size_t... k>
 		static optional_result_t<type_t*> invoke_create(type_t* p, lua_State* L, creator_t func, int env_count, std::index_sequence<k...>) {
-			return func(iris_lua_t(L), p, get_variable<std::tuple_element_t<k, args_tuple_t>, true>(L, k < env_count ? lua_upvalueindex(3 + int(k)) : 1 + int(k - env_count))...);
+			return func(iris_lua_t(L), p, get_variable<std::tuple_element_t<k, args_tuple_t>, true>(L, k < env_count ? lua_upvalueindex(2 + int(k)) : 1 + int(k - env_count))...);
 		}
 
 		template <typename type_t, typename args_tuple_t, size_t... k>
 		static size_t invoke_sizeof(lua_State* L, int env_count, std::index_sequence<k...>) {
-			return get_lua_sizeof<type_t>(get_variable<std::tuple_element_t<k, args_tuple_t>, true>(L, k < env_count ? lua_upvalueindex(3 + int(k)) : 1 + int(k - env_count))...);
+			return get_lua_sizeof<type_t>(get_variable<std::tuple_element_t<k, args_tuple_t>, true>(L, k < env_count ? lua_upvalueindex(2 + int(k)) : 1 + int(k - env_count))...);
 		}
 
 		template <typename type_t, typename = void>
@@ -2451,11 +2449,11 @@ namespace iris {
 		template <typename type_t>
 		struct has_lua_check<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_check(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
 
-		template <typename type_t, int env_count, typename... args_t>
+		template <auto ptr, typename type_t, int env_count, typename... args_t>
 		static int new_object(lua_State* L) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			if constexpr (sizeof...(args_t) > 0) {
-				check_required_parameters<args_t...>(L, env_count, 1, false, 1, true);
+				check_required_parameters<args_t...>(L, env_count, 0, false, 1, true);
 			}
 
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");
@@ -2472,7 +2470,7 @@ namespace iris {
 				}
 
 				type_t* p = reinterpret_cast<type_t*>(lua_newuserdatauv(L, iris_to_alignment(size, size_mask_alignment), get_lua_uservalue_count<type_t>()));
-				auto result = invoke_create<type_t, std::tuple<cast_arg_type_t<args_t>...>>(p, L, reinterpret_cast<optional_result_t<type_t*> (*)(iris_lua_t, type_t*, args_t...)>(lua_touserdata(L, lua_upvalueindex(2))), env_count, std::make_index_sequence<sizeof...(args_t)>());
+				auto result = invoke_create<type_t, std::tuple<cast_arg_type_t<args_t>...>>(p, L, ptr, env_count, std::make_index_sequence<sizeof...(args_t)>());
 				if (result) {
 					IRIS_ASSERT(result.value() == p); // must return original ptr if success
 					lua_pushvalue(L, lua_upvalueindex(1));

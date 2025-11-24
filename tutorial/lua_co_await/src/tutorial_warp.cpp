@@ -1,6 +1,10 @@
 #include "tutorial_warp.h"
 
 namespace iris {
+	static iris_lua_t::optional_result_t<tutorial_warp_t*> create_warp(iris_lua_t lua, tutorial_warp_t* object, std::reference_wrapper<iris_async_worker_t<>> async_worker) {
+		return new (object) tutorial_warp_t(async_worker);
+	}
+
 	void tutorial_warp_t::lua_registar(iris_lua_t&& lua, std::nullptr_t) {
 		lua.set_current<&tutorial_warp_t::pipeline>("pipeline");
 		lua.set_current<&tutorial_warp_t::warp_variable>("warp_variable");
@@ -26,8 +30,8 @@ if complete_count ~= loop_count then \n\
 	waiting = true \n\
 	coroutine.yield() \n\
 end \n\
-print('[tutorial_warp] final warp_variable = ' .. tostring(self:warp_variable())) \n\
-print('[tutorial_warp] final free_variable = ' .. tostring(self:free_variable())) \n\
+print('[tutorial_warp] final warp_variable = ' .. tostring(self.warp_variable)) \n\
+print('[tutorial_warp] final free_variable = ' .. tostring(self.free_variable)) \n\
 print('[tutorial_warp] end pipeline')\n"));
 	}
 

@@ -118,7 +118,12 @@ struct example_base_t {
 
 static std::atomic<int> ref_count = 0;
 struct example_t : example_base_t {
+	static lua_t::optional_result_t<example_t*> custom_object_creator(lua_t lua, example_t* p, float f, int v) {
+		return new (p) example_t();
+	}
+
 	static void lua_registar(lua_t lua, std::nullptr_t) {
+		lua.set_current_new<&custom_object_creator, example_t, float, int>("new", 1.4f);
 		lua.set_current("lambda", [lua](int v) mutable {
 			IRIS_ASSERT(v == 4);
 			return 4;
@@ -169,7 +174,8 @@ struct example_t : example_base_t {
 		return "example_t";
 	}
 
-	static size_t lua_sizeof() noexcept {
+	template <typename init_t>
+	static size_t lua_sizeof(init_t&& i) noexcept {
 		return sizeof(example_t) + sizeof(void*);
 	}
 
@@ -433,7 +439,7 @@ int main(void) {
 	complex_t cpx;
 	cpx.image = 1.0;
 	cpx.real = 2.0;
-	auto complexType = lua.make_registry_type<complex_t>(nullptr);
+	auto complexType = lua.make_registry_type<complex_t>();
 	auto getType = lua.get_registry_type<complex_t>();
 	lua.deref(std::move(getType));
 	lua.deref(std::move(complexType));
@@ -750,7 +756,7 @@ end\n\
 	lua_pop(L, 1);
 	IRIS_ASSERT(v == 1234);
 
-	lua_t::refptr_t<example_t> example = lua.make_object<example_t>(lua.get_global<lua_t::ref_t>("example_t"));
+	lua_t::refptr_t<example_t> example = lua.make_object<example_t>(lua.get_global<lua_t::ref_t>("example_t"), example_t());
 	example->value = 5;
 	lua.deref(std::move(example));
 	auto temp_tab = lua.make_table([](lua_t lua) {
@@ -767,8 +773,8 @@ end\n\
 		print(_VERSION)\n\
 		example_t.native_call() \n\
 		example_t.native_call_noexcept() \n\
-		local a = example_t.new()\n\
-		local b = example_t.new()\n\
+		local a = example_t.new(2)\n\
+		local b = example_t.new(3)\n\
 		b:overload_func() \n\
 		b:overload_func(1) \n\
 		b:base_func() \n\
@@ -847,7 +853,7 @@ end\n\
 #if LUA_VERSION_NUM <= 501
 	// lua 5.1 do not accept yield from pcall
 	auto callResult4 = lua.call<void>(lua.load("\n\
-		local a = example_t.new()\n\
+		local a = example_t.new(4)\n\
 		local coro = coroutine.create(function() \n\
 			print('coro get ' .. a.coro_get_int('hello')) \n\
 			print('coro get ' .. a.coro_get_int('hello', 1)) \n\
@@ -861,7 +867,7 @@ end\n\
 		coroutine.resume(coro)\n").value());
 #else
 	auto callResult4 = lua.call<void>(lua.load("\n\
-		local a = example_t.new()\n\
+		local a = example_t.new(5)\n\
 		local coro = coroutine.create(function() \n\
 			local status, message = pcall(function() \n\
 			print('coro get ' .. a.coro_get_int('hello')) \n\
