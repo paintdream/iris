@@ -289,6 +289,10 @@ namespace iris {
 				return ref_index;
 			}
 
+			int move() noexcept {
+				return std::exchange(ref_index, LUA_REFNIL);
+			}
+
 			void deref(iris_lua_t lua) noexcept {
 				lua.deref(std::move(*this));
 			}
@@ -512,8 +516,8 @@ namespace iris {
 				return std::move(*this);
 			}
 
-			static ref_t get_registry(iris_lua_t lua) {
-				return lua.get_registry<ref_t>(get_type_hash());
+			static reftype_t get_registry(iris_lua_t lua) {
+				return lua.get_registry<ref_t>(get_type_hash()).move();
 			}
 
 			template <typename refbase_t>
@@ -939,8 +943,13 @@ namespace iris {
 		}
 
 		template <typename type_t, typename... args_t>
-		void make_registry_type(args_t&&... args) {
-			make_type<type_t>(std::forward<args_t>(args)...).set_registry(*this, true).deref(*this);
+		reftype_t<type_t> make_registry_type(args_t&&... args) {
+			return make_type<type_t>(std::forward<args_t>(args)...).set_registry(*this, true);
+		}
+
+		template <typename type_t>
+		reftype_t<type_t> get_registry_type() {
+			return reftype_t<type_t>::get_registry(*this); 
 		}
 
 		// build a cast relationship from target_meta to base_meta

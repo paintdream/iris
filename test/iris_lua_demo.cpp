@@ -433,7 +433,10 @@ int main(void) {
 	complex_t cpx;
 	cpx.image = 1.0;
 	cpx.real = 2.0;
-	lua.make_registry_type<complex_t>(nullptr);
+	auto complexType = lua.make_registry_type<complex_t>(nullptr);
+	auto getType = lua.get_registry_type<complex_t>();
+	lua.deref(std::move(getType));
+	lua.deref(std::move(complexType));
 	lua.set_global("test_complex", cpx);
 	auto cpxget = lua.get_global<complex_t>("test_complex");
 	lua.set_global("test_complex_view", lua.make_registry_object_view((number_t*)&cpx));
