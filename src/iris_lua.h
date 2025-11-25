@@ -194,7 +194,6 @@ namespace iris {
 			return luaL_error(L, format, std::forward<args_t>(args)...);
 		}
 
-
 		using reflection_t = lua_CFunction;
 
 		// default reflection implementation
@@ -371,11 +370,11 @@ namespace iris {
 						return ret;
 					} else {
 						lua_pop(L, 2);
-						return result_error_t("Invalid key");
+						return result_error_t("invalid key");
 					}
 				} else {
 					lua_pop(L, 1);
-					return result_error_t("Not a table");
+					return result_error_t("trying to get field of non-table");
 				}
 			}
 
@@ -465,7 +464,6 @@ namespace iris {
 			}
 
 			friend struct iris_lua_t;
-
 		private:
 			int ref_index;
 		};
@@ -1290,7 +1288,7 @@ namespace iris {
 			lua_getglobal(L, key.data() == nullptr ? "" : key.data());
 			if (!check_required_parameters<value_t>(L, 0, 0, false, lua_gettop(L), false)) {
 				lua_pop(L, 1);
-				return result_error_t("Unable to get variable.");
+				return result_error_t("unable to get variable.");
 			}
 
 			value_t value = get_variable<value_t>(L, -1);
@@ -1389,10 +1387,11 @@ namespace iris {
 				check_matched_parameters<std::tuple<envs_t...>, std::tuple<args_t...>, sizeof...(envs_t)>();
 			}
 
+			lua_checkstack(L, 1 + sizeof...(envs_t));
 			push_arguments(L, std::forward<envs_t>(envs)...);
 			lua_pushcclosure(L, &iris_lua_t::new_object<ptr, type_t, sizeof...(envs), args_t...>, 1 + sizeof...(envs));
 			lua_rawset(L, -3);
-			return nullptr;
+			return &IRIS_LUA_REFLECTION<ptr, optional_result_t<type_t*>, args_t...>;
 		}
 
 		template <auto ptr, typename key_t, typename... envs_t>
@@ -1660,6 +1659,7 @@ namespace iris {
 
 		template <typename return_t, typename... args_t>
 		static optional_result_t<return_t> call_internal(lua_State* L, args_t&&... args) {
+			lua_checkstack(L, sizeof...(args_t));
 			push_arguments(L, std::forward<args_t>(args)...);
 
 			if (lua_pcall(L, sizeof...(args_t), std::is_void_v<return_t> ? 0 : 1, 0) == LUA_OK) {
@@ -2190,6 +2190,7 @@ namespace iris {
 				}
 			}
 
+			lua_checkstack(L, sizeof...(envs) + 2);
 			if constexpr (sizeof...(envs) != 0) {
 				push_variable(L, nullptr);
 				push_arguments(L, std::forward<envs_t>(envs)...);
@@ -2220,6 +2221,7 @@ namespace iris {
 				lua_setmetatable(L, -2);
 			}
 
+			lua_checkstack(L, sizeof...(envs) + 1);
 			if constexpr (sizeof...(envs) != 0) {
 				push_arguments(L, std::forward<envs_t>(envs)...);
 			}
