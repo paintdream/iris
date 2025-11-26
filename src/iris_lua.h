@@ -858,9 +858,9 @@ namespace iris {
 		struct is_functor<type_t, iris_void_t<decltype(&type_t::operator ())>> : std::true_type {};
 
 		// create a lua managed object
-		template <typename type_t>
-		static optional_result_t<type_t*> trivial_object_creator(iris_lua_t, type_t* object) {
-			return new (object) type_t();
+		template <typename type_t, typename... args_t>
+		static optional_result_t<type_t*> place_new_object(iris_lua_t, type_t* object, args_t&&... args) {
+			return new (object) type_t(std::forward<args_t>(args)...);
 		}
 
 		// register a new type, taking registar from &type_t::lua_registar by default, and you could also specify your own registar.
@@ -919,8 +919,8 @@ namespace iris {
 		}
 
 		template <typename type_t>
-		reftype_t<type_t> make_registry_type() {
-			return make_type<type_t>().set_registry(*this, true);
+		reftype_t<type_t> make_registry_type(bool enable = true) {
+			return make_type<type_t>().set_registry(*this, enable);
 		}
 
 		template <typename type_t>
@@ -1373,25 +1373,10 @@ namespace iris {
 			}
 		}
 
-		template <auto ptr, typename type_t, typename... args_t, typename... envs_t>
-		reflection_t set_current_new(std::string_view key, envs_t&&... envs) {
-			auto guard = write_fence();
 
-			lua_State* L = state;
-			stack_guard_t stack_guard(L);
-
-			push_variable(L, key);
-			lua_pushvalue(L, -2);
-
-			if constexpr (sizeof...(envs_t) > 0) {
-				check_matched_parameters<std::tuple<envs_t...>, std::tuple<args_t...>, sizeof...(envs_t)>();
-			}
-
-			lua_checkstack(L, 1 + sizeof...(envs_t));
-			push_arguments(L, std::forward<envs_t>(envs)...);
-			lua_pushcclosure(L, &iris_lua_t::new_object<ptr, type_t, sizeof...(envs), args_t...>, 1 + sizeof...(envs));
-			lua_rawset(L, -3);
-			return &IRIS_LUA_REFLECTION<ptr, optional_result_t<type_t*>, args_t...>;
+		template <auto ptr, typename key_t, typename... envs_t>
+		reflection_t set_current_new(key_t&& key, envs_t&&... envs) {
+			return set_current_new_internal<ptr>(ptr, std::forward<key_t>(key), std::forward<envs_t>(envs)...);
 		}
 
 		template <auto ptr, typename key_t, typename... envs_t>
@@ -1655,6 +1640,26 @@ namespace iris {
 		}
 
 	protected:
+		template <auto ptr, typename key_t, typename type_t, typename... args_t, typename... envs_t>
+		reflection_t set_current_new_internal(optional_result_t<type_t*> (*)(iris_lua_t, type_t*, args_t...), key_t&& key, envs_t&&... envs) {
+			auto guard = write_fence();
+
+			lua_State* L = state;
+			stack_guard_t stack_guard(L);
+
+			push_variable(L, std::forward<key_t>(key));
+			lua_pushvalue(L, -2);
+
+			if constexpr (sizeof...(envs_t) > 0) {
+				check_matched_parameters<std::tuple<envs_t...>, std::tuple<std::remove_reference_t<args_t>...>, sizeof...(envs_t)>();
+			}
+
+			lua_checkstack(L, 1 + sizeof...(envs_t));
+			push_arguments(L, std::forward<envs_t>(envs)...);
+			lua_pushcclosure(L, &iris_lua_t::new_object<ptr, type_t, sizeof...(envs), args_t...>, 1 + sizeof...(envs));
+			lua_rawset(L, -3);
+			return &IRIS_LUA_REFLECTION<ptr, optional_result_t<type_t*>, args_t...>;
+		}
 
 
 		template <typename return_t, typename... args_t>
@@ -1818,7 +1823,7 @@ namespace iris {
 #else
 								if (lua_dump(L, &encode_function_writer, &state) != 0) {
 #endif
-									syserror(L, "error.encode", "iris_lua_t::encode() -> unable to dump function!\n");
+									syserror(L, "error.encode", "iris_lua_t::encode() -> Unable to dump function!\n");
 								}
 
 #if LUA_VERSION_NUM <= 504
@@ -2455,7 +2460,7 @@ namespace iris {
 		static int new_object(lua_State* L) {
 			IRIS_PROFILE_SCOPE(__FUNCTION__);
 			if constexpr (sizeof...(args_t) > 0) {
-				check_required_parameters<args_t...>(L, env_count, 0, false, 1, true);
+				check_required_parameters<std::remove_reference_t<args_t>...>(L, env_count, 0, false, 1, true);
 			}
 
 			static_assert(alignof(type_t) <= alignof(lua_Number), "Too large alignment for object holding.");

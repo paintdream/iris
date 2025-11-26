@@ -118,12 +118,13 @@ struct example_base_t {
 
 static std::atomic<int> ref_count = 0;
 struct example_t : example_base_t {
-	static lua_t::optional_result_t<example_t*> custom_object_creator(lua_t lua, example_t* p, float f, int v) {
-		return new (p) example_t();
+	example_t(float f, int v) noexcept {
+		printf("custom constructor %f %d\n", f, v);
 	}
 
 	static void lua_registar(lua_t lua, std::nullptr_t) {
-		lua.set_current_new<&custom_object_creator, example_t, float, int>("new", 1.4f);
+		lua.set_current_new<&lua_t::place_new_object<example_t, float, int>>("new", 1.4f);
+		//lua.set_current_new<&lua_t::trivial_object_creator>("new_org", 1.4f);
 		lua.set_current("lambda", [lua](int v) mutable {
 			IRIS_ASSERT(v == 4);
 			return 4;

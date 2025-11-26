@@ -2,7 +2,7 @@
 
 namespace iris {
 	void tutorial_binding_t::lua_registar(iris_lua_t&& lua, std::nullptr_t) {
-		lua.set_current_new<&iris_lua_t::trivial_object_creator<tutorial_binding_t>, tutorial_binding_t>("new");
+		lua.set_current_new<&iris_lua_t::place_new_object<tutorial_binding_t>>("new");
 		lua.set_current<&tutorial_binding_t::init>("init");
 		lua.set_current<&tutorial_binding_t::save>("save");
 		lua.set_current<&tutorial_binding_t::load>("load");

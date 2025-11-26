@@ -1,10 +1,6 @@
 #include "tutorial_warp.h"
 
 namespace iris {
-	static iris_lua_t::optional_result_t<tutorial_warp_t*> create_warp(iris_lua_t lua, tutorial_warp_t* object, std::reference_wrapper<iris_async_worker_t<>> async_worker) {
-		return new (object) tutorial_warp_t(async_worker);
-	}
-
 	void tutorial_warp_t::lua_registar(iris_lua_t&& lua, std::nullptr_t) {
 		lua.set_current<&tutorial_warp_t::pipeline>("pipeline");
 		lua.set_current<&tutorial_warp_t::warp_variable>("warp_variable");
