@@ -488,6 +488,10 @@ namespace iris {
 				return reinterpret_cast<const void*>(get_hash<type_t>());
 			}
 
+			static const char* get_type_name() noexcept {
+				return get_lua_name<type_t>();
+			}
+
 			// register current table as global type to registry table.
 			reftype_t& set_registry(iris_lua_t lua, bool enable = true) & {
 				const void* hash = get_type_hash();
@@ -498,9 +502,16 @@ namespace iris {
 						if (r) {
 							IRIS_ASSERT(lua.equal(std::move(r), *this));
 						}
+
+						auto n = lua.get_registry<ref_t>(get_type_name());
+						if (n) {
+							IRIS_ASSERT(lua.equal(std::move(n), *this));
+						}
 #endif
 						lua.set_registry(hash, *this);
+						lua.set_registry(get_type_name(), *this);
 					} else {
+						lua.set_registry(get_type_name(), nullptr);
 						lua.set_registry(hash, nullptr);
 					}
 				}
