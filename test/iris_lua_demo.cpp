@@ -456,7 +456,7 @@ int main(void) {
 	lua.call<void>(printTable, lua.call<lua_t::ref_t>(r2));
 	lua.deref(std::move(*printTable));
 
-	auto shared_object_example_type = lua.make_type<shared_object_example_t>();
+	auto shared_object_example_type = lua.make_registry_type<shared_object_example_t>();
 	auto shared_ptr_instance = lua.make_object<shared_object_example_t>(shared_object_example_type, 1);
 	lua.set_global("shared_ptrinstance", std::move(shared_ptr_instance));
 	{
@@ -471,7 +471,6 @@ int main(void) {
 		lua.set_global("shared_deref_auto", std::move(instance_copy1));
 		lua.deref(instance_copy2);
 
-		shared_object_example_type.set_registry(lua, true);
 		auto instance_construct = lua.make_registry_shared_object<shared_object_example_t>(2);
 		instance_construct->foo(nullptr, nullptr, nullptr);
 		lua.deref(instance_construct);
@@ -507,7 +506,7 @@ int main(void) {
 		printf("once value = %d\n", lua.get_current<int>("once"));
 	}));
 
-	auto example_type = lua.make_type<example_t>().set_registry(lua);
+	auto example_type = lua.make_registry_type<example_t>();
 	auto example_base_type = lua.make_type<example_base_t>();
 	lua.cast_type(std::move(example_base_type), example_type);
 	lua.set_global("example_t", std::move(example_type));
@@ -621,7 +620,7 @@ end\n\
 	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test").value();
 	example_t existing_object;
 	existing_object.value = 2222;
-	auto temp_type = target.make_type<example_t>().set_registry(target);
+	auto temp_type = target.make_registry_type<example_t>();
 	{
 		// target.cast_type(std::move(example_base_type), temp_type);
 		temp_type.make_cast(target, target.make_type<example_base_t>());
@@ -645,6 +644,7 @@ end\n\
 	lua.native_cross_transfer_variable<false>(target, -1);
 	auto* g = target.native_get_variable<example_t*>(-1);
 	lua.native_pop_variable(3);
+	target.clear_registry_type<example_t>();
 
 	int result = target.native_call(std::move(test), 3).value();
 	IRIS_ASSERT(existing_object.value == 3333);

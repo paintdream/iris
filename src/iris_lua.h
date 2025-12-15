@@ -492,39 +492,6 @@ namespace iris {
 				return get_lua_name<type_t>();
 			}
 
-			// register current table as global type to registry table.
-			reftype_t& set_registry(iris_lua_t lua, bool enable = true) & {
-				const void* hash = get_type_hash();
-				if (hash != nullptr) {
-					if (enable) {
-#if IRIS_DEBUG
-						auto r = lua.get_registry<ref_t>(hash);
-						if (r) {
-							IRIS_ASSERT(lua.equal(std::move(r), *this));
-						}
-
-						auto n = lua.get_registry<ref_t>(get_type_name());
-						if (n) {
-							IRIS_ASSERT(lua.equal(std::move(n), *this));
-						}
-#endif
-						lua.set_registry(hash, *this);
-						lua.set_registry(get_type_name(), *this);
-					} else {
-						lua.set_registry(get_type_name(), nullptr);
-						lua.set_registry(hash, nullptr);
-					}
-				}
-
-				return *this;
-			}
-
-			// for chain expressions
-			reftype_t&& set_registry(iris_lua_t lua, bool enable = true) && {
-				static_cast<reftype_t*>(this)->set_registry(lua, enable);
-				return std::move(*this);
-			}
-
 			static reftype_t get_registry(iris_lua_t lua) {
 				return lua.get_registry<ref_t>(get_type_hash()).move();
 			}
@@ -930,8 +897,32 @@ namespace iris {
 		}
 
 		template <typename type_t>
-		reftype_t<type_t> make_registry_type(bool enable = true) {
-			return make_type<type_t>().set_registry(*this, enable);
+		reftype_t<type_t> make_registry_type() {
+			auto r = get_registry<ref_t>(reftype_t<type_t>::get_type_name());
+			if (r) {
+				return reftype_t<type_t>(r.move());
+			}
+
+			const void* hash = reftype_t<type_t>::get_type_hash();
+			IRIS_ASSERT(hash != nullptr);
+#if IRIS_DEBUG
+			auto n = get_registry<ref_t>(hash);
+			IRIS_ASSERT(!n); // must not be registerred
+#endif
+			reftype_t<type_t> type = make_type<type_t>();
+			set_registry(hash, type);
+			set_registry(reftype_t<type_t>::get_type_name(), type);
+
+			return type;
+		}
+
+		template <typename type_t>
+		void clear_registry_type() {
+			const void* hash = reftype_t<type_t>::get_type_hash();
+			IRIS_ASSERT(hash != nullptr);
+
+			set_registry(reftype_t<type_t>::get_type_name(), nullptr);
+			set_registry(hash, nullptr);
 		}
 
 		template <typename type_t>
@@ -3564,7 +3555,6 @@ namespace iris {
 		static int cross_transfer_metatable(lua_State* L, lua_t& target, int recursion_source, int recursion_target, int recursion_index) {
 			stack_guard_t guard(L);
 			lua_State* T = target.get_state();
-			stack_guard_t guard_target(T, 1);
 
 			lua_pushliteral(L, "__typeid");
 #if LUA_VERSION_NUM <= 502
@@ -3574,6 +3564,7 @@ namespace iris {
 			if (lua_rawget(L, -2) != LUA_TNIL) {
 #endif
 				void* hash = lua_touserdata(L, -1);
+				stack_guard_t guard_target(T, 1);
 
 #if LUA_VERSION_NUM <= 502
 				lua_pushlightuserdata(T, hash);
