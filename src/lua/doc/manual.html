@@ -166,7 +166,7 @@ for small machines and embedded systems.
 <p>
 Unless stated otherwise,
 any overflow when manipulating integer values <em>wrap around</em>,
-according to the usual rules of two-complement arithmetic.
+according to the usual rules of two's complement arithmetic.
 (In other words,
 the actual result is the unique representable integer
 that is equal modulo <em>2<sup>n</sup></em> to the mathematical result,
@@ -2546,12 +2546,12 @@ do not interfere with borders.
 
 <p>
 A table with exactly one border is called a <em>sequence</em>.
-For instance, the table <code>{10, 20, 30, 40, 50}</code> is a sequence,
+For instance, the table <code>{10,20,30,40,50}</code> is a sequence,
 as it has only one border (5).
-The table <code>{10, 20, 30, nil, 50}</code> has two borders (3 and 5),
+The table <code>{10,20,30,nil,50}</code> has two borders (3 and 5),
 and therefore it is not a sequence.
 (The <b>nil</b> at index 4 is called a <em>hole</em>.)
-The table <code>{nil, 20, 30, nil, nil, 60, nil}</code>
+The table <code>{nil,20,30,nil,nil,60,nil}</code>
 has three borders (0, 3, and 6),
 so it is not a sequence, too.
 The table <code>{}</code> is a sequence with border 0.
@@ -2947,7 +2947,7 @@ The conditions are as follows:
 If the vararg table has a name,
 that name is not an upvalue in a nested function
 and it is used only as the base table
-in the syntactic constructions <code>t[exp]</code> or <code>t.id</code>).
+in the syntactic constructions <code>t[exp]</code> or <code>t.id</code>.
 Note that an anonymous vararg table always satisfy these conditions.
 
 
@@ -2979,22 +2979,22 @@ These are the places where Lua expects a list of expressions:
 <ul>
 
 <li>A <b>return</b> statement,
-for instance <code>return e1, e2, e3</code> (see <a href="#3.3.4">&sect;3.3.4</a>).</li>
+for instance <code>return e1,e2,e3</code> (see <a href="#3.3.4">&sect;3.3.4</a>).</li>
 
 <li>A table constructor,
-for instance <code>{e1, e2, e3}</code> (see <a href="#3.4.9">&sect;3.4.9</a>).</li>
+for instance <code>{e1,e2,e3}</code> (see <a href="#3.4.9">&sect;3.4.9</a>).</li>
 
 <li>The arguments of a function call,
-for instance <code>foo(e1, e2, e3)</code> (see <a href="#3.4.10">&sect;3.4.10</a>).</li>
+for instance <code>foo(e1,e2,e3)</code> (see <a href="#3.4.10">&sect;3.4.10</a>).</li>
 
 <li>A multiple assignment,
-for instance <code>a , b, c = e1, e2, e3</code> (see <a href="#3.3.3">&sect;3.3.3</a>).</li>
+for instance <code>a,b,c = e1,e2,e3</code> (see <a href="#3.3.3">&sect;3.3.3</a>).</li>
 
 <li>A local or global declaration,
 which is similar to a multiple assignment.</li>
 
 <li>The initial values in a generic <b>for</b> loop,
-for instance <code>for k in e1, e2, e3 do ... end</code> (see <a href="#3.3.5">&sect;3.3.5</a>).</li>
+for instance <code>for k in e1,e2,e3 do ... end</code> (see <a href="#3.3.5">&sect;3.3.5</a>).</li>
 
 </ul><p>
 In the last four cases,
@@ -3037,7 +3037,7 @@ in its place.
 
 
 <p>
-Here are some examples of uses of mutlres expressions.
+Here are some examples of uses of multires expressions.
 In all cases, when the construction needs
 "the n-th result" and there is no such result,
 it uses a <b>nil</b>.
@@ -3755,7 +3755,7 @@ auxiliary library.
 </pre><p>
 Note that ISO&nbsp;C ensures
 that <code>free(NULL)</code> has no effect and that
-<code>realloc(NULL, size)</code> is equivalent to <code>malloc(size)</code>.
+<code>realloc(NULL,size)</code> is equivalent to <code>malloc(size)</code>.
 
 
 
@@ -4447,9 +4447,9 @@ The type of integers in Lua.
 
 <p>
 By default this type is <code>long long</code>,
-(usually a 64-bit two-complement integer),
+(usually a 64-bit two's complement integer),
 but that can be changed to <code>long</code> or <code>int</code>
-(usually a 32-bit two-complement integer).
+(usually a 32-bit two's complement integer).
 (See <code>LUA_INT_TYPE</code> in <code>luaconf.h</code>.)
 
 
@@ -4780,7 +4780,7 @@ is a seed for the hashing of strings.
 
 <p>
 Creates a new empty table and pushes it onto the stack.
-It is equivalent to <code>lua_createtable(L, 0, 0)</code>.
+It is equivalent to <code>lua_createtable(L,0,0)</code>.
 
 
 
@@ -6846,7 +6846,7 @@ common tasks.
 
 <p>
 All functions and types from the auxiliary library
-are defined in header file <code>lauxlib.h</code> and
+are defined in the header file <code>lauxlib.h</code> and
 have a prefix <code>luaL_</code>.
 
 
@@ -7041,7 +7041,7 @@ Its pattern of use is as follows:
 
 <li>First declare a variable <code>b</code> of type <a href="#luaL_Buffer"><code>luaL_Buffer</code></a>.</li>
 
-<li>Then initialize it with a call <code>luaL_buffinit(L, &amp;b)</code>.</li>
+<li>Then initialize it with a call <code>luaL_buffinit(L,&amp;b)</code>.</li>
 
 <li>
 Then add string pieces to the buffer calling any of
@@ -7064,12 +7064,12 @@ you can use the buffer like this:
 <li>First declare a variable <code>b</code> of type <a href="#luaL_Buffer"><code>luaL_Buffer</code></a>.</li>
 
 <li>Then initialize it and preallocate a space of
-size <code>sz</code> with a call <code>luaL_buffinitsize(L, &amp;b, sz)</code>.</li>
+size <code>sz</code> with a call <code>luaL_buffinitsize(L,&amp;b,sz)</code>.</li>
 
 <li>Then produce the string into that space.</li>
 
 <li>
-Finish by calling <code>luaL_pushresultsize(&amp;b, sz)</code>,
+Finish by calling <code>luaL_pushresultsize(&amp;b,sz)</code>,
 where <code>sz</code> is the total size of the resulting string
 copied into that space (which may be less than or
 equal to the preallocated size).
@@ -7895,7 +7895,7 @@ after the first use of <a href="#luaL_ref"><code>luaL_ref</code></a>.
 
 <p>
 You can retrieve an object referred by the reference <code>r</code>
-by calling <code>lua_rawgeti(L, t, r)</code> or <code>lua_geti(L, t, r)</code>.
+by calling <code>lua_rawgeti(L,t,r)</code> or <code>lua_geti(L,t,r)</code>.
 The function <a href="#luaL_unref"><code>luaL_unref</code></a> frees a reference.
 
 
@@ -8243,7 +8243,7 @@ the host program can call the function <a href="#luaL_openlibs"><code>luaL_openl
 Alternatively,
 the host can select which libraries to open,
 by using <a href="#luaL_openselectedlibs"><code>luaL_openselectedlibs</code></a>.
-Both functions are defined in the header file <code>lualib.h</code>.
+Both functions are declared in the header file <code>lualib.h</code>.
 
 
 
@@ -9869,7 +9869,7 @@ If <code>j</code> is absent, then it is assumed to be equal to -1
 In particular,
 the call <code>string.sub(s,1,j)</code> returns a prefix of <code>s</code>
 with length <code>j</code>,
-and <code>string.sub(s, -i)</code> (for a positive <code>i</code>)
+and <code>string.sub(s,-i)</code> (for a positive <code>i</code>)
 returns a suffix of <code>s</code>
 with length <code>i</code>.
 
@@ -10389,7 +10389,7 @@ the function returns <b>fail</b>.
 A negative <code>n</code> gets characters before position <code>i</code>.
 The default for <code>i</code> is 1 when <code>n</code> is non-negative
 and <code>#s + 1</code> otherwise,
-so that <code>utf8.offset(s, -n)</code> gets the offset of the
+so that <code>utf8.offset(s,-n)</code> gets the offset of the
 <code>n</code>-th character from the end of the string.
 
 
@@ -10464,7 +10464,7 @@ the table will have; its default is zero.
 <p>
 Inserts element <code>value</code> at position <code>pos</code> in <code>list</code>,
 shifting up the elements
-<code>list[pos], list[pos+1], &middot;&middot;&middot;, list[#list]</code>.
+<code>list[pos],list[pos+1],&middot;&middot;&middot;,list[#list]</code>.
 The default value for <code>pos</code> is <code>#list+1</code>,
 so that a call <code>table.insert(t,x)</code> inserts <code>x</code> at the end
 of the list <code>t</code>.
@@ -10516,7 +10516,7 @@ Removes from <code>list</code> the element at position <code>pos</code>,
 returning the value of the removed element.
 When <code>pos</code> is an integer between 1 and <code>#list</code>,
 it shifts down the elements
-<code>list[pos+1], list[pos+2], &middot;&middot;&middot;, list[#list]</code>
+<code>list[pos+1],list[pos+2],&middot;&middot;&middot;,list[#list]</code>
 and erases element <code>list[#list]</code>;
 The index <code>pos</code> can also be 0 when <code>#list</code> is 0,
 or <code>#list + 1</code>.
@@ -12499,7 +12499,7 @@ and LiteralString, see <a href="#3.1">&sect;3.1</a>.)
 
 <P CLASS="footer">
 Last update:
-Mon Dec  8 17:34:06 UTC 2025
+Mon Dec 15 21:02:05 UTC 2025
 </P>
 <!--
 Last change: revised for Lua 5.5.0
