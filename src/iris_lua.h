@@ -611,8 +611,14 @@ namespace iris {
 				}
 			}
 
-			type_t* operator * () const noexcept {
-				return get();
+			operator type_t& () const noexcept {
+				IRIS_ASSERT(get() != nullptr);
+				return *get();
+			}
+
+			type_t& operator * () const noexcept {
+				IRIS_ASSERT(get() != nullptr);
+				return *get();
 			}
 
 			type_t* operator -> () const noexcept {
