@@ -54,6 +54,18 @@ struct iris::iris_lua_traits_t<vector3> : std::true_type {
 	}
 };
 
+struct number_t {
+	virtual ~number_t() {}
+};
+
+struct complex_t : number_t {
+	double real = 0;
+	double image = 0;
+};
+
+template <>
+struct iris::iris_lua_traits_t<complex_t> : iris::iris_lua_traits_trivial_t<complex_t> {};
+
 struct example_base_t {
 	template <typename traits_t>
 	static void lua_registar(lua_t lua, traits_t) {
@@ -106,7 +118,13 @@ struct example_base_t {
 
 static std::atomic<int> ref_count = 0;
 struct example_t : example_base_t {
+	example_t(float f, int v) noexcept {
+		printf("custom constructor %f %d\n", f, v);
+	}
+
 	static void lua_registar(lua_t lua, std::nullptr_t) {
+		lua.set_current_new<&lua_t::place_new_object<example_t, float, int>>("new", 1.4f);
+		//lua.set_current_new<&lua_t::trivial_object_creator>("new_org", 1.4f);
 		lua.set_current("lambda", [lua](int v) mutable {
 			IRIS_ASSERT(v == 4);
 			return 4;
@@ -157,7 +175,8 @@ struct example_t : example_base_t {
 		return "example_t";
 	}
 
-	static size_t lua_sizeof() noexcept {
+	template <typename init_t>
+	static size_t lua_sizeof(init_t&& i) noexcept {
 		return sizeof(example_t) + sizeof(void*);
 	}
 
@@ -325,7 +344,7 @@ struct shared_data_t : std::enable_shared_from_this<shared_data_t> {
 
 template <typename type_t>
 struct iris::iris_lua_traits_t<type_t, std::enable_if_t<std::is_base_of_v<std::enable_shared_from_this<type_t>, type_t>>> {
-	using type = iris::iris_lua_traits_t<shared_data_t>;
+	using type = iris::iris_lua_traits_t<type_t>;
 	static constexpr int lua_uservalue_count = 0;
 	static_assert(alignof(std::weak_ptr<type_t>) <= alignof(type_t*), "Unexpected alignment.");
 
@@ -364,7 +383,7 @@ static void env_test(std::string title, std::string hi) {
 	printf("env_test %s - %s\n", title.c_str(), hi.c_str());
 }
 
-struct shared_object_example_t : lua_t::shared_object_t<shared_object_example_t> {
+struct shared_object_example_t : iris_lua_shared_object_t<shared_object_example_t> {
 	static void lua_registar(lua_t lua, std::nullptr_t) {
 		lua.set_current<&shared_object_example_t::foo>("foo");
 		lua.set_current<&shared_object_example_t::other>("other");
@@ -418,6 +437,17 @@ int main(void) {
 	luaL_openlibs(L);
 
 	lua_t lua(L);
+	complex_t cpx;
+	cpx.image = 1.0;
+	cpx.real = 2.0;
+	auto complexType = lua.make_registry_type<complex_t>();
+	auto getType = lua.get_registry_type<complex_t>();
+	lua.deref(std::move(getType));
+	lua.deref(std::move(complexType));
+	lua.set_global("test_complex", cpx);
+	auto cpxget = lua.get_global<complex_t>("test_complex");
+	lua.set_global("test_complex_view", lua.make_registry_object_view((number_t*)&cpx));
+
 	auto r1 = lua.set_global("test_reflection", std::function<void(int, double)>(+[](int a, double b) { return 1; }));
 	auto r2 = lua.set_global<&example_t::accum_value>("test_reflection2");
 
@@ -426,11 +456,14 @@ int main(void) {
 	lua.call<void>(printTable, lua.call<lua_t::ref_t>(r2));
 	lua.deref(std::move(*printTable));
 
-	auto shared_object_example_type = lua.make_type<shared_object_example_t>();
+	auto shared_object_example_type = lua.make_registry_type<shared_object_example_t>();
 	auto shared_ptr_instance = lua.make_object<shared_object_example_t>(shared_object_example_type, 1);
 	lua.set_global("shared_ptrinstance", std::move(shared_ptr_instance));
 	{
-		auto instance_copy1 = lua.get_global<lua_t::shared_ref_t<shared_object_example_t>>("shared_ptrinstance");
+		auto instance_copy1 = lua.get_global<lua_t::shared_ref_t<shared_object_example_t>>("shared_ptrinstance").value();
+		shared_object_example_t& ref_instance = *instance_copy1;
+		printf("ref_instance %p\n", &ref_instance);
+
 		auto casted = instance_copy1.cast_static<shared_object_example_sub_t>();
 		lua.deref(std::move(casted));
 		auto instance_copy2 = instance_copy1;
@@ -441,19 +474,18 @@ int main(void) {
 		lua.set_global("shared_deref_auto", std::move(instance_copy1));
 		lua.deref(instance_copy2);
 
-		shared_object_example_type.set_registry(lua, true);
 		auto instance_construct = lua.make_registry_shared_object<shared_object_example_t>(2);
 		instance_construct->foo(nullptr, nullptr, nullptr);
 		lua.deref(instance_construct);
 
 		auto instance_offline = lua_t::shared_ref_t<shared_object_example_t>::make(3);
-		lua.set_global("failed_instance", std::move(instance_offline));
-		IRIS_ASSERT(lua.get_global<shared_object_example_t*>("failed_instance") == nullptr);
+		lua.set_global("registry_instance", std::move(instance_offline));
+		IRIS_ASSERT(lua.get_global<shared_object_example_t*>("registry_instance").value() != nullptr);
 	
 		{
 			auto instance_offline2 = lua_t::shared_ref_t<shared_object_example_t>::make(4);
 			lua.set_global("success_instance", lua.make_object_view(shared_object_example_type, instance_offline2.get()));
-			IRIS_ASSERT(lua.get_global<shared_object_example_t*>("success_instance") != nullptr);
+			IRIS_ASSERT(lua.get_global<shared_object_example_t*>("success_instance").value() != nullptr);
 			lua.deref(std::move(instance_offline2));
 		}
 	}
@@ -477,14 +509,14 @@ int main(void) {
 		printf("once value = %d\n", lua.get_current<int>("once"));
 	}));
 
-	auto example_type = lua.make_type<example_t>().set_registry(lua);
+	auto example_type = lua.make_registry_type<example_t>();
 	auto example_base_type = lua.make_type<example_base_t>();
 	lua.cast_type(std::move(example_base_type), example_type);
 	lua.set_global("example_t", std::move(example_type));
 	int capture = 2;
 
 	lua.set_global("refstr", "shared_string_object");
-	auto p = lua.get_global<lua_t::refview_t<std::string_view>>("refstr");
+	auto p = lua.get_global<lua_t::refview_t<std::string_view>>("refstr").value();
 	std::map<int, lua_t::refview_t<std::string_view>> vv;
 	vv[1234] = std::move(p);
 	for (auto&& v : vv) {
@@ -564,13 +596,13 @@ int main(void) {
 
 	auto callResult = target.call<void>(target.load("\n\
 function test(a, b, c) \n\
+	print('cross value ' .. b.value) \n\
 	b:base_func() \n\
 	b:base_bind() \n\
 	b.base_bind_static() \n\
 	print('equal value ======== ' .. tostring(b == c)) \n\
 	print('base value ======== ' .. tostring(b.base_value)) \n\
 	print('cross ' .. tostring(a)) \n\
-	print('cross value ' .. b.value) \n\
 	print('lambda value ' .. b.lambda(4)) \n\
 	print('cross value ' .. c.value) \n\
 	c.value = 3333 \n\
@@ -588,10 +620,10 @@ end\n\
 		IRIS_ASSERT(false);
 	}
 
-	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test");
+	lua_t::ref_t test = target.get_global<lua_t::ref_t>("test").value();
 	example_t existing_object;
 	existing_object.value = 2222;
-	auto temp_type = target.make_type<example_t>().set_registry(target);
+	auto temp_type = target.make_registry_type<example_t>();
 	{
 		// target.cast_type(std::move(example_base_type), temp_type);
 		temp_type.make_cast(target, target.make_type<example_base_t>());
@@ -613,12 +645,13 @@ end\n\
 	lua.native_cross_transfer_variable<true>(target, -3);
 	lua.native_cross_transfer_variable<true>(target, -2);
 	lua.native_cross_transfer_variable<false>(target, -1);
-	auto* g = target.native_get_variable<example_t*>(-1).value();
+	auto* g = target.native_get_variable<example_t*>(-1);
 	lua.native_pop_variable(3);
+	target.clear_registry_type<example_t>();
 
 	int result = target.native_call(std::move(test), 3).value();
 	IRIS_ASSERT(existing_object.value == 3333);
-	int ret_val = target.native_get_variable<int>(-1).value();
+	int ret_val = target.native_get_variable<int>(-1);
 	IRIS_ASSERT(ret_val == 1234);
 	target.native_pop_variable(1);
 
@@ -723,11 +756,11 @@ end\n\
 	lua.native_call(std::move(print2), 1);
 
 	lua.native_push_variable(1234);
-	int v = lua.native_get_variable<int>(-1).value();
+	int v = lua.native_get_variable<int>(-1);
 	lua_pop(L, 1);
 	IRIS_ASSERT(v == 1234);
 
-	lua_t::refptr_t<example_t> example = lua.make_object<example_t>(lua.get_global<lua_t::ref_t>("example_t"));
+	lua_t::refptr_t<example_t> example = lua.make_object<example_t>(lua.get_global<lua_t::ref_t>("example_t"), example_t());
 	example->value = 5;
 	lua.deref(std::move(example));
 	auto temp_tab = lua.make_table([](lua_t lua) {
@@ -744,8 +777,8 @@ end\n\
 		print(_VERSION)\n\
 		example_t.native_call() \n\
 		example_t.native_call_noexcept() \n\
-		local a = example_t.new()\n\
-		local b = example_t.new()\n\
+		local a = example_t.new(2)\n\
+		local b = example_t.new(3)\n\
 		b:overload_func() \n\
 		b:overload_func(1) \n\
 		b:base_func() \n\
@@ -824,7 +857,7 @@ end\n\
 #if LUA_VERSION_NUM <= 501
 	// lua 5.1 do not accept yield from pcall
 	auto callResult4 = lua.call<void>(lua.load("\n\
-		local a = example_t.new()\n\
+		local a = example_t.new(4)\n\
 		local coro = coroutine.create(function() \n\
 			print('coro get ' .. a.coro_get_int('hello')) \n\
 			print('coro get ' .. a.coro_get_int('hello', 1)) \n\
@@ -838,7 +871,7 @@ end\n\
 		coroutine.resume(coro)\n").value());
 #else
 	auto callResult4 = lua.call<void>(lua.load("\n\
-		local a = example_t.new()\n\
+		local a = example_t.new(5)\n\
 		local coro = coroutine.create(function() \n\
 			local status, message = pcall(function() \n\
 			print('coro get ' .. a.coro_get_int('hello')) \n\

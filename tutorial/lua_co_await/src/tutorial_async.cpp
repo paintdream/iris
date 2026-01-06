@@ -2,6 +2,7 @@
 
 namespace iris {
 	void tutorial_async_t::lua_registar(iris_lua_t&& lua, std::nullptr_t) {
+		lua.set_current_new<&iris_lua_t::place_new_object<tutorial_async_t>>("new");
 		lua.set_current<&tutorial_async_t::wait>("wait");
 		lua.set_current("run", lua.load("local self = ...\n\
 print('[tutorial_async] wait for 1000 ms ' .. tostring(self))\n\

@@ -26,8 +26,8 @@ if complete_count ~= loop_count then \n\
 	waiting = true \n\
 	coroutine.yield() \n\
 end \n\
-print('[tutorial_warp] final warp_variable = ' .. tostring(self:warp_variable())) \n\
-print('[tutorial_warp] final free_variable = ' .. tostring(self:free_variable())) \n\
+print('[tutorial_warp] final warp_variable = ' .. tostring(self.warp_variable)) \n\
+print('[tutorial_warp] final free_variable = ' .. tostring(self.free_variable)) \n\
 print('[tutorial_warp] end pipeline')\n"));
 	}
 
