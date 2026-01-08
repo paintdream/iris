@@ -431,6 +431,7 @@ namespace iris {
 				push_variable(L, *this);
 
 				lua_pushnil(L);
+				lua_checkstack(L, 4);
 				while (lua_next(L, -2) != 0) {
 					// since we do not allow implicit lua_tostring conversion, so it's safe to extract key without duplicating it
 					if (func(get_variable<key_t>(L, -2), get_variable<ref_index_t>(L, -1))) {
@@ -1794,6 +1795,7 @@ namespace iris {
 					bytes.push(LUA_TTABLE);
 					if (!encoder(iris_lua_t(L), bytes, index, type)) {
 						lua_pushnil(L);
+						lua_checkstack(L, 4);
 						while (lua_next(L, index) != 0) {
 							encode_internal(L, bytes, lua_absindex(L, -2), encoder, recursionTable);
 							encode_internal(L, bytes, lua_absindex(L, -1), encoder, recursionTable);
@@ -1850,6 +1852,7 @@ namespace iris {
 								lua_getinfo(L, ">u", &ar);
 								bytes.push(ar.nups);
 
+								lua_checkstack(L, 4);
 								for (int i = 0; i < ar.nups; i++) {
 									const char* name = lua_getupvalue(L, index, i + 1);
 									IRIS_ASSERT(name != nullptr);
@@ -1957,6 +1960,8 @@ namespace iris {
 					if (!decoder(iris_lua_t(L), from, to, type)) {
 						lua_newtable(L);
 						mark_recursion(L, offset, recursion_index);
+
+						lua_checkstack(L, 4);
 						while (true) {
 							// kv pair
 							if (decode_internal(L, from, to, decoder, recursion_index, origin) == LUA_TNIL) {
@@ -1990,6 +1995,7 @@ namespace iris {
 
 							// decode lua functions
 							uint8_t upvalue_count = decode_variable<uint8_t>(L, from, to);
+							lua_checkstack(L, 4);
 							for (uint8_t i = 0; i < upvalue_count; i++) {
 								if (decode_internal(L, from, to, decoder, recursion_index, origin) != LUA_TNONE) {
 									lua_setupvalue(L, -2, i + 1);
@@ -2609,6 +2615,7 @@ namespace iris {
 
 						int absindex = lua_absindex(L, index);
 						lua_pushnil(L);
+						lua_checkstack(L, 4);
 						while (lua_next(L, absindex) != 0) {
 							// since we do not allow implicit lua_tostring conversion, so it's safe to extract key without duplicating it
 							result[get_variable<key_type>(L, -2)] = get_variable<mapped_type>(L, -1);
@@ -3156,6 +3163,7 @@ namespace iris {
 		static void push_tuple_variables(lua_State* L, type_t&& variable) {
 			using value_t = remove_cvref_t<type_t>;
 			if constexpr (index < std::tuple_size_v<value_t>) {
+				lua_checkstack(L, 4);
 				do {
 					stack_guard_t stack_guard(L);
 					if constexpr (std::is_rvalue_reference_v<type_t&&>) {
@@ -3262,6 +3270,7 @@ namespace iris {
 			} else if constexpr (iris_is_iterable<value_t>::value) {
 				if constexpr (iris_is_map<value_t>::value) {
 					lua_createtable(L, 0, static_cast<int>(variable.size()));
+					lua_checkstack(L, 4);
 
 					for (auto&& pair : variable) {
 						stack_guard_t guard(L);
@@ -3279,6 +3288,7 @@ namespace iris {
 					}
 				} else {
 					lua_createtable(L, static_cast<int>(variable.size()), 0);
+					lua_checkstack(L, 4);
 
 					int i = 0;
 					for (auto&& value : variable) {
@@ -3395,7 +3405,7 @@ namespace iris {
 
 					int absindex = lua_absindex(L, index);
 					lua_pushnil(L);
-
+					lua_checkstack(L, 4);
 					while (lua_next(L, absindex) != 0) {
 						// since we do not allow implicit lua_tostring conversion, so it's safe to extract key without duplicating it
 						recursion_index = cross_transfer_variable<move>(L, target, -2, recursion_source, recursion_target, recursion_index);
@@ -3413,6 +3423,8 @@ namespace iris {
 						// copy upvalues
 						int absindex = lua_absindex(L, index);
 						int n = 1;
+
+						lua_checkstack(L, 4);
 						while (lua_getupvalue(L, absindex, n) != nullptr) {
 							recursion_index = cross_transfer_variable<false>(L, target, -1, recursion_source, recursion_target, recursion_index);
 							lua_pop(L, 1);
@@ -3459,6 +3471,8 @@ namespace iris {
 						int absindex = lua_absindex(L, index);
 						int n = 1;
 						const char* name = nullptr;
+
+						lua_checkstack(L, 4);
 						while ((name = lua_getupvalue(L, absindex, n)) != nullptr) {
 							if (strcmp(name, "_ENV") == 0) {
 								// set global env
