@@ -1,5 +1,5 @@
 /*
-The Iris Concurrency Framework
+The Iristorm Concurrency Framework
 
 This software is a C++ 11 Header-Only reimplementation of core part from project PaintsNow.
 

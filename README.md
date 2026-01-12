@@ -1,11 +1,11 @@
-# Iris
-Iris is an extensible asynchronous header-only framework written in pure modern C++, including a M:N task scheduler (with coroutine support for C++ 20 optionally) and an advanced DAG-based task dispatcher.
+# Iristorm
+Iristorm is an extensible asynchronous header-only framework written in pure modern C++, including a M:N task scheduler (with coroutine support for C++ 20 optionally) and an advanced DAG-based task dispatcher.
 
 ## Build
 
-Iris is header-only. The only thing you need to do is to include the corresponding header files.
+Iristorm is header-only. The only thing you need to do is to include the corresponding header files.
 
-Most of Iris classes works with C++ 11 compatible compilers, except some optional features: 
+Most of Iristorm classes works with C++ 11 compatible compilers, except some optional features: 
 
 * Lua Binding support requires C++ 17 if-constexpr feature. (Visual Studio 2017+, GCC 7+, Clang 3.9+)
 * Coroutine support for thread pool scheduler requires C++ 20 standard coroutine feature. (Visual Studio 2019+, GCC 11+, Clang 14+)
@@ -14,11 +14,11 @@ All examples could be built by [CMake build system](https://cmake.org/), see CMa
 
 ## License
 
-Iris is distributed under MIT License.
+Iristorm is distributed under MIT License.
 
 ## Concepts
 
-Iris provides a simple M:N task scheduler called **Warp System** which is inspired by [Boost](https://www.boost.org/) Strand System. Let's start illustrating it from basic concepts.
+Iristorm provides a simple M:N task scheduler called **Warp System** which is inspired by [Boost](https://www.boost.org/) Strand System. Let's start illustrating it from basic concepts.
 
 #### Task
 

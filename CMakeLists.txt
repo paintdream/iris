@@ -7,7 +7,7 @@ SET (STDLIB stdc++)
 
 ENABLE_TESTING ()
 
-OPTION (ENABLE_COROUTINE "Enable Iris Coroutine support" ON)
+OPTION (ENABLE_COROUTINE "Enable Iristorm Coroutine support" ON)
 OPTION (ENABLE_LUA "Enable Lua Binding support" ON)
 OPTION (ENABLE_ASAN "Enable Address Sanitizer" OFF)
 
