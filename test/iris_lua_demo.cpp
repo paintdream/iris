@@ -64,7 +64,7 @@ struct complex_t : number_t {
 };
 
 template <>
-struct iris::iris_lua_traits_t<complex_t> : iris::iris_lua_traits_trivial_t<complex_t> {};
+struct iris::iris_lua_traits_t<complex_t> : lua_t::traits_trivial_t<complex_t> {};
 
 struct example_base_t {
 	template <typename traits_t>
@@ -314,13 +314,13 @@ struct example_t : example_base_t {
 		co_return;
 	}
 
-	iris::iris_coroutine_t<iris::iris_lua_t::optional_result_t<int>> mem_coro_get_int(iris_lua_t&& t, std::string&& s) noexcept {
-		// co_return iris::iris_lua_t::result_error_t("test error 1");
+	iris::iris_coroutine_t<lua_t::optional_result_t<int>> mem_coro_get_int(iris_lua_t&& t, std::string&& s) noexcept {
+		// co_return lua_t::result_error_t("test error 1");
 		iris_lua_t tt = t;
 		co_await iris::iris_switch(warpptr2);
 		co_await iris::iris_switch(warpptr);
 		tt.native_push_variable(1);
-		// co_return iris::iris_lua_t::result_error_t("test error 2");
+		// co_return lua_t::result_error_t("test error 2");
 		co_return 2;
 	}
 
@@ -383,17 +383,18 @@ static void env_test(std::string title, std::string hi) {
 	printf("env_test %s - %s\n", title.c_str(), hi.c_str());
 }
 
-struct shared_object_example_t : iris_lua_shared_object_t<shared_object_example_t> {
+struct shared_object_example_t : lua_t::shared_object_t<shared_object_example_t> {
 	static void lua_registar(lua_t lua, std::nullptr_t) {
 		lua.set_current<&shared_object_example_t::foo>("foo");
 		lua.set_current<&shared_object_example_t::other>("other");
+		lua.set_current<&lua_t::make_shared<shared_object_example_t, int>>("make", 2);
 	}
 
 	shared_object_example_t() : index(0) {}
 	shared_object_example_t(int i) : index(i) {}
 
 	~shared_object_example_t() {
-		printf("shared_object_example_t destruct %d\n", index);
+		printf("shared_object_example_t destruct %d %p\n", index, this);
 	}
 
 	shared_object_example_t* foo(lua_t::shared_ref_t<shared_object_example_t> ptr, lua_t::required_t<lua_t::shared_ref_t<shared_object_example_t>> req, shared_object_example_t* ptr2) {
@@ -457,26 +458,22 @@ int main(void) {
 	lua.deref(std::move(*printTable));
 
 	auto shared_object_example_type = lua.make_registry_type<shared_object_example_t>();
-	auto shared_ptr_instance = lua.make_object<shared_object_example_t>(shared_object_example_type, 1);
+	auto shared_ptr_instance = lua_t::shared_ref_t<shared_object_example_t>::make(1);
 	lua.set_global("shared_ptrinstance", std::move(shared_ptr_instance));
+	lua.call<void>(lua.load("function make_instance(type) return type.make() end"));
+	auto from_make = lua.call<lua_t::shared_ref_t<shared_object_example_t>>(lua.get_global<lua_t::ref_t>("make_instance"), shared_object_example_type);
+	IRIS_ASSERT(from_make.value());
 	{
 		auto instance_copy1 = lua.get_global<lua_t::shared_ref_t<shared_object_example_t>>("shared_ptrinstance").value();
 		shared_object_example_t& ref_instance = *instance_copy1;
 		printf("ref_instance %p\n", &ref_instance);
 
 		auto casted = instance_copy1.cast_static<shared_object_example_sub_t>();
-		lua.deref(std::move(casted));
 		auto instance_copy2 = instance_copy1;
-		{
-			auto instance_copy3 = instance_copy2;
-		}
-		// lua.deref(instance_copy1);
 		lua.set_global("shared_deref_auto", std::move(instance_copy1));
-		lua.deref(instance_copy2);
 
-		auto instance_construct = lua.make_registry_shared_object<shared_object_example_t>(2);
+		auto instance_construct = lua_t::shared_ref_t<shared_object_example_t>::make(2);
 		instance_construct->foo(nullptr, nullptr, nullptr);
-		lua.deref(instance_construct);
 
 		auto instance_offline = lua_t::shared_ref_t<shared_object_example_t>::make(3);
 		lua.set_global("registry_instance", std::move(instance_offline));
@@ -486,7 +483,6 @@ int main(void) {
 			auto instance_offline2 = lua_t::shared_ref_t<shared_object_example_t>::make(4);
 			lua.set_global("success_instance", lua.make_object_view(shared_object_example_type, instance_offline2.get()));
 			IRIS_ASSERT(lua.get_global<shared_object_example_t*>("success_instance").value() != nullptr);
-			lua.deref(std::move(instance_offline2));
 		}
 	}
 

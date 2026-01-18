@@ -574,15 +574,9 @@ namespace iris {
 
 			shared_ref_t() noexcept : ptr(nullptr) {}
 			shared_ref_t(std::nullptr_t) : ptr(nullptr) {}
-			shared_ref_t(iris_lua_t lua, int index, type_t* p) noexcept : ptr(p) {
+			shared_ref_t(type_t* p) noexcept : ptr(p) {
 				if (ptr != nullptr) {
-					iris_lua_traits_t<type_t>::type::lua_shared_acquire(lua, index, ptr);
-				}
-			}
-
-			explicit shared_ref_t(type_t* p) noexcept : ptr(p) {
-				if (ptr != nullptr) {
-					iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+					iris_lua_traits_t<type_t>::type::lua_shared_acquire(ptr);
 				}
 			}
 
@@ -591,25 +585,18 @@ namespace iris {
 			}
 
 			template <typename cast_type_t>
-			shared_ref_t<cast_type_t> cast_static() {
+			shared_ref_t<cast_type_t> cast_static() const {
 				return shared_ref_t<cast_type_t>(static_cast<cast_type_t*>(ptr));
 			}
 
 			template <typename cast_type_t>
-			shared_ref_t<cast_type_t> cast_dynamic() {
+			shared_ref_t<cast_type_t> cast_dynamic() const {
 				return shared_ref_t<cast_type_t>(dynamic_cast<cast_type_t*>(ptr));
 			}
 
 			template <typename... args_t>
 			static shared_ref_t make(args_t&&... args) {
 				return shared_ref_t(new type_t(std::forward<args_t>(args)...));
-			}
-
-			void deref(lua_State* L) {
-				if (ptr != nullptr) {
-					iris_lua_traits_t<type_t>::type::lua_shared_release(iris_lua_t(L), 0, ptr);
-					ptr = nullptr;
-				}
 			}
 
 			operator type_t& () const noexcept {
@@ -637,7 +624,7 @@ namespace iris {
 			shared_ref_t(shared_ref_t&& rhs) noexcept : ptr(rhs.ptr) { rhs.ptr = nullptr; }
 			shared_ref_t(const shared_ref_t& rhs) noexcept : ptr(rhs.ptr) {
 				if (ptr != nullptr) {
-					iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+					iris_lua_traits_t<type_t>::type::lua_shared_acquire(ptr);
 				}
 			}
 
@@ -645,7 +632,7 @@ namespace iris {
 			shared_ref_t(const shared_ref_t<subtype_t>& rhs) noexcept : ptr(rhs.ptr) {
 				static_assert(std::is_convertible_v<subtype_t*, type_t*>, "Must be convertible");
 				if (ptr != nullptr) {
-					iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+					iris_lua_traits_t<type_t>::type::lua_shared_acquire(ptr);
 				}
 			}
 
@@ -654,7 +641,7 @@ namespace iris {
 					reset();
 					ptr = rhs.ptr;
 					if (ptr != nullptr) {
-						iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+						iris_lua_traits_t<type_t>::type::lua_shared_acquire(ptr);
 					}
 				}
 
@@ -669,7 +656,7 @@ namespace iris {
 					reset();
 					ptr = rhs.ptr;
 					if (ptr != nullptr) {
-						iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_t(nullptr), 0, ptr);
+						iris_lua_traits_t<type_t>::type::lua_shared_acquire(ptr);
 					}
 				}
 
@@ -718,7 +705,7 @@ namespace iris {
 		protected:
 			void reset() noexcept {
 				if (ptr != nullptr) {
-					iris_lua_traits_t<type_t>::type::lua_shared_release(iris_lua_t(nullptr), 0, ptr);
+					iris_lua_traits_t<type_t>::type::lua_shared_release(ptr);
 					ptr = nullptr;
 				}
 			}
@@ -733,6 +720,100 @@ namespace iris {
 
 		template <typename type_t>
 		struct is_shared_ref_t<shared_ref_t<type_t>> : std::true_type {};
+
+		template <typename type_t, typename... args_t>
+		auto make_shared(args_t&&... args) {
+			return shared_ref_t<type_t>::template make(std::forward<args_t>(args)...);
+		}
+
+		// trivial trait behavior: pushing & getting variable by value
+		template <typename type_t>
+		struct traits_trivial_t : std::false_type {
+			using type = traits_trivial_t<type_t>;
+
+			operator std::nullptr_t() const noexcept {
+				return nullptr;
+			}
+
+			template <typename value_t>
+			static bool lua_check(iris_lua_t lua, int index, value_t&& value) {
+				if (value != nullptr) {
+					return true;
+				} else {
+					return lua.template native_check_variable<type_t&>(index);
+				}
+			}
+
+			static auto lua_fromstack(iris_lua_t lua, int index) {
+				return lua.template native_get_variable<type_t&>(index);
+			}
+
+			template <typename subtype_t>
+			static int lua_tostack(iris_lua_t lua, subtype_t&& variable) {
+				lua.template native_push_registry_object<type_t>(variable);
+				return 1;
+			}
+		};
+
+		template <typename type_t>
+		struct shared_object_t {
+			static void lua_shared_acquire(shared_object_t* base_object) {
+				type_t* object = static_cast<type_t*>(base_object);
+				IRIS_ASSERT(object != nullptr);
+				object->ref_count.fetch_add(1, std::memory_order_relaxed);
+			}
+
+			static void lua_shared_release(shared_object_t* base_object) {
+				type_t* object = static_cast<type_t*>(base_object);
+				if (object->ref_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
+					iris_lua_traits_t<type_t>::type::lua_shared_delete(base_object);
+				}
+			}
+
+			template <typename subtype_t>
+			static int lua_tostack(iris_lua_t lua, subtype_t&& variable) {
+				lua.template native_push_registry_object_view<type_t>(&variable);
+				return 1;
+			}
+
+			template <typename subtype_t>
+			static void lua_initialize(iris_lua_t lua, int index, subtype_t* p) {
+				static_assert(false, "Shared objects can only be initialized via views");
+			}
+
+			template <typename subtype_t>
+			static void lua_uninitialize(iris_lua_t lua, int index, subtype_t* p) {
+				static_assert(false, "Shared objects can only be uninitialized via views");
+			}
+
+			template <typename subtype_t>
+			static void lua_view_initialize(iris_lua_t lua, int index, subtype_t** p) {
+				iris_lua_traits_t<type_t>::type::lua_shared_acquire(iris_lua_traits_t<type_t>::type::lua_view_extract(lua, index, p));
+			}
+
+			template <typename subtype_t>
+			static void lua_view_finalize(iris_lua_t lua, int index, subtype_t** p) {
+				iris_lua_traits_t<type_t>::type::lua_shared_release(iris_lua_traits_t<type_t>::type::lua_view_extract(lua, index, p));
+			}
+
+			template <typename subtype_t>
+			static size_t lua_view_payload(iris_lua_t lua, subtype_t* p) {
+				return 0;
+			}
+
+			template <typename subtype_t>
+			static type_t* lua_view_extract(iris_lua_t lua, int index, subtype_t** p) {
+				IRIS_ASSERT(*p != nullptr);
+				return *p;
+			}
+
+			static void lua_shared_delete(shared_object_t* instance) {
+				delete static_cast<type_t*>(instance);
+			}
+
+		protected:
+			std::atomic<uint32_t> ref_count = 0;
+		};
 
 		// requried_t is for validating parameters before actually call the C++ stub
 		// will raise a lua error if it fails
@@ -934,7 +1015,7 @@ namespace iris {
 
 		template <typename type_t>
 		reftype_t<type_t> get_registry_type() {
-			return reftype_t<type_t>::get_registry(*this); 
+			return reftype_t<type_t>::get_registry(*this);
 		}
 
 		// build a cast relationship from target_meta to base_meta
@@ -1045,23 +1126,6 @@ namespace iris {
 		template <typename type_t, typename... args_t>
 		refptr_t<type_t> make_registry_object(args_t&&... args) {
 			return make_object<type_t>(registry_type_hash_t(reinterpret_cast<const void*>(get_hash<type_t>())), std::forward<args_t>(args)...);
-		}
-
-		template <typename type_t, typename meta_t, typename... args_t>
-		shared_ref_t<type_t> make_shared_object(meta_t&& meta, args_t&&... args) {
-			IRIS_PROFILE_SCOPE(__FUNCTION__);
-			lua_State* L = state;
-			stack_guard_t guard(L);
-			type_t* p = native_push_object<type_t>(std::forward<meta_t>(meta), std::forward<args_t>(args)...);
-			shared_ref_t<type_t> ret(*this, -1, p);
-			lua_pop(L, 1);
-
-			return ret;
-		}
-
-		template <typename type_t, typename... args_t>
-		shared_ref_t<type_t> make_registry_shared_object(args_t&&... args) {
-			return make_shared_object<type_t>(registry_type_hash_t(reinterpret_cast<const void*>(get_hash<type_t>())), std::forward<args_t>(args)...);
 		}
 
 		// make an object view with an exiting object
@@ -1382,7 +1446,6 @@ namespace iris {
 			}
 		}
 
-
 		template <auto ptr, typename key_t, typename... envs_t>
 		reflection_t set_current_new(key_t&& key, envs_t&&... envs) {
 			return set_current_new_internal<ptr>(ptr, std::forward<key_t>(key), std::forward<envs_t>(envs)...);
@@ -1669,7 +1732,6 @@ namespace iris {
 			lua_rawset(L, -3);
 			return &IRIS_LUA_REFLECTION<ptr, optional_result_t<type_t*>, args_t...>;
 		}
-
 
 		template <typename return_t, typename... args_t>
 		static optional_result_t<return_t> call_internal(lua_State* L, args_t&&... args) {
@@ -2076,11 +2138,6 @@ namespace iris {
 			}
 		}
 
-		template <typename type_t>
-		static void deref(lua_State* L, shared_ref_t<type_t>&& r) noexcept {
-			r.deref(iris_lua_t(L));
-		}
-
 		static void push_arguments(lua_State* L) {}
 		template <typename first_t, typename... args_t>
 		static void push_arguments(lua_State* L, first_t&& first, args_t&&... args) {
@@ -2389,13 +2446,13 @@ namespace iris {
 		struct has_lua_finalize : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_finalize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_finalize(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
+		struct has_lua_finalize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_finalize(std::declval<iris_lua_t>(), 1, std::declval<type_t*>()))>> : std::true_type {};
 
 		template <typename type_t, typename = void>
 		struct has_lua_view_finalize : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_view_finalize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_finalize(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
+		struct has_lua_view_finalize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_finalize(std::declval<iris_lua_t>(), 1, std::declval<type_t**>()))>> : std::true_type {};
 
 		// will be called as __gc triggerred
 		template <typename type_t>
@@ -2436,7 +2493,7 @@ namespace iris {
 		struct has_lua_initialize : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_initialize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_initialize(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
+		struct has_lua_initialize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_initialize(std::declval<iris_lua_t>(), 1, std::declval<type_t*>()))>> : std::true_type {};
 
 		template <typename type_t>
 		static void initialize_object(lua_State* L, int index, type_t* p) {
@@ -2450,25 +2507,25 @@ namespace iris {
 		struct has_lua_view_payload : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_view_payload<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_payload(std::declval<iris_lua_t>(), nullptr))>> : std::true_type {};
+		struct has_lua_view_payload<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_payload(std::declval<iris_lua_t>(), std::declval<type_t*>()))>> : std::true_type {};
 
 		template <typename type_t, typename = void>
 		struct has_lua_view_extract : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_view_extract<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_extract(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
+		struct has_lua_view_extract<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_extract(std::declval<iris_lua_t>(), 1, std::declval<type_t**>()))>> : std::true_type {};
 
 		template <typename type_t, typename = void>
 		struct has_lua_view_initialize : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_view_initialize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_initialize(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
+		struct has_lua_view_initialize<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_view_initialize(std::declval<iris_lua_t>(), 1, std::declval<type_t**>()))>> : std::true_type {};
 
 		template <typename type_t, typename = void>
 		struct has_lua_check : std::false_type {};
 
 		template <typename type_t>
-		struct has_lua_check<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_check(std::declval<iris_lua_t>(), 1, nullptr))>> : std::true_type {};
+		struct has_lua_check<type_t, iris_void_t<decltype(iris_lua_traits_t<type_t>::type::lua_check(std::declval<iris_lua_t>(), 1, std::declval<type_t*>()))>> : std::true_type {};
 
 		template <auto ptr, typename type_t, int env_count, typename... args_t>
 		static int new_object(lua_State* L) {
@@ -2555,17 +2612,7 @@ namespace iris {
 					return value_t(luaL_ref(L, LUA_REGISTRYINDEX));
 				}
 			} else if constexpr (is_shared_ref_t<value_t>::value) {
-				auto* ptr = get_variable<typename value_t::internal_type_t>(L, index);
-				if (ptr != nullptr) {
-					size_t len = static_cast<size_t>(lua_rawlen(L, index));
-					if (len & size_mask_view) {
-						return value_t(iris_lua_t(nullptr), 0, ptr); // do not add script ref for views
-					} else {
-						return value_t(iris_lua_t(L), index, ptr);
-					}
-				} else {
-					return value_t();
-				}
+				return get_variable<typename value_t::internal_type_t>(L, index);
 			} else if constexpr (std::is_same_v<value_t, bool>) {
 				return static_cast<value_t>(lua_toboolean(L, index));
 			} else if constexpr (std::is_same_v<value_t, void*> || std::is_same_v<value_t, const void*>) {
@@ -2839,7 +2886,7 @@ namespace iris {
 					auto var = get_variable<required_type_t>(L, var_index);
 					check_result = !!var;
 
-					if constexpr (std::is_base_of_v<ref_t, required_type_t> || is_shared_ref_t<required_type_t>::value) {
+					if constexpr (std::is_base_of_v<ref_t, required_type_t>) {
 						deref(L, std::move(var));
 					}
 				}
@@ -3313,10 +3360,6 @@ namespace iris {
 				}
 			} else if constexpr (is_shared_ref_t<value_t>::value) {
 				push_variable(L, variable.get());
-
-				if constexpr (std::is_rvalue_reference_v<type_t&&>) {
-					deref(L, std::move(variable));
-				}
 			} else if constexpr (std::is_pointer_v<value_t>) {
 				if (variable) {
 					return push_variable(L, *variable);
@@ -3624,100 +3667,5 @@ namespace iris {
 
 	protected:
 		lua_State* state = nullptr;
-	};
-
-	// trivial trait behavior: pushing & getting variable by value
-	template <typename type_t>
-	struct iris_lua_traits_trivial_t : std::false_type {
-		using type = iris_lua_traits_trivial_t<type_t>;
-
-		operator std::nullptr_t() const noexcept {
-			return nullptr;
-		}
-
-		template <typename value_t>
-		static bool lua_check(iris_lua_t lua, int index, value_t&& value) {
-			if (value != nullptr) {
-				return true;
-			} else {
-				return lua.template native_check_variable<type_t&>(index);
-			}
-		}
-
-		static auto lua_fromstack(iris_lua_t lua, int index) {
-			return lua.template native_get_variable<type_t&>(index);
-		}
-
-		template <typename subtype_t>
-		static int lua_tostack(iris_lua_t lua, subtype_t&& variable) {
-			lua.template native_push_registry_object<type_t>(variable);
-			return 1;
-		}
-	};
-
-	template <typename type_t>
-	struct iris_lua_shared_object_t {
-		static void lua_shared_acquire(iris_lua_t lua, int index, iris_lua_shared_object_t* base_object) {
-			type_t* object = static_cast<type_t*>(base_object);
-			IRIS_ASSERT(object != nullptr);
-			if (object->ref_count.fetch_add(1, std::memory_order_relaxed) == 0) {
-				IRIS_ASSERT(!object->ref);
-				if (lua) {
-					object->ref = lua.get_context<iris_lua_t::ref_t>(iris_lua_t::context_stackvalue_t(index));
-				}
-			}
-		}
-
-		static void lua_shared_release(iris_lua_t lua, int, iris_lua_shared_object_t* base_object) {
-			type_t* object = static_cast<type_t*>(base_object);
-			if (object->ref_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
-				// managed by lua
-				if (object->ref) {
-					lua.deref(std::move(object->ref));
-				} else {
-					iris_lua_traits_t<type_t>::type::lua_shared_delete(base_object);
-				}
-			}
-		}
-
-		template <typename subtype_t>
-		static int lua_tostack(iris_lua_t lua, subtype_t&& variable) noexcept {
-			if (variable.ref) {
-				lua.native_push_variable(variable.ref);
-			} else {
-				lua.native_push_registry_object_view(&variable);
-			}
-
-			return 1;
-		}
-
-		template <typename subtype_t>
-		static void lua_view_initialize(iris_lua_t lua, int index, subtype_t** p) {
-			iris_lua_traits_t<type_t>::type::lua_shared_acquire(lua, index, iris_lua_traits_t<type_t>::type::lua_view_extract(lua, index, p));
-		}
-
-		template <typename subtype_t>
-		static void lua_view_finalize(iris_lua_t lua, int index, subtype_t** p) {
-			iris_lua_traits_t<type_t>::type::lua_shared_release(lua, index, iris_lua_traits_t<type_t>::type::lua_view_extract(lua, index, p));
-		}
-
-		template <typename subtype_t>
-		static size_t lua_view_payload(iris_lua_t lua, subtype_t* p) {
-			return 0;
-		}
-
-		template <typename subtype_t>
-		static type_t* lua_view_extract(iris_lua_t lua, int index, subtype_t** p) {
-			IRIS_ASSERT(*p != nullptr);
-			return *p;
-		}
-
-		static void lua_shared_delete(iris_lua_shared_object_t* instance) {
-			delete static_cast<type_t*>(instance);
-		}
-
-	protected:
-		iris_lua_t::ref_t ref;
-		std::atomic<uint32_t> ref_count = 0;
 	};
 }
