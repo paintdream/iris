@@ -722,7 +722,7 @@ namespace iris {
 		struct is_shared_ref_t<shared_ref_t<type_t>> : std::true_type {};
 
 		template <typename type_t, typename... args_t>
-		auto make_shared(args_t&&... args) {
+		static auto make_shared(args_t&&... args) {
 			return shared_ref_t<type_t>::template make(std::forward<args_t>(args)...);
 		}
 
@@ -778,12 +778,12 @@ namespace iris {
 
 			template <typename subtype_t>
 			static void lua_initialize(iris_lua_t lua, int index, subtype_t* p) {
-				static_assert(false, "Shared objects can only be initialized via views");
+				static_assert(!std::is_same_v<subtype_t, subtype_t>, "Shared objects can only be initialized via views");
 			}
 
 			template <typename subtype_t>
 			static void lua_uninitialize(iris_lua_t lua, int index, subtype_t* p) {
-				static_assert(false, "Shared objects can only be uninitialized via views");
+				static_assert(!std::is_same_v<subtype_t, subtype_t>, "Shared objects can only be uninitialized via views");
 			}
 
 			template <typename subtype_t>
